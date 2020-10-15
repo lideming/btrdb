@@ -1,15 +1,9 @@
 import { Buffer, encoder } from "./buffer.ts";
+import { PageStorage } from "./storage.ts";
+import { IValue } from "./value.ts";
+
 
 export const PAGESIZE = 4096;
-
-export interface ISerializable {
-    writeTo(buf: Buffer): void;
-    readonly byteLength: number;
-}
-
-export interface IComparable<T> {
-    compareTo(other: T): -1 | 0 | 1;
-}
 
 export type PageAddr = number;
 
@@ -17,32 +11,7 @@ export interface PageClass<T extends Page> {
     new(storage: PageStorage): T;
 }
 
-export abstract class PageStorage {
-    cache = new Map<PageAddr, Page>();
-    dirtyPages: Page[] = [];
-
-    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>): Promise<T> {
-        const cached = this.cache.get(addr);
-        if (cached) return Promise.resolve(cached as T);
-        const buffer = new Uint8Array(PAGESIZE);
-        return this.readPageBuffer(addr, buffer).then(() => {
-            const page = new type(this);
-            page.readFrom(new Buffer(buffer, 0));
-            return page;
-        });
-    }
-
-    addDirty(page: Page) {
-        if (page._dirty) return;
-        page._dirty = true;
-        this.dirtyPages.push(page);
-    }
-
-    abstract commit(): Promise<void>;
-    abstract readPageBuffer(addr: PageAddr, buffer: Uint8Array): Promise<void>;
-}
-
-export abstract class Page implements ISerializable {
+export abstract class Page {
     storage: PageStorage;
     addr: PageAddr = -1;
     _dirty = false;
@@ -88,36 +57,6 @@ export class SuperPage extends Page {
         super._readContent(buf);
         this.version = buf.readU32();
         this.rootPage = buf.readU32();
-    }
-}
-
-export interface IValue<T> extends ISerializable, IComparable<T> {
-    readonly hash: any;
-}
-
-export class StringValue implements IValue<StringValue> {
-    readonly str: string;
-    private buf: Uint8Array | undefined = undefined;
-    get hash() { return this.str; };
-    get byteLength(): number {
-        this.ensureBuf();
-        return Buffer.calcLenEncodedBufferSize(this.buf!);
-    }
-    writeTo(buf: Buffer): void {
-        this.ensureBuf();
-        buf.writeLenEncodedBuffer(this.buf!);
-    }
-    compareTo(str: StringValue) {
-        return (this.str < str.str) ? -1 :
-            (str.str === str.str) ? 0 : 1;
-    }
-    ensureBuf() {
-        if (this.buf === undefined) {
-            this.buf = encoder.encode(this.str);
-        }
-    }
-    constructor(str: string) {
-        this.str = str;
     }
 }
 

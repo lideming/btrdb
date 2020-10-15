@@ -1,0 +1,28 @@
+import { Buffer } from "./buffer.ts";
+import { Page, PageAddr, PageClass, PAGESIZE } from "./page.ts";
+
+
+export abstract class PageStorage {
+    cache = new Map<PageAddr, Page>();
+    dirtyPages: Page[] = [];
+
+    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>): Promise<T> {
+        const cached = this.cache.get(addr);
+        if (cached) return Promise.resolve(cached as T);
+        const buffer = new Uint8Array(PAGESIZE);
+        return this.readPageBuffer(addr, buffer).then(() => {
+            const page = new type(this);
+            page.readFrom(new Buffer(buffer, 0));
+            return page;
+        });
+    }
+
+    addDirty(page: Page) {
+        if (page._dirty) return;
+        page._dirty = true;
+        this.dirtyPages.push(page);
+    }
+
+    abstract commit(): Promise<void>;
+    abstract readPageBuffer(addr: PageAddr, buffer: Uint8Array): Promise<void>;
+}
