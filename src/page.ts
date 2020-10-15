@@ -61,7 +61,8 @@ export class SuperPage extends Page {
 }
 
 export abstract class NodePage<T extends IValue<T>> extends Page {
-    parent?: NodePage<T> = undefined;
+    parent?: this = undefined;
+    posInParent?: number = undefined;
     keys: T[] = [];
     children: PageAddr[] = [];
 
@@ -78,6 +79,47 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
         return [false, l];
     }
 
+    async findIndexRecursive(key: T): Promise<[found: boolean, node: this, pos: number]> {
+        let node = this;
+        while (true) {
+            const [found, pos] = this.findIndex(key);
+            if (found) return [found, node, pos];
+            const childAddr = this.children[pos];
+            if (!childAddr) return [false, node, pos];
+            const childNode = await this.storage.readPage(childAddr, this.classCtor);
+            childNode.parent = node;
+            childNode.posInParent = pos;
+            node = childNode;
+        };
+    }
+
+    async insert(key: T) {
+        const spaceRequired = key.byteLength + 4;
+        const [found, node, pos] = await this.findIndexRecursive(key);
+        if (node.freeBytes < spaceRequired) {
+            throw new Error("Not implemented");
+        }
+        const dirty = node.getDirty();
+        dirty.keys.splice(pos, 0, key);
+        if (!dirty.children.length) dirty.children.push(0);
+        dirty.children.splice(pos, 0, 0);
+
+        let up = dirty;
+        while (up.parent) {
+            const upParent = up.parent = up.parent.getDirty();
+            upParent!.children[up.posInParent!] = up.addr;
+            up = upParent;
+        }
+        // TODO
+    }
+
+    getDirty(): this {
+        if (this._dirty) return this;
+        const dirty = new this.classCtor(this.storage);
+        this._copyTo(dirty);
+        return dirty;
+    }
+
     protected _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU16(this.keys.length);
@@ -90,6 +132,7 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
     }
     protected _readContent(buf: Buffer) {
         super._readContent(buf);
+        const posBefore = buf.pos;
         const keyCount = buf.readU16();
         for (let i = 0; i < keyCount; i++) {
             this.keys.push(this.readValue(buf));
@@ -98,16 +141,18 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
         for (let i = 0; i < childrenCount; i++) {
             this.children.push(buf.readU32());
         }
+        this.freeBytes -= buf.pos - posBefore;
     }
     protected _copyTo(page: this) {
         super._copyTo(page);
+        page.parent = this.parent;
         page.keys = [...this.keys];
         page.children = [...this.children];
         page.freeBytes = this.freeBytes;
     }
 
     protected abstract readValue(buf: Buffer): T;
-    protected abstract createPage(): NodePage<T>;
+    protected abstract classCtor: PageClass<this>;
 }
 
 export class SetPage extends Page {

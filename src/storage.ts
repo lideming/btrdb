@@ -5,6 +5,7 @@ import { Page, PageAddr, PageClass, PAGESIZE } from "./page.ts";
 export abstract class PageStorage {
     cache = new Map<PageAddr, Page>();
     dirtyPages: Page[] = [];
+    nextAddr: number = 0;
 
     readPage<T extends Page>(addr: PageAddr, type: PageClass<T>): Promise<T> {
         const cached = this.cache.get(addr);
@@ -18,8 +19,10 @@ export abstract class PageStorage {
     }
 
     addDirty(page: Page) {
+        if (page.onDisk) throw new Error("Can't mark on-disk page as dirty");
         if (page._dirty) return;
         page._dirty = true;
+        page.addr = this.nextAddr++;
         this.dirtyPages.push(page);
     }
 
