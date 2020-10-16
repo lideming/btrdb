@@ -96,28 +96,39 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
     async insert(key: T) {
         const spaceRequired = key.byteLength + 4;
         const [found, node, pos] = await this.findIndexRecursive(key);
-        if (node.freeBytes < spaceRequired) {
-            throw new Error("Not implemented");
-        }
-        const dirty = node.getDirty();
+        const dirty = node.getDirtyCopy();
         dirty.keys.splice(pos, 0, key);
         if (!dirty.children.length) dirty.children.push(0);
         dirty.children.splice(pos, 0, 0);
-
-        let up = dirty;
-        while (up.parent) {
-            const upParent = up.parent = up.parent.getDirty();
-            upParent!.children[up.posInParent!] = up.addr;
-            up = upParent;
+        dirty.freeBytes -= spaceRequired;
+        if (node.freeBytes < 0) {
+            if (dirty.keys.length <= 1) {
+                // TODO
+            }
+            const newSibling = new this.classCtor(this.storage);
+            const newCount = dirty.keys.length / 2;
+            // TODO
         }
-        // TODO
+
+        dirty.makeParentsDirty();
     }
 
-    getDirty(): this {
+    getDirtyCopy(): this {
         if (this._dirty) return this;
         const dirty = new this.classCtor(this.storage);
         this._copyTo(dirty);
         return dirty;
+    }
+
+    makeParentsDirty() {
+        if (!this._dirty) throw new Error("Invalid operation");
+        let up = this;
+        while (up.parent) {
+            if (up.parent._dirty) break;
+            const upParent = up.parent = up.parent.getDirtyCopy();
+            upParent!.children[up.posInParent!] = up.addr;
+            up = upParent;
+        }
     }
 
     protected _writeContent(buf: Buffer) {
