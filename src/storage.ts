@@ -13,6 +13,7 @@ export abstract class PageStorage {
         const buffer = new Uint8Array(PAGESIZE);
         return this.readPageBuffer(addr, buffer).then(() => {
             const page = new type(this);
+            page.addr = addr;
             page.readFrom(new Buffer(buffer, 0));
             return page;
         });
