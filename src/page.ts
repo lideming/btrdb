@@ -1,6 +1,6 @@
 import { Buffer, encoder } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
-import { IValue } from "./value.ts";
+import { IKey, KValue, StringValue, UIntValue } from "./value.ts";
 
 
 export const PAGESIZE = 4096;
@@ -61,7 +61,7 @@ export class SuperPage extends Page {
     }
 }
 
-export abstract class NodePage<T extends IValue<T>> extends Page {
+export abstract class NodePage<T extends IKey<T>> extends Page {
     parent?: this = undefined;
     posInParent?: number = undefined;
     keys: T[] = [];
@@ -246,7 +246,7 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
     protected abstract classCtor: PageClass<this>;
 }
 
-function calcSizeOfKeys<T>(keys: Iterable<IValue<T>>) {
+function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
     let sum = 0;
     for (const it of keys) {
         sum += it.byteLength;
@@ -259,6 +259,12 @@ export class SetPage extends Page {
     count: number = 0;
 }
 
-export class RootPage extends Page {
+export type PageAddrValue = UIntValue;
+
+export class RootPage extends NodePage<KValue<StringValue, PageAddrValue>> {
+    protected readValue(buf: Buffer): KValue<StringValue, UIntValue> {
+        return KValue.readFrom(buf, )
+    }
+    protected classCtor: PageClass<this>;
     rev: number = 1;
 }
