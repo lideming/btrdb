@@ -79,6 +79,9 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
         if (this.keys) {
             this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
         }
+        if (newChildren.length !== 0 && newChildren.length === newKeys.length) {
+            newChildren.push(0);
+        }
         if (newKeys) {
             this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
         }
@@ -112,6 +115,10 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
         return [deleted, deletedChildren];
     }
 
+    setChild(pos: number, child: PageAddr) {
+        this.children[pos] = child;
+    }
+
     findIndex(key: T): [found: boolean, pos: number] {
         const keys = this.keys;
         let l = 0, r = keys.length - 1;
@@ -128,9 +135,9 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
     async findIndexRecursive(key: T): Promise<[found: boolean, node: this, pos: number]> {
         let node = this;
         while (true) {
-            const [found, pos] = this.findIndex(key);
+            const [found, pos] = node.findIndex(key);
             if (found) return [found, node, pos];
-            const childAddr = this.children[pos];
+            const childAddr = node.children[pos];
             if (!childAddr) return [false, node, pos];
             const childNode = await this.storage.readPage(childAddr, this.classCtor);
             childNode.parent = node;
@@ -146,10 +153,7 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
 
     insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
         const node = this.getDirty();
-        node.keys.splice(pos, 0, key);
-        node.children.splice(pos, 0, leftChild);
-        if (node.children.length == 1) node.children.push(0);
-        node.freeBytes -= key.byteLength + 4;
+        node.spliceKeys(pos, 0, key, leftChild);
 
         if (node.freeBytes < 0) {
             if (node.keys.length <= 2) {
@@ -159,31 +163,25 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
             // split node
             const leftSib = new this.classCtor(this.storage).getDirty();
             const leftCount = node.keys.length / 2;
-            leftSib.keys = node.keys.splice(0, leftCount + 1);
-            const middleKey = leftSib.keys.pop()!;
-            leftSib.children = node.children.splice(0, leftCount);
-            leftSib.children.push(0);
-            const sizeDelta = calcSizeOfKeys(leftSib.keys) + leftSib.children.length * 4;
-            leftSib.freeBytes -= sizeDelta + 4;
-            node.freeBytes += sizeDelta + middleKey.byteLength + 4;
+            const leftKeys = node.spliceKeys(0, leftCount);
+            leftSib.setKeys(leftKeys[0], leftKeys[1]);
+            const [[middleKey], [middleLeftChild]] = node.spliceKeys(0, 1);
+            leftSib.setChild(leftCount, middleLeftChild);
 
-            // TODO
             if (node.parent) {
                 // insert the middle key with the left sibling to parent
-                node.parent = node.parent.getDirty();
+                node.getParentDirty();
                 node.parent.insertAt(node.posInParent!, middleKey, leftSib.addr);
-                //          ^^^^^^^^ made dirty inside
+                //          ^^^^^^^^ makeDirtyToRoot() inside
             } else {
                 // make `node` a parent of two nodes...
-                const newChild = new this.classCtor(this.storage);
-                const keysSize = calcSizeOfKeys(node.keys);
-                newChild.keys = node.keys;
-                newChild.children = node.children;
-                newChild.freeBytes -= keysSize + (node.keys.length + 1) * 4
-                // TODO
+                const rightChild = new this.classCtor(this.storage).getDirty();
+                rightChild.setKeys(node.keys, node.children);
+                node.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
+                node.makeDirtyToRoot();
             }
         } else {
-            node.makeParentsDirty();
+            node.makeDirtyToRoot();
         }
     }
 
@@ -198,7 +196,11 @@ export abstract class NodePage<T extends IValue<T>> extends Page {
         return dirty;
     }
 
-    makeParentsDirty() {
+    getParentDirty(): this {
+        return this.parent = this.parent!.getDirty();
+    }
+
+    makeDirtyToRoot() {
         if (!this._dirty) throw new Error("Invalid operation");
         let up = this;
         while (up.parent) {
