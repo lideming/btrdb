@@ -1,9 +1,8 @@
+export const PAGESIZE = 4096;
+
 import { Buffer, encoder } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
 import { IKey, KValue, StringValue, UIntValue } from "./value.ts";
-
-
-export const PAGESIZE = 4096;
 
 export type PageAddr = number;
 
@@ -29,6 +28,17 @@ export abstract class Page {
 
     init() { }
 
+    getDirty(): this {
+        if (this._dirty) return this;
+        let dirty = this;
+        if (this.onDisk) {
+            dirty = new this._thisCtor(this.storage);
+            this._copyTo(dirty);
+        }
+        this.storage.addDirty(dirty);
+        return dirty;
+    }
+
     writeTo(buf: Buffer) {
         this._writeContent(buf);
     }
@@ -40,6 +50,9 @@ export abstract class Page {
     protected _copyTo(page: this) { }
     protected _writeContent(buf: Buffer) { }
     protected _readContent(buf: Buffer) { }
+    protected get _thisCtor(): PageClass<this> {
+        return Object.getPrototypeOf(this).constructor as PageClass<this>;
+    }
 }
 
 export class SuperPage extends Page {
@@ -185,17 +198,6 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         }
     }
 
-    getDirty(): this {
-        if (this._dirty) return this;
-        let dirty = this;
-        if (this.onDisk) {
-            dirty = new this._thisCtor(this.storage);
-            this._copyTo(dirty);
-        }
-        this.storage.addDirty(dirty);
-        return dirty;
-    }
-
     getParentDirty(): NodePage<T> {
         return this.parent = this.parent!.getDirty();
     }
@@ -245,9 +247,6 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
     protected abstract _readValue(buf: Buffer): T;
     protected get _childCtor(): PageClass<NodePage<T>> {
         return this._thisCtor;
-    }
-    protected get _thisCtor(): PageClass<this> {
-        return Object.getPrototypeOf(this).constructor as PageClass<this>;
     }
 }
 
