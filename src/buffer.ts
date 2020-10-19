@@ -65,7 +65,8 @@ export class Buffer {
         if (len == 255) {
             len = this.readU16();
         }
-        decoder.decode(this.buffer.subarray(this.pos, this.pos + len));
+        const str = decoder.decode(this.buffer.subarray(this.pos, this.pos + len));
         this.pos += len;
+        return str;
     }
 }

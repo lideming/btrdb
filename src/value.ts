@@ -42,8 +42,8 @@ export class StringValue implements IKey<StringValue> {
         }
     }
 
-    static readFrom() {
-        // TODO
+    static readFrom(buf: Buffer) {
+        return new StringValue(buf.readString());
     }
 }
 
@@ -62,8 +62,8 @@ export class UIntValue implements IKey<UIntValue> {
             (this.val === other.val) ? 0 : 1;
     }
 
-    static readFrom() {
-        // TODO
+    static readFrom(buf: Buffer) {
+        return new UIntValue(buf.readU32());
     }
 }
 

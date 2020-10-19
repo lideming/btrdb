@@ -62,7 +62,7 @@ export class SuperPage extends Page {
 }
 
 export abstract class NodePage<T extends IKey<T>> extends Page {
-    parent?: this = undefined;
+    parent?: NodePage<T> = undefined;
     posInParent?: number = undefined;
     keys: T[] = [];
     children: PageAddr[] = [];
@@ -132,14 +132,14 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         return [false, l];
     }
 
-    async findIndexRecursive(key: T): Promise<[found: boolean, node: this, pos: number]> {
-        let node = this;
+    async findIndexRecursive(key: T): Promise<[found: boolean, node: NodePage<T>, pos: number]> {
+        let node = this as NodePage<T>;
         while (true) {
             const [found, pos] = node.findIndex(key);
             if (found) return [found, node, pos];
             const childAddr = node.children[pos];
             if (!childAddr) return [false, node, pos];
-            const childNode = await this.storage.readPage(childAddr, this.classCtor);
+            const childNode = await this.storage.readPage(childAddr, this._childCtor);
             childNode.parent = node;
             childNode.posInParent = pos;
             node = childNode;
@@ -161,7 +161,7 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
             }
 
             // split node
-            const leftSib = new this.classCtor(this.storage).getDirty();
+            const leftSib = new this._childCtor(this.storage).getDirty();
             const leftCount = node.keys.length / 2;
             const leftKeys = node.spliceKeys(0, leftCount);
             leftSib.setKeys(leftKeys[0], leftKeys[1]);
@@ -175,7 +175,7 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
                 //          ^^^^^^^^ makeDirtyToRoot() inside
             } else {
                 // make `node` a parent of two nodes...
-                const rightChild = new this.classCtor(this.storage).getDirty();
+                const rightChild = new this._childCtor(this.storage).getDirty();
                 rightChild.setKeys(node.keys, node.children);
                 node.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
                 node.makeDirtyToRoot();
@@ -189,20 +189,20 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         if (this._dirty) return this;
         let dirty = this;
         if (this.onDisk) {
-            dirty = new this.classCtor(this.storage);
+            dirty = new this._thisCtor(this.storage);
             this._copyTo(dirty);
         }
         this.storage.addDirty(dirty);
         return dirty;
     }
 
-    getParentDirty(): this {
+    getParentDirty(): NodePage<T> {
         return this.parent = this.parent!.getDirty();
     }
 
     makeDirtyToRoot() {
         if (!this._dirty) throw new Error("Invalid operation");
-        let up = this;
+        let up = this as NodePage<T>;
         while (up.parent) {
             if (up.parent._dirty) break;
             const upParent = up.parent = up.parent.getDirty();
@@ -226,7 +226,7 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         const posBefore = buf.pos;
         const keyCount = buf.readU16();
         for (let i = 0; i < keyCount; i++) {
-            this.keys.push(this.readValue(buf));
+            this.keys.push(this._readValue(buf));
         }
         const childrenCount = keyCount ? keyCount + 1 : 0;
         for (let i = 0; i < childrenCount; i++) {
@@ -242,8 +242,13 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         page.freeBytes = this.freeBytes;
     }
 
-    protected abstract readValue(buf: Buffer): T;
-    protected abstract classCtor: PageClass<this>;
+    protected abstract _readValue(buf: Buffer): T;
+    protected get _childCtor(): PageClass<NodePage<T>> {
+        return this._thisCtor;
+    }
+    protected get _thisCtor(): PageClass<this> {
+        return Object.getPrototypeOf(this).constructor as PageClass<this>;
+    }
 }
 
 function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
@@ -259,12 +264,21 @@ export class SetPage extends Page {
     count: number = 0;
 }
 
-export type PageAddrValue = UIntValue;
+export type SetPageAddr = UIntValue;
 
-export class RootPage extends NodePage<KValue<StringValue, PageAddrValue>> {
-    protected readValue(buf: Buffer): KValue<StringValue, UIntValue> {
-        return KValue.readFrom(buf, )
+export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
+    protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
+        return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
     }
-    protected classCtor: PageClass<this>;
+    protected get _childCtor() { return RootTreeNode; }
+}
+
+export class RootPage extends RootTreeNode {
     rev: number = 1;
+    protected _readContent(buf: Buffer) {
+        super._readContent(buf);
+    }
+    protected _writeContent(buf: Buffer) {
+        super._writeContent(buf);
+    }
 }
