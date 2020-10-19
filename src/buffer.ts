@@ -1,8 +1,6 @@
 export const encoder = new TextEncoder();
 export const decoder = new TextDecoder();
 
-console.log(import.meta);
-
 export class Buffer {
     constructor(
         public buffer: Uint8Array,

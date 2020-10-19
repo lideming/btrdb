@@ -1,29 +1,34 @@
-import { RootPage, SetPage } from "./page.ts";
+import { SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
 
-export interface DatabaseContext {
+export interface EngineContext {
     storage: PageStorage;
 }
 
-export class DbSet {
+export interface IDbSet {
+
+}
+
+export class DbSet implements IDbSet {
     constructor(
-        public page: SetPage
+        private page: SetPage
     ) { }
 }
 
-export class Database implements DatabaseContext {
+export class DatabaseEngine implements EngineContext {
     storage: PageStorage = undefined as any;
 
-    rootPage: RootPage = undefined as any;
+    get superPage() { return this.storage.superPage; }
 
     async openFile(path: string) {
         const stor = new InFileStorage();
         await stor.openPath(path);
+        await stor.init();
         this.storage = stor;
-        this.rootPage = new RootPage(this.storage);
+        console.log('openFile():', this.superPage);
     }
 
-    async createSet() {
+    async createSet(name: string) {
 
     }
 
@@ -31,3 +36,10 @@ export class Database implements DatabaseContext {
 
     }
 }
+
+export interface Database {
+    openFile(path: string): Promise<void>;
+    createSet(name: string): Promise<DbSet>;
+}
+
+export const Database: { new(): Database } = DatabaseEngine as any;

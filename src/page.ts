@@ -6,6 +6,13 @@ import { IKey, KValue, StringValue, UIntValue } from "./value.ts";
 
 export type PageAddr = number;
 
+export const enum PageType {
+    None,
+    Super = 1,
+    RootTreeNode,
+    Set,
+}
+
 export interface PageClass<T extends Page> {
     new(storage: PageStorage): T;
 }
@@ -13,23 +20,25 @@ export interface PageClass<T extends Page> {
 export abstract class Page {
     storage: PageStorage;
     addr: PageAddr = -1;
-    _dirty = false;
+    abstract get type(): PageType;
 
     constructor(storage: PageStorage) {
         this.storage = storage;
         this.init();
     }
 
+    dirty = false;
+
     /** Should not change pages on disk, we should always copy on write */
-    onDisk: boolean = false;
+    get onDisk() { return this.addr >= 0; }
 
     /** Should be maintained by the page when changing data */
-    freeBytes: number = PAGESIZE;
+    freeBytes: number = PAGESIZE - 4;
 
     init() { }
 
     getDirty(): this {
-        if (this._dirty) return this;
+        if (this.dirty) return this;
         let dirty = this;
         if (this.onDisk) {
             dirty = new this._thisCtor(this.storage);
@@ -40,11 +49,25 @@ export abstract class Page {
     }
 
     writeTo(buf: Buffer) {
+        const beginPos = buf.pos;
+        buf.writeU8(this.type);
+        buf.writeU8(0);
+        buf.writeU16(0);
         this._writeContent(buf);
+        if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+            throw new Error(`buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`)
+        }
     }
     readFrom(buf: Buffer) {
+        const beginPos = buf.pos;
+        const type = buf.readU8();
+        if (type != this.type) throw new Error(`Wrong type in disk, should be ${this.type}, got ${type}`);
+        if (buf.readU8() != 0) throw new Error('Non-zero reserved field');
+        if (buf.readU16() != 0) throw new Error('Non-zero reserved field');
         this._readContent(buf);
-        this.onDisk = true;
+        if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+            throw new Error(`buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`)
+        }
     }
 
     protected _copyTo(page: this) { }
@@ -52,25 +75,6 @@ export abstract class Page {
     protected _readContent(buf: Buffer) { }
     protected get _thisCtor(): PageClass<this> {
         return Object.getPrototypeOf(this).constructor as PageClass<this>;
-    }
-}
-
-export class SuperPage extends Page {
-    version: number = 1;
-    rootPage: number = 1;
-    init() {
-        super.init();
-        this.freeBytes -= 2 * 4;
-    }
-    _writeContent(buf: Buffer) {
-        super._writeContent(buf);
-        buf.writeU32(this.version);
-        buf.writeU32(this.rootPage);
-    }
-    _readContent(buf: Buffer) {
-        super._readContent(buf);
-        this.version = buf.readU32();
-        this.rootPage = buf.readU32();
     }
 }
 
@@ -82,7 +86,7 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
 
     init() {
         super.init();
-        this.freeBytes -= 4; // keysCount
+        this.freeBytes -= 2; // keysCount
     }
 
     setKeys(newKeys: T[], newChildren: PageAddr[]) {
@@ -203,10 +207,10 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
     }
 
     makeDirtyToRoot() {
-        if (!this._dirty) throw new Error("Invalid operation");
+        if (!this.dirty) throw new Error("Invalid operation");
         let up = this as NodePage<T>;
         while (up.parent) {
-            if (up.parent._dirty) break;
+            if (up.parent.dirty) break;
             const upParent = up.parent = up.parent.getDirty();
             upParent!.children[up.posInParent!] = up.addr;
             up = upParent;
@@ -225,8 +229,8 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
     }
     protected _readContent(buf: Buffer) {
         super._readContent(buf);
-        const posBefore = buf.pos;
         const keyCount = buf.readU16();
+        const posBefore = buf.pos;
         for (let i = 0; i < keyCount; i++) {
             this.keys.push(this._readValue(buf));
         }
@@ -259,6 +263,7 @@ function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
 }
 
 export class SetPage extends Page {
+    get type(): PageType { return PageType.Set; }
     rev: number = 1;
     count: number = 0;
 }
@@ -266,18 +271,29 @@ export class SetPage extends Page {
 export type SetPageAddr = UIntValue;
 
 export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
+    get type(): PageType { return PageType.RootTreeNode; }
     protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
         return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
     }
     protected get _childCtor() { return RootTreeNode; }
 }
 
-export class RootPage extends RootTreeNode {
+export class SuperPage extends RootTreeNode {
+    get type(): PageType { return PageType.Super; }
+    version: number = 1;
     rev: number = 1;
-    protected _readContent(buf: Buffer) {
-        super._readContent(buf);
+    init() {
+        super.init();
+        this.freeBytes -= 2 * 4;
     }
-    protected _writeContent(buf: Buffer) {
+    _writeContent(buf: Buffer) {
         super._writeContent(buf);
+        buf.writeU32(this.version);
+        buf.writeU32(this.rev);
+    }
+    _readContent(buf: Buffer) {
+        super._readContent(buf);
+        this.version = buf.readU32();
+        this.rev = buf.readU32();
     }
 }
