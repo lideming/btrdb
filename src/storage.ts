@@ -9,6 +9,7 @@ export abstract class PageStorage {
     nextAddr: number = 0;
 
     superPage: SuperPage | undefined = undefined;
+    cleanSuperPage: SuperPage | undefined = undefined;
 
     async init() {
         const lastAddr = await this._getLastAddr();
@@ -45,11 +46,14 @@ export abstract class PageStorage {
     }
 
     async commit() {
+        console.log('==========COMMIT==========', this.dirtyPages);
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
         }
         while (this.dirtyPages.pop()) { }
+        this.cleanSuperPage = this.superPage;
+        console.log('==========END COMMIT==========', this.dirtyPages);
     }
 
     protected abstract _commit(pages: Page[]): Promise<void>;

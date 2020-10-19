@@ -1,5 +1,6 @@
 import { SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
+import { KValue, StringValue, UIntValue } from "./value.ts";
 
 export interface EngineContext {
     storage: PageStorage;
@@ -11,7 +12,8 @@ export interface IDbSet {
 
 export class DbSet implements IDbSet {
     constructor(
-        private page: SetPage
+        private page: SetPage,
+        public readonly name: string
     ) { }
 }
 
@@ -29,11 +31,18 @@ export class DatabaseEngine implements EngineContext {
     }
 
     async createSet(name: string) {
-
+        let set = await this.getSet(name);
+        if (set) return set;
+        const setPage = new SetPage(this.storage).getDirty();
+        this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
     }
 
-    async getSet() {
-
+    async getSet(name: string) {
+        const superPage = this.superPage!;
+        const r = await superPage.findIndexRecursive(new StringValue(name));
+        if (!r.found) return null;
+        const setPage = await this.storage.readPage(r.val!.value.val, SetPage);
+        return new DbSet(setPage, name);
     }
 }
 

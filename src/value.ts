@@ -67,7 +67,7 @@ export class UIntValue implements IKey<UIntValue> {
     }
 }
 
-export class KValue<K extends IKey<K>, V extends IValue> implements IKey<KValue<K, V>> {
+export class KValue<K extends IKey<K>, V extends IValue> implements IKey<K> {
     constructor(
         public readonly key: K,
         public readonly value: V
@@ -79,8 +79,8 @@ export class KValue<K extends IKey<K>, V extends IValue> implements IKey<KValue<
         this.value.writeTo(buf);
     }
     get byteLength() { return this.key.byteLength + this.value.byteLength; }
-    compareTo(other: KValue<K, V>): 0 | 1 | -1 {
-        return this.key.compareTo(other.key);
+    compareTo(other: K): 0 | 1 | -1 {
+        return this.key.compareTo(other);
     }
 
     static readFrom<K extends IKey<K>, V extends IValue>(

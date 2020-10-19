@@ -78,7 +78,9 @@ export abstract class Page {
     }
 }
 
-export abstract class NodePage<T extends IKey<T>> extends Page {
+export type KeyOf<T> = T extends IKey<infer K> ? IKey<K> : never;
+
+export abstract class NodePage<T extends IKey<unknown>> extends Page {
     parent?: NodePage<T> = undefined;
     posInParent?: number = undefined;
     keys: T[] = [];
@@ -136,26 +138,28 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
         this.children[pos] = child;
     }
 
-    findIndex(key: T): [found: boolean, pos: number] {
+    findIndex(key: KeyOf<T>): { found: boolean, pos: number, val: T | undefined } {
         const keys = this.keys;
         let l = 0, r = keys.length - 1;
         while (l <= r) {
             const m = (l + r) / 2;
             const c = key.compareTo(keys[m]);
-            if (c == 0) return [true, m];
+            if (c == 0) return { found: true, pos: m, val: keys[m] };
             else if (c > 0) l = m + 1;
             else r = m - 1;
         }
-        return [false, l];
+        return { found: false, pos: l, val: undefined };
     }
 
-    async findIndexRecursive(key: T): Promise<[found: boolean, node: NodePage<T>, pos: number]> {
+    async findIndexRecursive(key: KeyOf<T>): Promise<{
+        found: boolean, node: NodePage<T>, pos: number, val: T | undefined
+    }> {
         let node = this as NodePage<T>;
         while (true) {
-            const [found, pos] = node.findIndex(key);
-            if (found) return [found, node, pos];
+            const { found, pos, val } = node.findIndex(key);
+            if (found) return { found, node, pos, val };
             const childAddr = node.children[pos];
-            if (!childAddr) return [false, node, pos];
+            if (!childAddr) return { found: false, node, pos, val };
             const childNode = await this.storage.readPage(childAddr, this._childCtor);
             childNode.parent = node;
             childNode.posInParent = pos;
@@ -164,7 +168,7 @@ export abstract class NodePage<T extends IKey<T>> extends Page {
     }
 
     async insert(key: T) {
-        const [found, node, pos] = await this.findIndexRecursive(key);
+        const { found, node, pos } = await this.findIndexRecursive(key as any);
         node.insertAt(pos, key);
     }
 
@@ -295,5 +299,8 @@ export class SuperPage extends RootTreeNode {
         super._readContent(buf);
         this.version = buf.readU32();
         this.rev = buf.readU32();
+    }
+    getDirty() {
+        return this.storage.superPage = super.getDirty();
     }
 }
