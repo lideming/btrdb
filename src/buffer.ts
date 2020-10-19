@@ -33,7 +33,7 @@ export class Buffer {
         return this.buffer[this.pos++];
     }
     writeBuffer(buf: Uint8Array) {
-        buf.set(buf, this.pos);
+        this.buffer.set(buf, this.pos);
         this.pos += buf.length;
     }
     readBuffer(len: number) {
@@ -56,7 +56,7 @@ export class Buffer {
     }
     static calcLenEncodedBufferSize(buf: Uint8Array) {
         if (buf.length < 255) return 1 + buf.length;
-        else return 2 + buf.length;
+        else return 3 + buf.length;
     }
     readString() {
         var len = this.readU8();

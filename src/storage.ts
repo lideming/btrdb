@@ -14,11 +14,24 @@ export abstract class PageStorage {
     async init() {
         const lastAddr = await this._getLastAddr();
         if (lastAddr == 0) {
-            this.superPage = new SuperPage(this).getDirty();
+            this.superPage = new SuperPage(this).getDirty(true);
             await this.commit();
         } else {
+            this.nextAddr = lastAddr;
             // try read the last page as super page
-            this.superPage = await this.readPage(lastAddr - 1, SuperPage);
+            let rootAddr = lastAddr - 1;
+            while (rootAddr >= 0) {
+                try {
+                    this.superPage = await this.readPage(rootAddr, SuperPage);
+                    break;
+                } catch (error) {
+                    console.error(error);
+                    console.log('retrying read super page from addr ' + (--rootAddr));
+                }
+            }
+            if (rootAddr < 0) {
+                throw new Error("Failed to read database");
+            }
         }
     }
 
@@ -31,7 +44,7 @@ export abstract class PageStorage {
             page.addr = addr;
             page.readFrom(new Buffer(buffer, 0));
             this.cache.set(page.addr, page);
-            console.log("readPage", page);
+            // console.log("readPage", page);
             return page;
         });
     }
@@ -46,14 +59,14 @@ export abstract class PageStorage {
     }
 
     async commit() {
-        console.log('==========COMMIT==========', this.dirtyPages);
+        console.log('==========COMMIT==========', this.dirtyPages.map(x => [x.addr, x.type]));
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
         }
         while (this.dirtyPages.pop()) { }
         this.cleanSuperPage = this.superPage;
-        console.log('==========END COMMIT==========', this.dirtyPages);
+        console.log('==========END COMMIT==========');
     }
 
     protected abstract _commit(pages: Page[]): Promise<void>;
@@ -79,7 +92,7 @@ export class InFileStorage extends PageStorage {
         const buffer = new Buffer(new Uint8Array(PAGESIZE), 0);
         for (const page of pages) {
             page.writeTo(buffer);
-            await this.file!.seek(page.addr, Deno.SeekMode.Start);
+            await this.file!.seek(page.addr * PAGESIZE, Deno.SeekMode.Start);
             for (let i = 0; i < buffer.pos;) {
                 const nwrite = await this.file!.write(buffer.buffer.subarray(i));
                 if (nwrite <= 0) throw new Error("Unexpected return value of write(): " + nwrite);
@@ -87,6 +100,7 @@ export class InFileStorage extends PageStorage {
             }
             buffer.buffer.set(InFileStorage.emptyBuffer, 0);
             buffer.pos = 0;
+            console.info("written page addr", page.addr);
         }
     }
     protected async _getLastAddr() {

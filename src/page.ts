@@ -37,14 +37,14 @@ export abstract class Page {
 
     init() { }
 
-    getDirty(): this {
+    getDirty(addDirty: boolean): this {
         if (this.dirty) return this;
         let dirty = this;
         if (this.onDisk) {
             dirty = new this._thisCtor(this.storage);
             this._copyTo(dirty);
         }
-        this.storage.addDirty(dirty);
+        if (addDirty) this.storage.addDirty(dirty);
         return dirty;
     }
 
@@ -92,8 +92,11 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     setKeys(newKeys: T[], newChildren: PageAddr[]) {
+        console.log([newKeys.length, newChildren.length])
         if (!((newKeys.length == 0 && newChildren.length == 0)
-            || (newKeys.length + 1 == newChildren.length)))
+            || (newKeys.length + 1 == newChildren.length)
+            || (newChildren.length == newKeys.length)
+        ))
             throw new Error("Invalid args");
         if (this.keys) {
             this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
@@ -123,18 +126,18 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             this.freeBytes -= key.byteLength + 4;
         } else {
             deleted = this.keys.splice(pos, delCount);
-            deletedChildren = this.children.splice(pos, delCount, 0);
+            deletedChildren = this.children.splice(pos, delCount);
             if (delCount && this.keys.length == 0) {
                 this.freeBytes += 4;
                 if (this.children.pop()! != 0) throw new Error("Not implemented");
             }
         }
         this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
-        if (this.keys.length) this.freeBytes -= 4;
         return [deleted, deletedChildren];
     }
 
     setChild(pos: number, child: PageAddr) {
+        if (this.children.length <= pos) throw new Error('pos out of range');
         this.children[pos] = child;
     }
 
@@ -142,7 +145,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         const keys = this.keys;
         let l = 0, r = keys.length - 1;
         while (l <= r) {
-            const m = (l + r) / 2;
+            const m = Math.round((l + r) / 2);
             const c = key.compareTo(keys[m]);
             if (c == 0) return { found: true, pos: m, val: keys[m] };
             else if (c > 0) l = m + 1;
@@ -173,41 +176,49 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
-        const node = this.getDirty();
+        const node = this.getDirty(false);
         node.spliceKeys(pos, 0, key, leftChild);
 
         if (node.freeBytes < 0) {
             if (node.keys.length <= 2) {
                 throw new Error("Not implemented");
             }
+            console.log('spliting node with key count:', node.keys.length)
+            console.log(node.keys.length, node.children.length);
 
             // split node
-            const leftSib = new this._childCtor(this.storage).getDirty();
+            const leftSib = new this._childCtor(this.storage).getDirty(false);
             const leftCount = node.keys.length / 2;
             const leftKeys = node.spliceKeys(0, leftCount);
             leftSib.setKeys(leftKeys[0], leftKeys[1]);
+            console.log(node.keys.length, node.children.length);
             const [[middleKey], [middleLeftChild]] = node.spliceKeys(0, 1);
+            console.log(node.keys.length, node.children.length);
             leftSib.setChild(leftCount, middleLeftChild);
+            console.log(node.keys.length, node.children.length);
 
             if (node.parent) {
                 // insert the middle key with the left sibling to parent
+                leftSib.getDirty(true);
                 node.getParentDirty();
                 node.parent.insertAt(node.posInParent!, middleKey, leftSib.addr);
                 //          ^^^^^^^^ makeDirtyToRoot() inside
             } else {
                 // make `node` a parent of two nodes...
-                const rightChild = new this._childCtor(this.storage).getDirty();
+                const rightChild = new this._childCtor(this.storage).getDirty(true);
                 rightChild.setKeys(node.keys, node.children);
                 node.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
+                node.getDirty(true);
                 node.makeDirtyToRoot();
             }
         } else {
+            node.getDirty(true);
             node.makeDirtyToRoot();
         }
     }
 
     getParentDirty(): NodePage<T> {
-        return this.parent = this.parent!.getDirty();
+        return this.parent = this.parent!.getDirty(true);
     }
 
     makeDirtyToRoot() {
@@ -215,7 +226,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         let up = this as NodePage<T>;
         while (up.parent) {
             if (up.parent.dirty) break;
-            const upParent = up.parent = up.parent.getDirty();
+            const upParent = up.parent = up.parent.getDirty(true);
             upParent!.children[up.posInParent!] = up.addr;
             up = upParent;
         }
@@ -300,7 +311,16 @@ export class SuperPage extends RootTreeNode {
         this.version = buf.readU32();
         this.rev = buf.readU32();
     }
-    getDirty() {
-        return this.storage.superPage = super.getDirty();
+    protected _copyTo(other: this) {
+        super._copyTo(other);
+        other.rev = this.rev;
+        other.version = this.version;
+    }
+    getDirty(addDirty: boolean) {
+        var dirty = this.storage.superPage = super.getDirty(addDirty);
+        if (this.onDisk && !this.dirty) {
+            dirty.rev++;
+        }
+        return dirty;
     }
 }

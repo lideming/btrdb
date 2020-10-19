@@ -33,8 +33,12 @@ export class DatabaseEngine implements EngineContext {
     async createSet(name: string) {
         let set = await this.getSet(name);
         if (set) return set;
-        const setPage = new SetPage(this.storage).getDirty();
-        this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
+        const setPage = new SetPage(this.storage).getDirty(true);
+        await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
+    }
+
+    async commit() {
+        await this.storage.commit();
     }
 
     async getSet(name: string) {
@@ -49,6 +53,7 @@ export class DatabaseEngine implements EngineContext {
 export interface Database {
     openFile(path: string): Promise<void>;
     createSet(name: string): Promise<DbSet>;
+    commit(): Promise<void>;
 }
 
 export const Database: { new(): Database } = DatabaseEngine as any;
