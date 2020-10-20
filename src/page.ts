@@ -1,8 +1,8 @@
 export const PAGESIZE = 4096;
 
-import { Buffer, encoder } from "./buffer.ts";
+import { Buffer } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
-import { IKey, KValue, StringValue, UIntValue } from "./value.ts";
+import { IKey, KeyOf, KValue, StringValue, UIntValue } from "./value.ts";
 
 export type PageAddr = number;
 
@@ -78,8 +78,6 @@ export abstract class Page {
     }
 }
 
-export type KeyOf<T> = T extends IKey<infer K> ? IKey<K> : never;
-
 export abstract class NodePage<T extends IKey<unknown>> extends Page {
     parent?: NodePage<T> = undefined;
     posInParent?: number = undefined;
@@ -146,7 +144,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         let l = 0, r = keys.length - 1;
         while (l <= r) {
             const m = Math.round((l + r) / 2);
-            const c = key.compareTo(keys[m]);
+            const c = key.compareTo(keys[m].key);
+            console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m])
             if (c == 0) return { found: true, pos: m, val: keys[m] };
             else if (c > 0) l = m + 1;
             else r = m - 1;
@@ -170,9 +169,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         };
     }
 
-    async insert(key: T) {
-        const { found, node, pos } = await this.findIndexRecursive(key as any);
-        node.insertAt(pos, key);
+    async insert(val: T) {
+        const { found, node, pos } = await this.findIndexRecursive(val as any);
+        node.insertAt(pos, val);
     }
 
     insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
@@ -191,11 +190,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             const leftCount = node.keys.length / 2;
             const leftKeys = node.spliceKeys(0, leftCount);
             leftSib.setKeys(leftKeys[0], leftKeys[1]);
-            console.log(node.keys.length, node.children.length);
             const [[middleKey], [middleLeftChild]] = node.spliceKeys(0, 1);
-            console.log(node.keys.length, node.children.length);
             leftSib.setChild(leftCount, middleLeftChild);
-            console.log(node.keys.length, node.children.length);
 
             if (node.parent) {
                 // insert the middle key with the left sibling to parent
@@ -209,11 +205,11 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
                 rightChild.setKeys(node.keys, node.children);
                 node.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
                 node.getDirty(true);
-                node.makeDirtyToRoot();
             }
         } else {
             node.getDirty(true);
-            node.makeDirtyToRoot();
+            if (node.parent)
+                node.makeDirtyToRoot();
         }
     }
 
@@ -297,19 +293,22 @@ export class SuperPage extends RootTreeNode {
     get type(): PageType { return PageType.Super; }
     version: number = 1;
     rev: number = 1;
+    setCount: number = 0;
     init() {
         super.init();
-        this.freeBytes -= 2 * 4;
+        this.freeBytes -= 3 * 4;
     }
     _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU32(this.version);
         buf.writeU32(this.rev);
+        buf.writeU32(this.setCount);
     }
     _readContent(buf: Buffer) {
         super._readContent(buf);
         this.version = buf.readU32();
         this.rev = buf.readU32();
+        this.setCount = buf.readU32();
     }
     protected _copyTo(other: this) {
         super._copyTo(other);
@@ -317,7 +316,7 @@ export class SuperPage extends RootTreeNode {
         other.version = this.version;
     }
     getDirty(addDirty: boolean) {
-        var dirty = this.storage.superPage = super.getDirty(addDirty);
+        var dirty = this.storage.superPage = super.getDirty(false);
         if (this.onDisk && !this.dirty) {
             dirty.rev++;
         }

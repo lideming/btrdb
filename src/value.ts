@@ -12,18 +12,25 @@ export interface IComparable<T> {
 
 export interface IValue extends ISerializable { }
 
-export interface IKey<T> extends IValue, IComparable<T> {
+export interface Key<T> extends IValue, IComparable<T>, IKey<T> {
     readonly hash: any;
 }
 
+export interface IKey<T> extends IValue {
+    readonly key: Key<T>;
+}
+
+export type KeyOf<T> = T extends IKey<infer K> ? Key<K> : never;
+
 export type ValueReader<T> = (buf: Buffer) => T;
 
-export class StringValue implements IKey<StringValue> {
+export class StringValue implements Key<StringValue> {
     constructor(
         public readonly str: string) {
     }
     private buf: Uint8Array | undefined = undefined;
-    get hash() { return this.str; };
+    get hash() { return this.str; }
+    get key() { return this; }
     get byteLength(): number {
         this.ensureBuf();
         return Buffer.calcLenEncodedBufferSize(this.buf!);
@@ -53,6 +60,7 @@ export class UIntValue implements IKey<UIntValue> {
     ) {
     }
     get hash() { return this.val; }
+    get key() { return this; }
     get byteLength() { return 4; }
     writeTo(buf: Buffer): void {
         buf.writeU32(this.val);
@@ -67,23 +75,19 @@ export class UIntValue implements IKey<UIntValue> {
     }
 }
 
-export class KValue<K extends IKey<K>, V extends IValue> implements IKey<K> {
+export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
     constructor(
         public readonly key: K,
         public readonly value: V
     ) {
     }
-    get hash() { return this.key.hash; }
     writeTo(buf: Buffer): void {
         this.key.writeTo(buf);
         this.value.writeTo(buf);
     }
     get byteLength() { return this.key.byteLength + this.value.byteLength; }
-    compareTo(other: K): 0 | 1 | -1 {
-        return this.key.compareTo(other);
-    }
 
-    static readFrom<K extends IKey<K>, V extends IValue>(
+    static readFrom<K extends Key<K>, V extends IValue>(
         buf: Buffer,
         readKey: ValueReader<K>,
         readValue: ValueReader<V>

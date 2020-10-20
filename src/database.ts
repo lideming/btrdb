@@ -35,6 +35,7 @@ export class DatabaseEngine implements EngineContext {
         if (set) return set;
         const setPage = new SetPage(this.storage).getDirty(true);
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
+        this.superPage!.setCount++;
     }
 
     async commit() {

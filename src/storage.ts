@@ -1,5 +1,5 @@
 import { Buffer } from "./buffer.ts";
-import { Page, PageAddr, PageClass, PAGESIZE, SuperPage } from "./page.ts";
+import { Page, PageAddr, PageClass, PAGESIZE, PageType, SuperPage } from "./page.ts";
 import { UIntValue } from "./value.ts";
 
 
@@ -59,7 +59,16 @@ export abstract class PageStorage {
     }
 
     async commit() {
-        console.log('==========COMMIT==========', this.dirtyPages.map(x => [x.addr, x.type]));
+        if (this.superPage!.onDisk) {
+            if (this.dirtyPages.length == 0) {
+                console.log("Nothing to commit");
+            } else {
+                throw new Error("super page is not dirty");
+            }
+            return;
+        }
+        this.addDirty(this.superPage!);
+        console.log('==========COMMIT==========', this.dirtyPages/* .map(x => [x.addr, x.type]) */);
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
