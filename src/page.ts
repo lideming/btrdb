@@ -170,7 +170,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     async insert(val: T) {
-        const { found, node, pos } = await this.findIndexRecursive(val as any);
+        const { found, node, pos } = await this.findIndexRecursive(val.key as KeyOf<T>);
         node.insertAt(pos, val);
     }
 
@@ -312,14 +312,11 @@ export class SuperPage extends RootTreeNode {
     }
     protected _copyTo(other: this) {
         super._copyTo(other);
-        other.rev = this.rev;
+        other.rev = this.rev + 1;
         other.version = this.version;
     }
     getDirty(addDirty: boolean) {
         var dirty = this.storage.superPage = super.getDirty(false);
-        if (this.onDisk && !this.dirty) {
-            dirty.rev++;
-        }
         return dirty;
     }
 }
