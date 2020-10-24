@@ -12,3 +12,4 @@ await db.createSet('test2');
 await db.createSet('test1');
 await db.createSet('test3');
 await db.commit();
+db.close();

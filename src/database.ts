@@ -49,12 +49,17 @@ export class DatabaseEngine implements EngineContext {
         const setPage = await this.storage.readPage(r.val!.value.val, SetPage);
         return new DbSet(setPage, name);
     }
+
+    close() {
+        this.storage.close();
+    }
 }
 
 export interface Database {
     openFile(path: string): Promise<void>;
     createSet(name: string): Promise<DbSet>;
     commit(): Promise<void>;
+    close(): void;
 }
 
 export const Database: { new(): Database } = DatabaseEngine as any;

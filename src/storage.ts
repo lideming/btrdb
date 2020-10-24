@@ -78,9 +78,14 @@ export abstract class PageStorage {
         console.log('==========END COMMIT==========');
     }
 
+    close() {
+        this._close();
+    }
+
     protected abstract _commit(pages: Page[]): Promise<void>;
     protected abstract _readPageBuffer(addr: PageAddr, buffer: Uint8Array): Promise<void>;
     protected abstract _getLastAddr(): Promise<number>;
+    protected abstract _close(): void;
 }
 
 export class InFileStorage extends PageStorage {
@@ -114,6 +119,9 @@ export class InFileStorage extends PageStorage {
     }
     protected async _getLastAddr() {
         return Math.round(await this.file!.seek(0, Deno.SeekMode.End) / 4096);
+    }
+    protected _close() {
+        this.file!.close();
     }
     private static readonly emptyBuffer = new Uint8Array(PAGESIZE);
 }
