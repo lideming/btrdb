@@ -36,10 +36,7 @@ export class DatabaseEngine implements EngineContext {
         const setPage = new SetPage(this.storage).getDirty(true);
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
         this.superPage!.setCount++;
-    }
-
-    async commit() {
-        await this.storage.commit();
+        return new DbSet(setPage, name);
     }
 
     async getSet(name: string) {
@@ -50,6 +47,14 @@ export class DatabaseEngine implements EngineContext {
         return new DbSet(setPage, name);
     }
 
+    async getSetCount() {
+        return this.superPage!.setCount;
+    }
+
+    async commit() {
+        await this.storage.commit();
+    }
+
     close() {
         this.storage.close();
     }
@@ -58,6 +63,7 @@ export class DatabaseEngine implements EngineContext {
 export interface Database {
     openFile(path: string): Promise<void>;
     createSet(name: string): Promise<DbSet>;
+    getSetCount(): Promise<number>;
     commit(): Promise<void>;
     close(): void;
 }
