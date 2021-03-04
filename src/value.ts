@@ -94,4 +94,8 @@ export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
     ) {
         return new KValue<K, V>(readKey(buf), readValue(buf));
     }
+
+    [Deno.customInspect]() {
+        return Deno.inspect([this.key, this.value]);
+    }
 }

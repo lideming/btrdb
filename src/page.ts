@@ -37,6 +37,7 @@ export abstract class Page {
 
     init() { }
 
+    /** Create a dirty copy of this page or return this page if it's already dirty. */
     getDirty(addDirty: boolean): this {
         if (this.dirty) return this;
         let dirty = this;
@@ -68,6 +69,14 @@ export abstract class Page {
         if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
             throw new Error(`buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`)
         }
+    }
+
+    _debugView() {
+        return {
+            type: this.type,
+            addr: this.addr,
+            dirty: this.dirty
+        };
     }
 
     protected _copyTo(page: this) { }
@@ -228,6 +237,15 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         }
     }
 
+    _debugView() {
+        return {
+            ...super._debugView(),
+            parentAddr: this.parent?.addr,
+            posInParent: this.posInParent,
+            keys: this.keys
+        };
+    }
+
     protected _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU16(this.keys.length);
@@ -277,6 +295,14 @@ export class SetPage extends Page {
     get type(): PageType { return PageType.Set; }
     rev: number = 1;
     count: number = 0;
+
+    _debugView() {
+        return {
+            ...super._debugView(),
+            rev: this.rev,
+            count: this.count,
+        }
+    }
 }
 
 export type SetPageAddr = UIntValue;
@@ -319,5 +345,13 @@ export class SuperPage extends RootTreeNode {
     getDirty(addDirty: boolean) {
         var dirty = this.storage.superPage = super.getDirty(false);
         return dirty;
+    }
+    _debugView() {
+        return {
+            ...super._debugView(),
+            rev: this.rev,
+            version: this.version,
+            setCount: this.setCount,
+        }
     }
 }

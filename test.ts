@@ -5,7 +5,7 @@ const testFile = 'testdata/testdb.db';
 
 await Deno.mkdir("testdata", { recursive: true });
 
-try { await Deno.remove(testFile) } catch { }
+// try { await Deno.remove(testFile) } catch { }
 
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
     var db = new Database()
@@ -14,15 +14,23 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
     db.close();
 }
 
-await runWithDatabase(async (db) => {
-    assertEquals(await db.getSetCount(), 0);
-    assert(await db.createSet('test1'));
-    assertEquals(await db.getSetCount(), 1);
-    assert(await db.createSet('test2'));
-    assertEquals(await db.getSetCount(), 2);
-    assert(await db.createSet('test1'));
-    assertEquals(await db.getSetCount(), 2);
-    assert(await db.createSet('test3'));
-    assertEquals(await db.getSetCount(), 3);
-    await db.commit();
+await runWithDatabase(async db => {
+    console.info(await db.getSetCount());
+    // for (let i = 3000; i < 3100; i++) {
+    //     await db.createSet('test ' + i);
+    // }
+    // await db.commit();
 });
+
+// await runWithDatabase(async (db) => {
+//     assertEquals(await db.getSetCount(), 0);
+//     assert(await db.createSet('test1'));
+//     assertEquals(await db.getSetCount(), 1);
+//     assert(await db.createSet('test2'));
+//     assertEquals(await db.getSetCount(), 2);
+//     assert(await db.createSet('test1'));
+//     assertEquals(await db.getSetCount(), 2);
+//     assert(await db.createSet('test3'));
+//     assertEquals(await db.getSetCount(), 3);
+//     await db.commit();
+// });

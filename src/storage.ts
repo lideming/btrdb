@@ -68,7 +68,7 @@ export abstract class PageStorage {
             return;
         }
         this.addDirty(this.superPage!);
-        console.log('==========COMMIT==========', this.dirtyPages/* .map(x => [x.addr, x.type]) */);
+        console.log('==========COMMIT==========', this.dirtyPages.map(x => x._debugView())/* .map(x => [x.addr, x.type]) */);
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
