@@ -314,6 +314,7 @@ export class SuperPage extends RootTreeNode {
         super._copyTo(other);
         other.rev = this.rev + 1;
         other.version = this.version;
+        other.setCount = this.setCount;
     }
     getDirty(addDirty: boolean) {
         var dirty = this.storage.superPage = super.getDirty(false);
