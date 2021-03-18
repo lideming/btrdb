@@ -1,6 +1,6 @@
 # btrdb - B-tree DataBase
 
-[ ] Document database
-[*] B-Tree
-[*] Fully Copy-on-Write / log-structured
-[ ] Snapshots
+- [ ] Document database
+- [x] B-Tree
+- [x] Fully Copy-on-Write / log-structured
+- [ ] Snapshots
