@@ -11,6 +11,7 @@ export const enum PageType {
     Super = 1,
     RootTreeNode,
     Set,
+    Records,
 }
 
 export interface PageClass<T extends Page> {
@@ -32,6 +33,8 @@ export abstract class Page {
     /** Should not change pages on disk, we should always copy on write */
     get onDisk() { return this.addr >= 0; }
 
+    _newerCopy: this | null = null;
+
     /** Should be maintained by the page when changing data */
     freeBytes: number = PAGESIZE - 4;
 
@@ -40,13 +43,21 @@ export abstract class Page {
     /** Create a dirty copy of this page or return this page if it's already dirty. */
     getDirty(addDirty: boolean): this {
         if (this.dirty) return this;
+        if (this._newerCopy) throw new Error('getDirty on out-dated page');
         let dirty = this;
         if (this.onDisk) {
             dirty = new this._thisCtor(this.storage);
             this._copyTo(dirty);
+            this._newerCopy = dirty;
         }
         if (addDirty) this.storage.addDirty(dirty);
         return dirty;
+    }
+
+    getLatestCopy(): this {
+        let p = this;
+        while (p._newerCopy) p = p._newerCopy;
+        return p;
     }
 
     writeTo(buf: Buffer) {
@@ -56,7 +67,7 @@ export abstract class Page {
         buf.writeU16(0);
         this._writeContent(buf);
         if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-            throw new Error(`buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`)
+            throw new Error(`buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`);
         }
     }
     readFrom(buf: Buffer) {
@@ -67,7 +78,7 @@ export abstract class Page {
         if (buf.readU16() != 0) throw new Error('Non-zero reserved field');
         this._readContent(buf);
         if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-            throw new Error(`buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`)
+            throw new Error(`buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`);
         }
     }
 
@@ -99,7 +110,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     setKeys(newKeys: T[], newChildren: PageAddr[]) {
-        console.log([newKeys.length, newChildren.length])
+        console.log([newKeys.length, newChildren.length]);
         if (!((newKeys.length == 0 && newChildren.length == 0)
             || (newKeys.length + 1 == newChildren.length)
             || (newChildren.length == newKeys.length)
@@ -118,7 +129,10 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         this.children = newChildren;
     }
 
-    /** @returns `delCount` keys and `delCount` children. */
+    /**
+     * Remove and return a range of keys, and/or, insert a key.
+     * @returns `delCount` keys and `delCount` children.
+     **/
     spliceKeys(pos: number, delCount: number, key?: T, leftChild?: PageAddr)
         : [deletedKeys: T[], deletedChildren: PageAddr[]] {
         let deleted: T[];
@@ -144,17 +158,24 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     setChild(pos: number, child: PageAddr) {
-        if (this.children.length <= pos) throw new Error('pos out of range');
+        if (pos < 0 || this.children.length <= pos) throw new Error('pos out of range');
         this.children[pos] = child;
     }
 
-    findIndex(key: KeyOf<T>): { found: boolean, pos: number, val: T | undefined } {
+    setKey(pos: number, key: T) {
+        if (pos < 0 || this.keys.length <= pos) throw new Error('pos out of range');
+        this.keys[pos] = key;
+    }
+
+    findIndex(key: KeyOf<T>):
+        | { found: true, pos: number, val: T; }
+        | { found: false, pos: number, val: undefined; } {
         const keys = this.keys;
         let l = 0, r = keys.length - 1;
         while (l <= r) {
             const m = Math.round((l + r) / 2);
             const c = key.compareTo(keys[m].key);
-            console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m])
+            console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
             if (c == 0) return { found: true, pos: m, val: keys[m] };
             else if (c > 0) l = m + 1;
             else r = m - 1;
@@ -162,15 +183,16 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         return { found: false, pos: l, val: undefined };
     }
 
-    async findIndexRecursive(key: KeyOf<T>): Promise<{
-        found: boolean, node: NodePage<T>, pos: number, val: T | undefined
-    }> {
+    async findIndexRecursive(key: KeyOf<T>): Promise<
+        | { found: true, node: NodePage<T>, pos: number, val: T; }
+        | { found: false, node: NodePage<T>, pos: number, val: undefined; }
+    > {
         let node = this as NodePage<T>;
         while (true) {
             const { found, pos, val } = node.findIndex(key);
-            if (found) return { found, node, pos, val };
+            if (found) return { found: true, node, pos, val: val as T };
             const childAddr = node.children[pos];
-            if (!childAddr) return { found: false, node, pos, val };
+            if (!childAddr) return { found: false, node, pos, val: val as undefined };
             const childNode = await this.storage.readPage(childAddr, this._childCtor);
             childNode.parent = node;
             childNode.posInParent = pos;
@@ -180,45 +202,50 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
     async insert(val: T) {
         const { found, node, pos } = await this.findIndexRecursive(val.key as KeyOf<T>);
-        node.insertAt(pos, val);
+        const dirtyNode = node.getDirty(false);
+        dirtyNode.insertAt(pos, val);
+        dirtyNode.postChange();
     }
 
     insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
-        const node = this.getDirty(false);
-        node.spliceKeys(pos, 0, key, leftChild);
+        this.spliceKeys(pos, 0, key, leftChild);
+    }
 
-        if (node.freeBytes < 0) {
-            if (node.keys.length <= 2) {
+    postChange() {
+        if (this.onDisk) throw new Error('Cannot change on-disk page.');
+        if (this.freeBytes < 0) {
+            if (this.keys.length <= 2) {
                 throw new Error("Not implemented");
             }
-            console.log('spliting node with key count:', node.keys.length)
-            console.log(node.keys.length, node.children.length);
+            console.log('spliting node with key count:', this.keys.length);
+            console.log(this.keys.length, this.children.length);
 
             // split node
             const leftSib = new this._childCtor(this.storage).getDirty(false);
-            const leftCount = node.keys.length / 2;
-            const leftKeys = node.spliceKeys(0, leftCount);
+            const leftCount = this.keys.length / 2;
+            const leftKeys = this.spliceKeys(0, leftCount);
             leftSib.setKeys(leftKeys[0], leftKeys[1]);
-            const [[middleKey], [middleLeftChild]] = node.spliceKeys(0, 1);
+            const [[middleKey], [middleLeftChild]] = this.spliceKeys(0, 1);
             leftSib.setChild(leftCount, middleLeftChild);
 
-            if (node.parent) {
+            if (this.parent) {
                 // insert the middle key with the left sibling to parent
                 leftSib.getDirty(true);
-                node.getParentDirty();
-                node.parent.insertAt(node.posInParent!, middleKey, leftSib.addr);
+                this.getDirty(true);
+                this.getParentDirty();
+                this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
                 //          ^^^^^^^^ makeDirtyToRoot() inside
             } else {
                 // make `node` a parent of two nodes...
                 const rightChild = new this._childCtor(this.storage).getDirty(true);
-                rightChild.setKeys(node.keys, node.children);
-                node.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
-                node.getDirty(true);
+                rightChild.setKeys(this.keys, this.children);
+                this.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
+                this.getDirty(true);
             }
         } else {
-            node.getDirty(true);
-            if (node.parent)
-                node.makeDirtyToRoot();
+            this.getDirty(true);
+            if (this.parent)
+                this.makeDirtyToRoot();
         }
     }
 
@@ -291,7 +318,15 @@ function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
     return sum;
 }
 
-export class SetPage extends Page {
+export class RecordsPage extends NodePage<KValue<StringValue, StringValue>> {
+    get type(): PageType { return PageType.Records; }
+    protected _readValue(buf: Buffer): KValue<StringValue, StringValue> {
+        return KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom);
+    }
+    protected get _childCtor() { return RecordsPage; }
+}
+
+export class SetPage extends RecordsPage {
     get type(): PageType { return PageType.Set; }
     rev: number = 1;
     count: number = 0;
@@ -301,7 +336,7 @@ export class SetPage extends Page {
             ...super._debugView(),
             rev: this.rev,
             count: this.count,
-        }
+        };
     }
 }
 
@@ -315,6 +350,9 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
     protected get _childCtor() { return RootTreeNode; }
 }
 
+/**
+ * SuperPage, also the root of RootTree.
+ */
 export class SuperPage extends RootTreeNode {
     get type(): PageType { return PageType.Super; }
     version: number = 1;
@@ -343,6 +381,7 @@ export class SuperPage extends RootTreeNode {
         other.setCount = this.setCount;
     }
     getDirty(addDirty: boolean) {
+        if (!this.onDisk) return this;
         var dirty = this.storage.superPage = super.getDirty(false);
         return dirty;
     }
@@ -352,6 +391,6 @@ export class SuperPage extends RootTreeNode {
             rev: this.rev,
             version: this.version,
             setCount: this.setCount,
-        }
+        };
     }
 }

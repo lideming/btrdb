@@ -5,7 +5,7 @@ const testFile = 'testdata/testdb.db';
 
 await Deno.mkdir("testdata", { recursive: true });
 
-// try { await Deno.remove(testFile) } catch { }
+try { await Deno.remove(testFile) } catch { }
 
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
     var db = new Database()
@@ -15,12 +15,28 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
 }
 
 await runWithDatabase(async db => {
-    console.info(await db.getSetCount());
-    // for (let i = 3000; i < 3100; i++) {
-    //     await db.createSet('test ' + i);
-    // }
-    // await db.commit();
+    var set = await db.createSet("test");
+    await set.set("testkey", "testval");
+    console.info(await set.get("testkey"));
+    await db.commit();
 });
+
+await runWithDatabase(async db => {
+    var set = await db.getSet("test");
+    console.info(await set!.get("testkey"));
+    await db.commit();
+});
+
+// await runWithDatabase(async db => {
+//     console.info(await db.getSetCount());
+// });
+
+// await runWithDatabase(async db => {
+//     for (let i = 3000; i < 3100; i++) {
+//         await db.createSet('test ' + i);
+//     }
+//     await db.commit();
+// });
 
 // await runWithDatabase(async (db) => {
 //     assertEquals(await db.getSetCount(), 0);

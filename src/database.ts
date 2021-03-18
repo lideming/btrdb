@@ -6,15 +6,45 @@ export interface EngineContext {
     storage: PageStorage;
 }
 
-export interface IDbSet {
-
-}
-
-export class DbSet implements IDbSet {
+export class DbSet {
     constructor(
-        private page: SetPage,
+        private _page: SetPage,
         public readonly name: string
     ) { }
+
+    private get page() {
+        return this._page = this._page.getLatestCopy();
+    }
+
+    async get(key: string): Promise<string | null> {
+        const { found, val } = await this.page.findIndexRecursive(new StringValue(key));
+        if (!found) return null;
+        return val!.value.str;
+    }
+
+    async set(key: string, val: string | null) {
+        const { found, node, pos } = await this.page.findIndexRecursive(new StringValue(key));
+        if (val != null) {
+            const newVal = new KValue(new StringValue(key), new StringValue(val));
+            const dirtyNode = node.getDirty(false);
+            if (found) {
+                dirtyNode.setKey(pos, newVal);
+            } else {
+                dirtyNode.insertAt(pos, newVal);
+            }
+            dirtyNode.postChange();
+        } else {
+            const dirtyNode = node.getDirty(false);
+            if (found) {
+                dirtyNode.spliceKeys(pos, 1);
+                dirtyNode.postChange();
+            } // else noop
+        }
+    }
+
+    delete(key: string) {
+        return this.set(key, null);
+    }
 }
 
 export class DatabaseEngine implements EngineContext {
@@ -63,9 +93,10 @@ export class DatabaseEngine implements EngineContext {
 export interface Database {
     openFile(path: string): Promise<void>;
     createSet(name: string): Promise<DbSet>;
+    getSet(name: string): Promise<DbSet | null>;
     getSetCount(): Promise<number>;
     commit(): Promise<void>;
     close(): void;
 }
 
-export const Database: { new(): Database } = DatabaseEngine as any;
+export const Database: { new(): Database; } = DatabaseEngine as any;
