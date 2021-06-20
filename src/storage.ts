@@ -1,6 +1,6 @@
 import { Buffer } from "./buffer.ts";
-import { Page, PageAddr, PageClass, PAGESIZE, PageType, SuperPage } from "./page.ts";
-import { UIntValue } from "./value.ts";
+import { Page, PageAddr, PageClass, PAGESIZE, PageType, SetPage, SuperPage } from "./page.ts";
+import { KValue, StringValue, UIntValue } from "./value.ts";
 
 
 export abstract class PageStorage {
@@ -10,6 +10,8 @@ export abstract class PageStorage {
 
     superPage: SuperPage | undefined = undefined;
     cleanSuperPage: SuperPage | undefined = undefined;
+
+    dirtySets: SetPage[] = [];
 
     async init() {
         const lastAddr = await this._getLastAddr();
@@ -38,10 +40,14 @@ export abstract class PageStorage {
     readPage<T extends Page>(addr: PageAddr, type: PageClass<T>): Promise<T> {
         const cached = this.cache.get(addr);
         if (cached) return Promise.resolve(cached as T);
+        if (addr < 0 || addr >= this.nextAddr) {
+            throw new Error('Invalid page addr ' + addr);
+        }
         const buffer = new Uint8Array(PAGESIZE);
         return this._readPageBuffer(addr, buffer).then(() => {
             const page = new type(this);
             page.addr = addr;
+            page.onDisk = true;
             page.readFrom(new Buffer(buffer, 0));
             this.cache.set(page.addr, page);
             // console.log("readPage", page);
@@ -59,6 +65,17 @@ export abstract class PageStorage {
     }
 
     async commit() {
+        if (this.dirtySets.length) {
+            for (const set of this.dirtySets) {
+                if (set._newerCopy) throw new Error('non-latest page in dirtySets');
+                set.getDirty(true);
+                let { node, pos } = await this.superPage!.findIndexRecursive(new StringValue(set.name));
+                node = node.getDirty(false);
+                node.setKey(pos, new KValue(new StringValue(set.name), new UIntValue(set.addr)));
+                node.postChange();
+            }
+            this.dirtySets = [];
+        }
         if (this.superPage!.onDisk) {
             if (this.dirtyPages.length == 0) {
                 console.log("Nothing to commit");
@@ -68,10 +85,14 @@ export abstract class PageStorage {
             return;
         }
         this.addDirty(this.superPage!);
-        console.log('==========COMMIT==========', this.dirtyPages.map(x => x._debugView())/* .map(x => [x.addr, x.type]) */);
+        console.log('==========COMMIT==========', this.dirtyPages
+            // .map(x => x._debugView())
+            .map(x => [x.addr, x.type])
+        );
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
+            page.onDisk = true;
         }
         while (this.dirtyPages.pop()) { }
         this.cleanSuperPage = this.superPage;
@@ -114,7 +135,7 @@ export class InFileStorage extends PageStorage {
             }
             buffer.buffer.set(InFileStorage.emptyBuffer, 0);
             buffer.pos = 0;
-            console.info("written page addr", page.addr);
+            // console.info("written page addr", page.addr);
         }
     }
     protected async _getLastAddr() {

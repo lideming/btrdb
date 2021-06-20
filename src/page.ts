@@ -31,7 +31,7 @@ export abstract class Page {
     dirty = false;
 
     /** Should not change pages on disk, we should always copy on write */
-    get onDisk() { return this.addr >= 0; }
+    onDisk = false;
 
     _newerCopy: this | null = null;
 
@@ -61,6 +61,10 @@ export abstract class Page {
     }
 
     writeTo(buf: Buffer) {
+        if (this.freeBytes < 0) {
+            console.error(this);
+            throw new Error(`page content overflow (free ${this.freeBytes})`)
+        }
         const beginPos = buf.pos;
         buf.writeU8(this.type);
         buf.writeU8(0);
@@ -90,7 +94,11 @@ export abstract class Page {
         };
     }
 
-    protected _copyTo(page: this) { }
+    protected _copyTo(page: this) {
+        if (Object.getPrototypeOf(this) != Object.getPrototypeOf(page)) {
+            throw new Error("_copyTo() with different types");
+        }
+    }
     protected _writeContent(buf: Buffer) { }
     protected _readContent(buf: Buffer) { }
     protected get _thisCtor(): PageClass<this> {
@@ -110,7 +118,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     setKeys(newKeys: T[], newChildren: PageAddr[]) {
-        console.log([newKeys.length, newChildren.length]);
+        // console.log([newKeys.length, newChildren.length]);
         if (!((newKeys.length == 0 && newChildren.length == 0)
             || (newKeys.length + 1 == newChildren.length)
             || (newChildren.length == newKeys.length)
@@ -135,6 +143,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
      **/
     spliceKeys(pos: number, delCount: number, key?: T, leftChild?: PageAddr)
         : [deletedKeys: T[], deletedChildren: PageAddr[]] {
+        if (leftChild! < 0) throw new Error('Invalid leftChild');
+        this.writeTo(new Buffer(new Uint8Array(4096), 0));
         let deleted: T[];
         let deletedChildren: PageAddr[];
         if (key) {
@@ -154,6 +164,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             }
         }
         this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
+        this.writeTo(new Buffer(new Uint8Array(4096), 0));
         return [deleted, deletedChildren];
     }
 
@@ -175,7 +186,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         while (l <= r) {
             const m = Math.round((l + r) / 2);
             const c = key.compareTo(keys[m].key);
-            console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
+            // console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
             if (c == 0) return { found: true, pos: m, val: keys[m] };
             else if (c > 0) l = m + 1;
             else r = m - 1;
@@ -217,12 +228,12 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             if (this.keys.length <= 2) {
                 throw new Error("Not implemented");
             }
-            console.log('spliting node with key count:', this.keys.length);
-            console.log(this.keys.length, this.children.length);
+            // console.log('spliting node with key count:', this.keys.length);
+            // console.log(this.keys.length, this.children.length);
 
             // split node
-            const leftSib = new this._childCtor(this.storage).getDirty(false);
-            const leftCount = this.keys.length / 2;
+            const leftSib = new this._childCtor(this.storage).getDirty(true);
+            const leftCount = Math.floor(this.keys.length / 2);
             const leftKeys = this.spliceKeys(0, leftCount);
             leftSib.setKeys(leftKeys[0], leftKeys[1]);
             const [[middleKey], [middleLeftChild]] = this.spliceKeys(0, 1);
@@ -234,13 +245,15 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
                 this.getDirty(true);
                 this.getParentDirty();
                 this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
-                //          ^^^^^^^^ makeDirtyToRoot() inside
+                this.parent.postChange();
+                //          ^^^^^^^^^^ makeDirtyToRoot() inside
             } else {
                 // make `node` a parent of two nodes...
                 const rightChild = new this._childCtor(this.storage).getDirty(true);
                 rightChild.setKeys(this.keys, this.children);
                 this.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
                 this.getDirty(true);
+                this.makeDirtyToRoot();
             }
         } else {
             this.getDirty(true);
@@ -331,12 +344,45 @@ export class SetPage extends RecordsPage {
     rev: number = 1;
     count: number = 0;
 
+    name: string = '';
+
+    override init() {
+        super.init();
+        this.freeBytes -= 8;
+    }
+
     override _debugView() {
         return {
             ...super._debugView(),
             rev: this.rev,
             count: this.count,
         };
+    }
+
+    override _writeContent(buf: Buffer) {
+        buf.writeU32(this.rev);
+        buf.writeU32(this.count);
+        super._writeContent(buf);
+    }
+
+    override _readContent(buf: Buffer) {
+        this.rev = buf.readU32();
+        this.count = buf.readU32();
+        super._readContent(buf);
+    }
+
+    override _copyTo(page: SetPage) {
+        super._copyTo(page as any);
+        page.rev = this.rev;
+        page.count = this.count;
+
+        page.name = this.name;
+    }
+
+    override getDirty(addDirty: boolean) {
+        var r = super.getDirty(addDirty);
+        if (r != this) this.storage.dirtySets.push(r);
+        return r;
     }
 }
 

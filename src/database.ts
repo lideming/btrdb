@@ -16,6 +16,10 @@ export class DbSet {
         return this._page = this._page.getLatestCopy();
     }
 
+    get count() {
+        return this._page.count;
+    }
+
     async get(key: string): Promise<string | null> {
         const { found, val } = await this.page.findIndexRecursive(new StringValue(key));
         if (!found) return null;
@@ -24,18 +28,21 @@ export class DbSet {
 
     async set(key: string, val: string | null) {
         const { found, node, pos } = await this.page.findIndexRecursive(new StringValue(key));
+
         if (val != null) {
             const newVal = new KValue(new StringValue(key), new StringValue(val));
             const dirtyNode = node.getDirty(false);
             if (found) {
                 dirtyNode.setKey(pos, newVal);
             } else {
+                this.page.count += 1;
                 dirtyNode.insertAt(pos, newVal);
             }
             dirtyNode.postChange();
         } else {
             const dirtyNode = node.getDirty(false);
             if (found) {
+                this.page.count -= 1;
                 dirtyNode.spliceKeys(pos, 1);
                 dirtyNode.postChange();
             } // else noop
@@ -64,6 +71,7 @@ export class DatabaseEngine implements EngineContext {
         let set = await this.getSet(name);
         if (set) return set;
         const setPage = new SetPage(this.storage).getDirty(true);
+        setPage.name = name;
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
         this.superPage!.setCount++;
         return new DbSet(setPage, name);
@@ -74,6 +82,7 @@ export class DatabaseEngine implements EngineContext {
         const r = await superPage.findIndexRecursive(new StringValue(name));
         if (!r.found) return null;
         const setPage = await this.storage.readPage(r.val!.value.val, SetPage);
+        setPage.name = name;
         return new DbSet(setPage, name);
     }
 
