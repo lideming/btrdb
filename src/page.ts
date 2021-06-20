@@ -104,7 +104,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     keys: T[] = [];
     children: PageAddr[] = [];
 
-    init() {
+    override init() {
         super.init();
         this.freeBytes -= 2; // keysCount
     }
@@ -264,7 +264,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         }
     }
 
-    _debugView() {
+    override _debugView() {
         return {
             ...super._debugView(),
             parentAddr: this.parent?.addr,
@@ -273,7 +273,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         };
     }
 
-    protected _writeContent(buf: Buffer) {
+    protected override _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU16(this.keys.length);
         for (let i = 0; i < this.keys.length; i++) {
@@ -283,7 +283,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             buf.writeU32(this.children[i]);
         }
     }
-    protected _readContent(buf: Buffer) {
+    protected override _readContent(buf: Buffer) {
         super._readContent(buf);
         const keyCount = buf.readU16();
         const posBefore = buf.pos;
@@ -296,7 +296,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         }
         this.freeBytes -= buf.pos - posBefore;
     }
-    protected _copyTo(page: this) {
+    protected override _copyTo(page: this) {
         super._copyTo(page);
         page.parent = this.parent;
         page.keys = [...this.keys];
@@ -323,15 +323,15 @@ export class RecordsPage extends NodePage<KValue<StringValue, StringValue>> {
     protected _readValue(buf: Buffer): KValue<StringValue, StringValue> {
         return KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom);
     }
-    protected get _childCtor() { return RecordsPage; }
+    protected override get _childCtor() { return RecordsPage; }
 }
 
 export class SetPage extends RecordsPage {
-    get type(): PageType { return PageType.Set; }
+    override get type(): PageType { return PageType.Set; }
     rev: number = 1;
     count: number = 0;
 
-    _debugView() {
+    override _debugView() {
         return {
             ...super._debugView(),
             rev: this.rev,
@@ -347,45 +347,45 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
     protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
         return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
     }
-    protected get _childCtor() { return RootTreeNode; }
+    protected override get _childCtor() { return RootTreeNode; }
 }
 
 /**
  * SuperPage, also the root of RootTree.
  */
 export class SuperPage extends RootTreeNode {
-    get type(): PageType { return PageType.Super; }
+    override get type(): PageType { return PageType.Super; }
     version: number = 1;
     rev: number = 1;
     setCount: number = 0;
-    init() {
+    override init() {
         super.init();
         this.freeBytes -= 3 * 4;
     }
-    _writeContent(buf: Buffer) {
+    override _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU32(this.version);
         buf.writeU32(this.rev);
         buf.writeU32(this.setCount);
     }
-    _readContent(buf: Buffer) {
+    override _readContent(buf: Buffer) {
         super._readContent(buf);
         this.version = buf.readU32();
         this.rev = buf.readU32();
         this.setCount = buf.readU32();
     }
-    protected _copyTo(other: this) {
+    protected override _copyTo(other: this) {
         super._copyTo(other);
         other.rev = this.rev + 1;
         other.version = this.version;
         other.setCount = this.setCount;
     }
-    getDirty(addDirty: boolean) {
+    override getDirty(addDirty: boolean) {
         if (!this.onDisk) return this;
         var dirty = this.storage.superPage = super.getDirty(false);
         return dirty;
     }
-    _debugView() {
+    override _debugView() {
         return {
             ...super._debugView(),
             rev: this.rev,
