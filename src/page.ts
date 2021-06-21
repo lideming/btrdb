@@ -63,7 +63,7 @@ export abstract class Page {
     writeTo(buf: Buffer) {
         if (this.freeBytes < 0) {
             console.error(this);
-            throw new Error(`page content overflow (free ${this.freeBytes})`)
+            throw new Error(`page content overflow (free ${this.freeBytes})`);
         }
         const beginPos = buf.pos;
         buf.writeU8(this.type);
@@ -144,7 +144,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     spliceKeys(pos: number, delCount: number, key?: T, leftChild?: PageAddr)
         : [deletedKeys: T[], deletedChildren: PageAddr[]] {
         if (leftChild! < 0) throw new Error('Invalid leftChild');
-        this.writeTo(new Buffer(new Uint8Array(4096), 0));
+        // this.writeTo(new Buffer(new Uint8Array(4096), 0));
         let deleted: T[];
         let deletedChildren: PageAddr[];
         if (key) {
@@ -164,7 +164,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             }
         }
         this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
-        this.writeTo(new Buffer(new Uint8Array(4096), 0));
+        // this.writeTo(new Buffer(new Uint8Array(4096), 0));
         return [deleted, deletedChildren];
     }
 
@@ -192,6 +192,22 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             else r = m - 1;
         }
         return { found: false, pos: l, val: undefined };
+    }
+
+
+    async getAllValues(array?: T[]): Promise<T[]> {
+        if (!array) array = [];
+        // console.info('getAllValues', this.addr);
+        for (let pos = 0; pos < this.children.length; pos++) {
+            const leftAddr = this.children[pos];
+            if (leftAddr) {
+                const leftPage = await this.storage.readPage(leftAddr, this._childCtor);
+                await leftPage.getAllValues(array);
+            }
+            if (pos < this.keys.length)
+                array.push(this.keys[pos] as any);
+        }
+        return array;
     }
 
     async findIndexRecursive(key: KeyOf<T>): Promise<

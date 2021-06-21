@@ -1,4 +1,4 @@
-import { SetPage, SuperPage } from "./page.ts";
+import { RecordsPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
 import { KValue, StringValue, UIntValue } from "./value.ts";
 
@@ -24,6 +24,14 @@ export class DbSet {
         const { found, val } = await this.page.findIndexRecursive(new StringValue(key));
         if (!found) return null;
         return val!.value.str;
+    }
+
+    async getAll(): Promise<{ key: string, value: string; }[]> {
+        return (await this.page.getAllValues()).map(x => ({ key: x.key.str, value: x.value.str }));
+    }
+
+    async getKeys(): Promise<string[]> {
+        return (await this.page.getAllValues()).map(x => x.key.str);
     }
 
     async set(key: string, val: string | null) {

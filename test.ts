@@ -1,9 +1,10 @@
 import { Database } from "./src/database.ts";
 import { assert, assertEquals } from "https://deno.land/std@0.74.0/testing/asserts.ts";
 
-await new Promise(r => setTimeout(r, 300));
 
 const testFile = 'testdata/testdb.db';
+
+await new Promise(r => setTimeout(r, 300));
 
 await Deno.mkdir("testdata", { recursive: true });
 
@@ -32,10 +33,12 @@ await runWithDatabase(async function getSet (db) {
     await db.commit();
 });
 
+var keys = new Array(100000).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
+
 await runWithDatabase(async function set10k (db) {
     var set = (await db.getSet("test"))!;
-    for (let i = 0; i < 1000000; i++) {
-        await set.set('key' + i, 'val' + i);
+    for (const k of keys) {
+        await set.set('key' + k, 'val' + k);
     }
     console.info('set.count', set.count);
     await db.commit();
@@ -44,14 +47,24 @@ await runWithDatabase(async function set10k (db) {
 await runWithDatabase(async function get10k (db) {
     var set = (await db.getSet("test"))!;
     console.info('set.count', set.count);
-    for (let i = 0; i < 1000000; i++) {
-        const val = await set!.get('key' + i);
-        if (val != 'val' + i) {
-            console.error('expect', i, 'got', val);
+    for (const k of keys) {
+        const val = await set!.get('key' + k);
+        if (val != 'val' + k) {
+            console.error('expect', k, 'got', val);
         }
     }
     console.info('read done');
     await db.commit();
+});
+
+await runWithDatabase(async function getKeys (db) {
+    var set = await db.getSet("test");
+    var r = await set!.getKeys();
+    var uniqueKeys = [...new Set(keys)].map(x => 'key' + x).sort();
+    for (let i = 0; i < uniqueKeys.length; i++) {
+        if (uniqueKeys[i] != r[i]) throw new Error(`${uniqueKeys[i]} != ${r[i]}, i = ${i}}`);
+    }
+    // await db.commit();
 });
 
 // await runWithDatabase(async db => {
