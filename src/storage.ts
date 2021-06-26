@@ -8,9 +8,13 @@ export abstract class PageStorage {
     dirtyPages: Page[] = [];
     nextAddr: number = 0;
 
+    /** The latest SuperPage, might be dirty. */
     superPage: SuperPage | undefined = undefined;
+
+    /** Keep a reference to the latest clean/on-disk SuperPage. For concurrent querying and snapshop. */
     cleanSuperPage: SuperPage | undefined = undefined;
 
+    /** When a SetPage is dirty, it will be added into here. */
     dirtySets: SetPage[] = [];
 
     async init() {
@@ -25,6 +29,7 @@ export abstract class PageStorage {
             while (rootAddr >= 0) {
                 try {
                     this.superPage = await this.readPage(rootAddr, SuperPage);
+                    this.cleanSuperPage = this.superPage;
                     break;
                 } catch (error) {
                     console.error(error);
@@ -65,26 +70,28 @@ export abstract class PageStorage {
     }
 
     async commit() {
+        if (!this.superPage) throw new Error('superPage does not exist.');
         if (this.dirtySets.length) {
             for (const set of this.dirtySets) {
                 if (set._newerCopy) throw new Error('non-latest page in dirtySets');
                 set.getDirty(true);
-                let { node, pos } = await this.superPage!.findIndexRecursive(new StringValue(set.name));
+                let { node, pos } = await this.superPage.findIndexRecursive(new StringValue(set.name));
                 node = node.getDirty(false);
                 node.setKey(pos, new KValue(new StringValue(set.name), new UIntValue(set.addr)));
                 node.postChange();
             }
             this.dirtySets = [];
         }
-        if (this.superPage!.onDisk) {
+        if (this.superPage.onDisk) {
             if (this.dirtyPages.length == 0) {
                 console.log("Nothing to commit");
+                return false;
             } else {
                 throw new Error("super page is not dirty");
             }
-            return;
         }
-        this.addDirty(this.superPage!);
+        if (this.cleanSuperPage) this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
+        this.addDirty(this.superPage);
         console.log('==========COMMIT==========', this.dirtyPages
             // .map(x => x._debugView())
             .map(x => [x.addr, x.type])
@@ -97,6 +104,7 @@ export abstract class PageStorage {
         while (this.dirtyPages.pop()) { }
         this.cleanSuperPage = this.superPage;
         console.log('==========END COMMIT==========');
+        return true;
     }
 
     close() {

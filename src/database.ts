@@ -9,7 +9,8 @@ export interface EngineContext {
 export class DbSet {
     constructor(
         private _page: SetPage,
-        public readonly name: string
+        public readonly name: string,
+        private isSnapshot: boolean
     ) { }
 
     private get page() {
@@ -35,6 +36,7 @@ export class DbSet {
     }
 
     async set(key: string, val: string | null) {
+        if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
         const { found, node, pos } = await this.page.findIndexRecursive(new StringValue(key));
 
         if (val != null) {
@@ -64,8 +66,9 @@ export class DbSet {
 
 export class DatabaseEngine implements EngineContext {
     storage: PageStorage = undefined as any;
+    private snapshot: SuperPage | null = null;
 
-    get superPage() { return this.storage.superPage; }
+    get superPage() { return this.snapshot || this.storage.superPage; }
 
     async openFile(path: string) {
         const stor = new InFileStorage();
@@ -82,7 +85,7 @@ export class DatabaseEngine implements EngineContext {
         setPage.name = name;
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
         this.superPage!.setCount++;
-        return new DbSet(setPage, name);
+        return new DbSet(setPage, name, !!this.snapshot);
     }
 
     async getSet(name: string) {
@@ -91,7 +94,7 @@ export class DatabaseEngine implements EngineContext {
         if (!r.found) return null;
         const setPage = await this.storage.readPage(r.val!.value.val, SetPage);
         setPage.name = name;
-        return new DbSet(setPage, name);
+        return new DbSet(setPage, name, !!this.snapshot);
     }
 
     async getSetCount() {
@@ -99,7 +102,15 @@ export class DatabaseEngine implements EngineContext {
     }
 
     async commit() {
-        await this.storage.commit();
+        return await this.storage.commit();
+    }
+
+    async getPrevSnapshot() {
+        if (!this.superPage?.prevSuperPageAddr) return null;
+        var prev = new DatabaseEngine();
+        prev.storage = this.storage;
+        prev.snapshot = await this.storage.readPage(this.superPage.prevSuperPageAddr, SuperPage);
+        return prev;
     }
 
     close() {
@@ -113,6 +124,7 @@ export interface Database {
     getSet(name: string): Promise<DbSet | null>;
     getSetCount(): Promise<number>;
     commit(): Promise<void>;
+    getPrevSnapshot(): Promise<Database | null>;
     close(): void;
 }
 

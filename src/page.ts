@@ -175,6 +175,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
     setKey(pos: number, key: T) {
         if (pos < 0 || this.keys.length <= pos) throw new Error('pos out of range');
+        this.freeBytes -= key.byteLength - this.keys[pos].byteLength;
         this.keys[pos] = key;
     }
 
@@ -197,17 +198,22 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
     async getAllValues(array?: T[]): Promise<T[]> {
         if (!array) array = [];
-        // console.info('getAllValues', this.addr);
+        await this.traverseKeys((key) => {
+                array!.push(key as any)
+        });
+        return array;
+    }
+
+    async traverseKeys(func: (key: T, page: this, pos: number) => Promise<void> | void) {
         for (let pos = 0; pos < this.children.length; pos++) {
             const leftAddr = this.children[pos];
             if (leftAddr) {
                 const leftPage = await this.storage.readPage(leftAddr, this._childCtor);
-                await leftPage.getAllValues(array);
+                await leftPage.traverseKeys(func as any);
             }
             if (pos < this.keys.length)
-                array.push(this.keys[pos] as any);
+                await func(this.keys[pos], this, pos);
         }
-        return array;
     }
 
     async findIndexRecursive(key: KeyOf<T>): Promise<
@@ -417,29 +423,35 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
  */
 export class SuperPage extends RootTreeNode {
     override get type(): PageType { return PageType.Super; }
+
     version: number = 1;
     rev: number = 1;
+    prevSuperPageAddr: PageAddr = 0;
     setCount: number = 0;
+
     override init() {
         super.init();
-        this.freeBytes -= 3 * 4;
+        this.freeBytes -= 4 * 4;
     }
     override _writeContent(buf: Buffer) {
         super._writeContent(buf);
         buf.writeU32(this.version);
         buf.writeU32(this.rev);
+        buf.writeU32(this.prevSuperPageAddr);
         buf.writeU32(this.setCount);
     }
     override _readContent(buf: Buffer) {
         super._readContent(buf);
         this.version = buf.readU32();
         this.rev = buf.readU32();
+        this.prevSuperPageAddr = buf.readU32();
         this.setCount = buf.readU32();
     }
     protected override _copyTo(other: this) {
         super._copyTo(other);
         other.rev = this.rev + 1;
         other.version = this.version;
+        other.prevSuperPageAddr = this.prevSuperPageAddr;
         other.setCount = this.setCount;
     }
     override getDirty(addDirty: boolean) {
