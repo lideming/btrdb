@@ -7,6 +7,17 @@
 - [ ] Document sets
 - [ ] GC (?)
 
+## Usage
+
+> ⚠️ Warning! ⚠️
+>
+> This project is just started. It's under heavy development!
+>
+> The on-disk structre and the API are NOT stable yet.
+>
+> Please do NOT use it in any serious production.
+
+See `test.ts`.
 
 ## Design
 
