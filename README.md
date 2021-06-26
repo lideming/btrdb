@@ -6,3 +6,8 @@
 - [x] Key-Value sets
 - [ ] Document sets
 - [ ] GC (?)
+
+
+## Design
+
+![design.svg](./docs/design.svg)
