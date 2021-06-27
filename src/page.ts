@@ -12,6 +12,7 @@ export const enum PageType {
     RootTreeNode,
     Set,
     Records,
+    Documents,
 }
 
 export interface PageClass<T extends Page> {
@@ -28,10 +29,10 @@ export abstract class Page {
         this.init();
     }
 
+    /** Should not change pages on disk, we should always copy on write */
     dirty = false;
 
-    /** Should not change pages on disk, we should always copy on write */
-    onDisk = false;
+    get hasAddr() { return this.addr != -1; }
 
     _newerCopy: this | null = null;
 
@@ -40,18 +41,23 @@ export abstract class Page {
 
     init() { }
 
-    /** Create a dirty copy of this page or return this page if it's already dirty. */
+    /**
+     * Create a dirty copy of this page or return this page if it's already dirty.
+     * @param addDirty {boolean} whether to assign the page address
+     */
     getDirty(addDirty: boolean): this {
-        if (this.dirty) return this;
         if (this._newerCopy) throw new Error('getDirty on out-dated page');
-        let dirty = this;
-        if (this.onDisk) {
-            dirty = new this._thisCtor(this.storage);
+        if (this.dirty) {
+            if (addDirty && !this.hasAddr) this.storage.addDirty(this);
+            return this;
+        } else {
+            let dirty = new this._thisCtor(this.storage);
+            dirty.dirty = true;
             this._copyTo(dirty);
             this._newerCopy = dirty;
+            if (addDirty) this.storage.addDirty(dirty);
+            return dirty;
         }
-        if (addDirty) this.storage.addDirty(dirty);
-        return dirty;
     }
 
     getLatestCopy(): this {
@@ -245,7 +251,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     postChange() {
-        if (this.onDisk) throw new Error('Cannot change on-disk page.');
+        if (!this.dirty) throw new Error('Cannot change non-dirty page.');
         if (this.freeBytes < 0) {
             if (this.keys.length <= 2) {
                 throw new Error("Not implemented");
@@ -266,6 +272,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
                 leftSib.getDirty(true);
                 this.getDirty(true);
                 this.getParentDirty();
+                this.parent.setChild(this.posInParent!, this.addr);
                 this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
                 this.parent.postChange();
                 //          ^^^^^^^^^^ makeDirtyToRoot() inside
@@ -334,6 +341,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     protected override _copyTo(page: this) {
         super._copyTo(page);
         page.parent = this.parent;
+        page.posInParent = this.posInParent;
         page.keys = [...this.keys];
         page.children = [...this.children];
         page.freeBytes = this.freeBytes;
@@ -408,6 +416,11 @@ export class SetPage extends RecordsPage {
     }
 }
 
+// TODO
+// class DocumentsPage ?
+// SetPage.setType ?
+// Generic RecordsPage ?
+
 export type SetPageAddr = UIntValue;
 
 export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
@@ -455,7 +468,6 @@ export class SuperPage extends RootTreeNode {
         other.setCount = this.setCount;
     }
     override getDirty(addDirty: boolean) {
-        if (!this.onDisk) return this;
         var dirty = this.storage.superPage = super.getDirty(false);
         return dirty;
     }

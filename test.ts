@@ -97,6 +97,14 @@ await runWithDatabase(async function checkSnap2 (db) {
     assertEquals(await db.commit(), false);
 });
 
+// await runWithDatabase(async function lotsOfCommits (db) {
+//     var set = await db.getSet("test"); // commit "b"
+//     for (let i = 0; i < 10000000; i++) {
+//         await set!.set('somevar', 'val' + i);
+//         await db.commit();
+//     }
+// });
+
 
 console.info("Tests finished.");
 
@@ -132,8 +140,7 @@ async function recreateDatabase() {
 
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
     console.info('=============================');
-    console.info('===== run ' + func.name);
-    console.info('=============================');
+    console.info('=====> run ' + func.name);
     var db = new Database();
     await db.openFile(testFile);
     await func(db);

@@ -75,6 +75,17 @@ export class UIntValue implements IKey<UIntValue> {
     }
 }
 
+export class JSONValue extends StringValue {
+    constructor(public readonly val: any, stringified?: string) {
+            super(stringified ?? JSON.stringify(val));
+    }
+
+    static readFrom(buf: Buffer) {
+        const str = buf.readString();
+        return new JSONValue(JSON.parse(str), str);
+    }
+}
+
 export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
     constructor(
         public readonly key: K,

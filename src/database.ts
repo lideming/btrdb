@@ -14,11 +14,12 @@ export class DbSet {
     ) { }
 
     private get page() {
+        if (this.isSnapshot) return this._page;
         return this._page = this._page.getLatestCopy();
     }
 
     get count() {
-        return this._page.count;
+        return this.page.count;
     }
 
     async get(key: string): Promise<string | null> {
@@ -75,7 +76,7 @@ export class DatabaseEngine implements EngineContext {
         await stor.openPath(path);
         await stor.init();
         this.storage = stor;
-        console.log('openFile():', this.superPage);
+        // console.log('openFile():', this.superPage);
     }
 
     async createSet(name: string) {

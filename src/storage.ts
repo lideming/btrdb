@@ -52,7 +52,6 @@ export abstract class PageStorage {
         return this._readPageBuffer(addr, buffer).then(() => {
             const page = new type(this);
             page.addr = addr;
-            page.onDisk = true;
             page.readFrom(new Buffer(buffer, 0));
             this.cache.set(page.addr, page);
             // console.log("readPage", page);
@@ -61,9 +60,14 @@ export abstract class PageStorage {
     }
 
     addDirty(page: Page) {
-        if (page.onDisk) throw new Error("Can't mark on-disk page as dirty");
-        if (page.dirty) return;
-        page.dirty = true;
+        if (page.hasAddr) {
+            if (page.dirty) {
+                console.info('re-added dirty', page.type, page.addr);
+                return;
+            } else {
+                throw new Error("Can't mark on-disk page as dirty");
+            }
+        }
         page.addr = this.nextAddr++;
         this.dirtyPages.push(page);
         this.cache.set(page.addr, page);
@@ -82,7 +86,7 @@ export abstract class PageStorage {
             }
             this.dirtySets = [];
         }
-        if (this.superPage.onDisk) {
+        if (!this.superPage.dirty) {
             if (this.dirtyPages.length == 0) {
                 console.log("Nothing to commit");
                 return false;
@@ -93,17 +97,17 @@ export abstract class PageStorage {
         if (this.cleanSuperPage) this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
         this.addDirty(this.superPage);
         console.log('==========COMMIT==========', this.dirtyPages
+            .length + ' pages'
             // .map(x => x._debugView())
-            .map(x => [x.addr, x.type])
+            // .map(x => [x.addr, x.type])
         );
         await this._commit(this.dirtyPages);
         for (const page of this.dirtyPages) {
             page.dirty = false;
-            page.onDisk = true;
         }
         while (this.dirtyPages.pop()) { }
         this.cleanSuperPage = this.superPage;
-        console.log('==========END COMMIT==========');
+        console.log('========END COMMIT========');
         return true;
     }
 
