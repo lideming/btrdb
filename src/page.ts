@@ -2,7 +2,7 @@ export const PAGESIZE = 4096;
 
 import { Buffer } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
-import { IKey, KeyOf, KValue, StringValue, UIntValue } from "./value.ts";
+import { IKey, JSONValue, KeyOf, KValue, StringValue, UIntValue } from "./value.ts";
 
 export type PageAddr = number;
 
@@ -12,7 +12,8 @@ export const enum PageType {
     RootTreeNode,
     Set,
     Records,
-    Documents,
+    DocSet,
+    DocRecords,
 }
 
 export interface PageClass<T extends Page> {
@@ -438,6 +439,22 @@ export class SetPage extends RecordsPage {
         if (r != this) this.storage.dirtySets.push(r);
         return r;
     }
+}
+
+export class DocsPage extends NodePage<KValue<JSONValue, JSONValue>> {
+    get type(): PageType { return PageType.DocRecords; }
+    protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
+        return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
+    }
+    protected override get _childCtor() { return DocsPage; }
+}
+
+export class DocSetPage extends SetPage {
+    override get type(): PageType { return PageType.DocSet; }
+    protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
+        return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
+    }
+    protected override get _childCtor() { return DocsPage as any; }
 }
 
 // TODO

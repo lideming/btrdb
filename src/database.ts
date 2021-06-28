@@ -1,6 +1,6 @@
-import { RecordsPage, SetPage, SuperPage } from "./page.ts";
+import { DocSetPage, RecordsPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
-import { KValue, StringValue, UIntValue } from "./value.ts";
+import { JSONValue, KValue, StringValue, UIntValue } from "./value.ts";
 
 export interface EngineContext {
     storage: PageStorage;
@@ -10,7 +10,7 @@ export class DbSet {
     constructor(
         private _page: SetPage,
         public readonly name: string,
-        private isSnapshot: boolean
+        protected isSnapshot: boolean
     ) { }
 
     private get page() {
@@ -39,7 +39,7 @@ export class DbSet {
     async set(key: string, val: string | null) {
         if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
         const keyv = new StringValue(key);
-        const valv = !val ? null : new KValue(new StringValue(key), new StringValue(val));
+        const valv = !val ? null : new KValue(keyv, new StringValue(val));
         const done = await this.page.set(keyv, valv);
         if (done == 'added') {
             this.page.count += 1;
@@ -52,6 +52,49 @@ export class DbSet {
         return this.set(key, null);
     }
 }
+
+//@ts-expect-error
+export class DocDbSet extends DbSet {
+    declare private _page: DocSetPage;
+    declare private page: DocSetPage;
+
+    async get(key: string): Promise<any | null> {
+        const { found, val } = await this.page.findIndexRecursive(new JSONValue(key));
+        if (!found) return null;
+        return (val!.value as any).val;
+    }
+
+    async getAll(): Promise<{ key: any, value: any; }[]> {
+        return (await this.page.getAllValues() as any[]).map(x => ({ key: x.key.val, value: x.value.val }));
+    }
+
+    async getKeys(): Promise<any[]> {
+        return (await this.page.getAllValues() as any[]).map(x => x.key.val);
+    }
+
+    async set(key: any, val: any) {
+        if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
+        const keyv = new JSONValue(key);
+        const valv = !val ? null : new KValue(keyv, new JSONValue(val));
+        const done = await this.page.set(keyv, valv);
+        if (done == 'added') {
+            this.page.count += 1;
+        } else if (done == 'removed') {
+            this.page.count -= 1;
+        }
+    }
+
+    delete(key: string) {
+        return this.set(key, null);
+    }
+}
+
+export type DbSetType = keyof typeof _setTypeInfo;
+
+const _setTypeInfo = {
+    kv: { page: SetPage, dbset: DbSet },
+    doc: { page: DocSetPage, dbset: DocDbSet },
+};
 
 export class DatabaseEngine implements EngineContext {
     storage: PageStorage = undefined as any;
@@ -67,23 +110,29 @@ export class DatabaseEngine implements EngineContext {
         // console.log('openFile():', this.superPage);
     }
 
-    async createSet(name: string) {
-        let set = await this.getSet(name);
+    async createSet(name: string, type: 'kv'): Promise<DbSet>;
+    async createSet(name: string, type: 'doc'): Promise<DocDbSet>;
+    async createSet(name: string, type: DbSetType = 'kv'): Promise<DbSet | DocDbSet> {
+        let set = await this.getSet(name, type as any);
         if (set) return set;
-        const setPage = new SetPage(this.storage).getDirty(true);
+        const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
+        const setPage = new Ctorpage(this.storage).getDirty(true);
         setPage.name = name;
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
         this.superPage!.setCount++;
-        return new DbSet(setPage, name, !!this.snapshot);
+        return new Ctordbset(setPage, name, !!this.snapshot) as any;
     }
 
-    async getSet(name: string) {
+    async getSet(name: string, type: 'kv'): Promise<DbSet | null>;
+    async getSet(name: string, type: 'doc'): Promise<DocDbSet | null>;
+    async getSet(name: string, type: DbSetType = 'kv'): Promise<DbSet | DocDbSet | null> {
         const superPage = this.superPage!;
         const r = await superPage.findIndexRecursive(new StringValue(name));
         if (!r.found) return null;
-        const setPage = await this.storage.readPage(r.val!.value.val, SetPage);
+        const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
+        const setPage = await this.storage.readPage(r.val!.value.val, Ctorpage);
         setPage.name = name;
-        return new DbSet(setPage, name, !!this.snapshot);
+        return new Ctordbset(setPage, name, !!this.snapshot) as any;
     }
 
     async getSetCount() {
@@ -109,9 +158,15 @@ export class DatabaseEngine implements EngineContext {
 
 export interface Database {
     openFile(path: string): Promise<void>;
-    createSet(name: string): Promise<DbSet>;
-    getSet(name: string): Promise<DbSet | null>;
+
+    createSet(name: string, type?: 'kv'): Promise<DbSet>;
+    createSet(name: string, type: 'doc'): Promise<DocDbSet>;
+
+    getSet(name: string, type?: 'kv'): Promise<DbSet | null>;
+    getSet(name: string, type: 'doc'): Promise<DocDbSet | null>;
+
     getSetCount(): Promise<number>;
+
     commit(): Promise<void>;
     getPrevSnapshot(): Promise<Database | null>;
     close(): void;
