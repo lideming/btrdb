@@ -2,6 +2,8 @@ import { Buffer } from "./buffer.ts";
 import { Page, PageAddr, PageClass, PAGESIZE, PageType, SetPage, SuperPage } from "./page.ts";
 import { KValue, StringValue, UIntValue } from "./value.ts";
 
+const CACHE_LIMIT = 16 * 1024;
+
 
 export abstract class PageStorage {
     cache = new Map<PageAddr, Page>();
@@ -54,6 +56,16 @@ export abstract class PageStorage {
             page.addr = addr;
             page.readFrom(new Buffer(buffer, 0));
             this.cache.set(page.addr, page);
+            if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
+                let deleteCount = CACHE_LIMIT / 2;
+                for (const [addr, page] of this.cache) {
+                    if (!page.dirty) {
+                        // It's safe to delete on iterating.
+                        this.cache.delete(addr);
+                        if (--deleteCount == 0) break;
+                    }
+                }
+            }
             // console.log("readPage", page);
             return page;
         });
