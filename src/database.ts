@@ -38,25 +38,13 @@ export class DbSet {
 
     async set(key: string, val: string | null) {
         if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
-        const { found, node, pos } = await this.page.findIndexRecursive(new StringValue(key));
-
-        if (val != null) {
-            const newVal = new KValue(new StringValue(key), new StringValue(val));
-            const dirtyNode = node.getDirty(false);
-            if (found) {
-                dirtyNode.setKey(pos, newVal);
-            } else {
-                this.page.count += 1;
-                dirtyNode.insertAt(pos, newVal);
-            }
-            dirtyNode.postChange();
-        } else {
-            const dirtyNode = node.getDirty(false);
-            if (found) {
-                this.page.count -= 1;
-                dirtyNode.spliceKeys(pos, 1);
-                dirtyNode.postChange();
-            } // else noop
+        const keyv = new StringValue(key);
+        const valv = !val ? null : new KValue(new StringValue(key), new StringValue(val));
+        const done = await this.page.set(keyv, valv);
+        if (done == 'added') {
+            this.page.count += 1;
+        } else if (done == 'removed') {
+            this.page.count -= 1;
         }
     }
 

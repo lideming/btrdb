@@ -79,10 +79,7 @@ export abstract class PageStorage {
             for (const set of this.dirtySets) {
                 if (set._newerCopy) throw new Error('non-latest page in dirtySets');
                 set.getDirty(true);
-                let { node, pos } = await this.superPage.findIndexRecursive(new StringValue(set.name));
-                node = node.getDirty(false);
-                node.setKey(pos, new KValue(new StringValue(set.name), new UIntValue(set.addr)));
-                node.postChange();
+                await this.superPage.set(new StringValue(set.name), new KValue(new StringValue(set.name), new UIntValue(set.addr)));
             }
             this.dirtySets = [];
         }

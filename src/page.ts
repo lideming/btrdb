@@ -246,6 +246,31 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         dirtyNode.postChange();
     }
 
+    async set(key: KeyOf<T>, val: T | null) {
+        const { found, node, pos } = await this.findIndexRecursive(key);
+        let action: 'added' | 'removed' | 'changed' | 'noop' = 'noop';
+
+        if (val != null) {
+            const dirtyNode = node.getDirty(false);
+            if (found) {
+                dirtyNode.setKey(pos, val);
+                action = 'changed';
+            } else {
+                dirtyNode.insertAt(pos, val);
+                action = 'added';
+            }
+            dirtyNode.postChange();
+        } else {
+            const dirtyNode = node.getDirty(false);
+            if (found) {
+                dirtyNode.spliceKeys(pos, 1);
+                dirtyNode.postChange();
+                action = 'removed';
+            } // else noop
+        }
+        return action;
+    }
+
     insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
         this.spliceKeys(pos, 0, key, leftChild);
     }
