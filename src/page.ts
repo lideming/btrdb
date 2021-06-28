@@ -259,7 +259,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
             // console.log('spliting node with key count:', this.keys.length);
             // console.log(this.keys.length, this.children.length);
 
-            // split node
+            // split this node
             const leftSib = new this._childCtor(this.storage).getDirty(true);
             const leftCount = Math.floor(this.keys.length / 2);
             const leftKeys = this.spliceKeys(0, leftCount);
@@ -269,7 +269,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
             if (this.parent) {
                 // insert the middle key with the left sibling to parent
-                leftSib.getDirty(true);
                 this.getDirty(true);
                 this.getParentDirty();
                 this.parent.setChild(this.posInParent!, this.addr);
@@ -277,7 +276,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
                 this.parent.postChange();
                 //          ^^^^^^^^^^ makeDirtyToRoot() inside
             } else {
-                // make `node` a parent of two nodes...
+                // make this node a parent of two nodes...
                 const rightChild = new this._childCtor(this.storage).getDirty(true);
                 rightChild.setKeys(this.keys, this.children);
                 this.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
