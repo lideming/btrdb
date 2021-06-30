@@ -77,9 +77,51 @@ await runWithDatabase(async function checkSnap2(db) {
     assertEquals(await db.commit(), false);
 });
 
+// set/get() lots of records (concurrently)
+
+var concurrentKeys = new Array(50).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
+
+await runWithDatabase(async function getset10kConcurrent (db) {
+    var set = (await db.createSet("testConcurrent"))!;
+    var tasks: Promise<void>[] = [];
+    for (const k of concurrentKeys) {
+        tasks.push((async () => {
+            await set.set('key' + k, 'val' + k);
+            // console.info('<<< ' + k);
+            const val = await set!.get('key' + k);
+            if (val == 'val' + k) {
+                // console.info('>>> ' + val);
+            } else {
+                console.info('>>> expect ' + k + ' got ' + val);
+            }
+            await db.commit();
+        })());
+    }
+    await Promise.all(tasks);
+    console.info('set.count', set.count);
+    assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function get10kConcurrent (db) {
+    var set = (await db.getSet("testConcurrent"))!;
+    console.info('set.count', set.count);
+    let errors = [];
+    for (const k of concurrentKeys) {
+        const val = await set!.get('key' + k);
+        if (val != 'val' + k) {
+            errors.push('expect ' + k + ' got ' + val);
+        }
+    }
+    console.info('read done, total', concurrentKeys.length);
+    if (errors) {
+        console.info('errors', errors.length, errors);
+    }
+    assertEquals(await db.commit(), false);
+});
+
 // set/get() lots of records
 
-var keys = new Array(100000).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
+var keys = new Array(10000).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
 
 await runWithDatabase(async function set10k (db) {
     var set = (await db.getSet("test"))!;

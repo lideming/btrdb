@@ -2,6 +2,7 @@ export const PAGESIZE = 4096;
 
 import { Buffer } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
+import { OneWriterLock } from "./util.ts";
 import { IKey, JSONValue, KeyOf, KValue, StringValue, UIntValue } from "./value.ts";
 
 export type PageAddr = number;
@@ -251,6 +252,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         const { found, node, pos } = await this.findIndexRecursive(key);
         let action: 'added' | 'removed' | 'changed' | 'noop' = 'noop';
 
+        if (node._newerCopy) throw new Error('BUG: set() -> findIndex() returns old copy.');
+
         if (val != null) {
             const dirtyNode = node.getDirty(false);
             if (found) {
@@ -277,7 +280,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
 
     postChange() {
-        if (!this.dirty) throw new Error('Cannot change non-dirty page.');
+        if (this._newerCopy) throw new Error('BUG: postChange() on old copy.');
+        if (!this.dirty) throw new Error('BUG: postChange() on non-dirty page.');
         if (this.freeBytes < 0) {
             if (this.keys.length <= 2) {
                 throw new Error("Not implemented");
@@ -400,6 +404,7 @@ export class SetPage extends RecordsPage {
     count: number = 0;
 
     name: string = '';
+    lock = new OneWriterLock();
 
     override init() {
         super.init();

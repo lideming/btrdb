@@ -1,5 +1,6 @@
 import { DocSetPage, RecordsPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
+import { OneWriterLock } from "./util.ts";
 import { JSONValue, KValue, StringValue, UIntValue } from "./value.ts";
 
 export interface EngineContext {
@@ -9,6 +10,7 @@ export interface EngineContext {
 export class DbSet {
     constructor(
         private _page: SetPage,
+        protected _db: DatabaseEngine,
         public readonly name: string,
         protected isSnapshot: boolean
     ) { }
@@ -23,28 +25,53 @@ export class DbSet {
     }
 
     async get(key: string): Promise<string | null> {
-        const { found, val } = await this.page.findIndexRecursive(new StringValue(key));
-        if (!found) return null;
-        return val!.value.str;
+        const lockpage = this.page;
+        await lockpage.lock.enterReader();
+        try { // BEGIN READ LOCK
+            const { found, val } = await this.page.findIndexRecursive(new StringValue(key));
+            if (!found) return null;
+            return val!.value.str;
+        } finally { // END READ LOCK
+            lockpage.lock.exitReader();
+        }
+    }
+
+    protected async _getAllRaw() {
+        const lockpage = this.page;
+        await lockpage.lock.enterReader();
+        try { // BEGIN READ LOCK
+            return (await this.page.getAllValues());
+        } finally { // END READ LOCK
+            lockpage.lock.exitReader();
+        }
     }
 
     async getAll(): Promise<{ key: string, value: string; }[]> {
-        return (await this.page.getAllValues()).map(x => ({ key: x.key.str, value: x.value.str }));
+        return (await this._getAllRaw()).map(x => ({ key: x.key.str, value: x.value.str }));
     }
 
     async getKeys(): Promise<string[]> {
-        return (await this.page.getAllValues()).map(x => x.key.str);
+        return (await this._getAllRaw()).map(x => x.key.str);
     }
 
     async set(key: string, val: string | null) {
         if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
         const keyv = new StringValue(key);
         const valv = !val ? null : new KValue(keyv, new StringValue(val));
-        const done = await this.page.set(keyv, valv);
-        if (done == 'added') {
-            this.page.count += 1;
-        } else if (done == 'removed') {
-            this.page.count -= 1;
+
+        const lockpage = this.page;
+        await this._db.commitLock.enterWriter();
+        await lockpage.lock.enterWriter();
+        try { // BEGIN WRITE LOCK
+            const done = await this.page.set(keyv, valv);
+            if (done == 'added') {
+                this.page.count += 1;
+            } else if (done == 'removed') {
+                this.page.count -= 1;
+            }
+        } finally { // END WRITE LOCK
+            lockpage.lock.exitWriter();
+            this._db.commitLock.exitWriter();
         }
     }
 
@@ -65,22 +92,31 @@ export class DocDbSet extends DbSet {
     }
 
     async getAll(): Promise<{ key: any, value: any; }[]> {
-        return (await this.page.getAllValues() as any[]).map(x => ({ key: x.key.val, value: x.value.val }));
+        return (await this._getAllRaw() as any[]).map(x => ({ key: x.key.val, value: x.value.val }));
     }
 
     async getKeys(): Promise<any[]> {
-        return (await this.page.getAllValues() as any[]).map(x => x.key.val);
+        return (await this._getAllRaw() as any[]).map(x => x.key.val);
     }
 
     async set(key: any, val: any) {
         if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
         const keyv = new JSONValue(key);
         const valv = !val ? null : new KValue(keyv, new JSONValue(val));
-        const done = await this.page.set(keyv, valv);
-        if (done == 'added') {
-            this.page.count += 1;
-        } else if (done == 'removed') {
-            this.page.count -= 1;
+
+        const lockpage = this.page;
+        await this._db.commitLock.enterWriter();
+        await lockpage.lock.enterWriter();
+        try { // BEGIN WRITE LOCK
+            const done = await this.page.set(keyv, valv);
+            if (done == 'added') {
+                this.page.count += 1;
+            } else if (done == 'removed') {
+                this.page.count -= 1;
+            }
+        } finally { // END WRITE LOCK
+            lockpage.lock.exitWriter();
+            this._db.commitLock.exitWriter();
         }
     }
 
@@ -99,6 +135,8 @@ const _setTypeInfo = {
 export class DatabaseEngine implements EngineContext {
     storage: PageStorage = undefined as any;
     private snapshot: SuperPage | null = null;
+
+    commitLock = new OneWriterLock();
 
     get superPage() { return this.snapshot || this.storage.superPage; }
 
@@ -120,7 +158,7 @@ export class DatabaseEngine implements EngineContext {
         setPage.name = name;
         await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
         this.superPage!.setCount++;
-        return new Ctordbset(setPage, name, !!this.snapshot) as any;
+        return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
     }
 
     async getSet(name: string, type: 'kv'): Promise<DbSet | null>;
@@ -132,7 +170,7 @@ export class DatabaseEngine implements EngineContext {
         const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
         const setPage = await this.storage.readPage(r.val!.value.val, Ctorpage);
         setPage.name = name;
-        return new Ctordbset(setPage, name, !!this.snapshot) as any;
+        return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
     }
 
     async getSetCount() {
@@ -140,7 +178,12 @@ export class DatabaseEngine implements EngineContext {
     }
 
     async commit() {
-        return await this.storage.commit();
+        await this.commitLock.enterWriter();
+        try {
+            return await this.storage.commit();
+        } finally {
+            this.commitLock.exitWriter();
+        }
     }
 
     async getPrevSnapshot() {
