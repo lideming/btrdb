@@ -30,21 +30,25 @@ export abstract class PageStorage {
             let rootAddr = lastAddr - 1;
             while (rootAddr >= 0) {
                 try {
-                    this.superPage = await this.readPage(rootAddr, SuperPage);
+                    const page = await this.readPage(rootAddr, SuperPage, true);
+                    if (!page) { rootAddr--; continue; }
+                    this.superPage = page;
                     this.cleanSuperPage = this.superPage;
                     break;
                 } catch (error) {
                     console.error(error);
-                    console.log('retrying read super page from addr ' + (--rootAddr));
+                    console.log('[RECOVERY] trying read super page from addr ' + (--rootAddr));
                 }
             }
             if (rootAddr < 0) {
-                throw new Error("Failed to read database");
+                throw new Error("Failed to open database");
             }
         }
     }
 
-    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>): Promise<T> {
+    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch?: false): Promise<T>;
+    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch: true): Promise<T | null>;
+    readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch = false): Promise<T | null> {
         const cached = this.cache.get(addr);
         if (cached) return Promise.resolve(cached as T);
         if (addr < 0 || addr >= this.nextAddr) {
@@ -54,6 +58,7 @@ export abstract class PageStorage {
         return this._readPageBuffer(addr, buffer).then(() => {
             const page = new type(this);
             page.addr = addr;
+            if (nullOnTypeMismatch && page.type != buffer[0]) return null;
             page.readFrom(new Buffer(buffer, 0));
             this.cache.set(page.addr, page);
             if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
@@ -160,7 +165,7 @@ export class InFileStorage extends PageStorage {
         }
     }
     protected async _getLastAddr() {
-        return Math.round(await this.file!.seek(0, Deno.SeekMode.End) / 4096);
+        return Math.floor(await this.file!.seek(0, Deno.SeekMode.End) / 4096);
     }
     protected _close() {
         this.file!.close();
