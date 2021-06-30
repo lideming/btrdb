@@ -6,8 +6,12 @@ const CACHE_LIMIT = 16 * 1024;
 
 
 export abstract class PageStorage {
-    cache = new Map<PageAddr, Page>();
+    cache = new Map<PageAddr, Page | Promise<Page>>();
+
+    /** Pages that are dirty and pending to be written on-disk. */
     dirtyPages: Page[] = [];
+
+    /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */ 
     nextAddr: number = 0;
 
     /** The latest SuperPage, might be dirty. */
@@ -49,13 +53,17 @@ export abstract class PageStorage {
     readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch?: false): Promise<T>;
     readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch: true): Promise<T | null>;
     readPage<T extends Page>(addr: PageAddr, type: PageClass<T>, nullOnTypeMismatch = false): Promise<T | null> {
+        // Return with the cached page or the reading promise in progress.
+        // If it's the promise, `Promise.resolve` will return the promise as-is.
+        // If cache not hitted, start a reading task and set the promise to `cache`.
+        // This method ensures that no duplicated reading will happen.
         const cached = this.cache.get(addr);
         if (cached) return Promise.resolve(cached as T);
         if (addr < 0 || addr >= this.nextAddr) {
             throw new Error('Invalid page addr ' + addr);
         }
         const buffer = new Uint8Array(PAGESIZE);
-        return this._readPageBuffer(addr, buffer).then(() => {
+        const promise = this._readPageBuffer(addr, buffer).then(() => {
             const page = new type(this);
             page.addr = addr;
             if (nullOnTypeMismatch && page.type != buffer[0]) return null;
@@ -64,7 +72,7 @@ export abstract class PageStorage {
             if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
                 let deleteCount = CACHE_LIMIT / 2;
                 for (const [addr, page] of this.cache) {
-                    if (!page.dirty) {
+                    if (page instanceof Page && !page.dirty) {
                         // It's safe to delete on iterating.
                         this.cache.delete(addr);
                         if (--deleteCount == 0) break;
@@ -74,6 +82,8 @@ export abstract class PageStorage {
             // console.log("readPage", page);
             return page;
         });
+        this.cache.set(addr, promise as Promise<Page>);
+        return promise;
     }
 
     addDirty(page: Page) {
