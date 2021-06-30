@@ -52,6 +52,10 @@ export class StringValue implements Key<StringValue> {
     static readFrom(buf: Buffer) {
         return new StringValue(buf.readString());
     }
+
+    [Symbol.for("Deno.customInspect")]() {
+        return "Str(" + this.str + ")";
+    }
 }
 
 export class UIntValue implements IKey<UIntValue> {
@@ -73,6 +77,10 @@ export class UIntValue implements IKey<UIntValue> {
     static readFrom(buf: Buffer) {
         return new UIntValue(buf.readU32());
     }
+
+    [Symbol.for("Deno.customInspect")]() {
+        return "UInt(" + this.val + ")";
+    }
 }
 
 export class JSONValue extends StringValue {
@@ -83,6 +91,10 @@ export class JSONValue extends StringValue {
     static readFrom(buf: Buffer) {
         const str = buf.readString();
         return new JSONValue(JSON.parse(str), str);
+    }
+
+    [Symbol.for("Deno.customInspect")]() {
+        return "JSON(" + Deno.inspect(this.val) + ")";
     }
 }
 
@@ -107,6 +119,6 @@ export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
     }
 
     [Deno.customInspect]() {
-        return Deno.inspect([this.key, this.value]);
+        return 'KV(' + Deno.inspect(this.key) + ', ' + Deno.inspect(this.value) + ')';
     }
 }
