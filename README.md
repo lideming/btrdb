@@ -9,7 +9,7 @@
     - [ ] Indexes
     - [ ] BSON instead of JSON on disk
 - [x] AC<del>I</del>D
-    - [ ] Isolation with concurrent reader
+    - [x] Isolation with concurrent reader
     - [ ] Concurrent writer (?)
 - [ ] Client / Server (?)
 - [ ] Replication (?)
