@@ -150,6 +150,28 @@ export abstract class PageStorage {
 
 export class InFileStorage extends PageStorage {
     file: Deno.File | undefined = undefined;
+    
+    /**
+     * `"final-only"` (default): call the fsync once only after final writing.
+     * This ensures the consistency on most systems.
+     * 
+     * `true | "strict"`: call fsync once before SuperPage and once after final writing.
+     * This ensures the consistency on all (correctly implemented) systems.
+     * 
+     * `false`: do not call fsync.
+     * This should be used on systems with power backup. Also on some FileSystems like Btrfs.
+     * 
+     * Because most of underlying OSes and FileSystems does not guarantee the order of writing on-disk,
+     * we need to do "write(file, data); fsync(file); write(file, superPage); fsync(file);" to ensure
+     * the writing order.
+     * This ensures the consistency on system crash or power loss during the commit.
+     *
+     * But since this DB engine is log-structured, the DB file is like a write-ahead-log,
+     * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
+     * is probably okay for most FileSystems.
+     */
+    fsync: "final-only" | "strict" | boolean = "final-only";
+
     async openPath(path: string) {
         if (this.file) throw new Error("Already opened a file.");
         this.file = await Deno.open(path, { read: true, write: true, create: true });
@@ -163,8 +185,16 @@ export class InFileStorage extends PageStorage {
         }
     }
     protected async _commit(pages: Page[]): Promise<void> {
+        // If fsync is enable (which used to ensure the data is correctly written on-disk),
+        // to finish a commit, usually there are 4 steps to do:
+        // 1) Write pages except the SuperPage.
+        // 2) Call fsync(), to ensure them being written on-disk before we start writing the SuperPage.
+        // 3) Write the SuperPage.
+        // 4) Call fsync().
+
         const buffer = new Buffer(new Uint8Array(PAGESIZE), 0);
-        for (const page of pages) {
+        for (let i = 0; i < pages.length; i++) {
+            const page = pages[i];
             page.writeTo(buffer);
             await this.file!.seek(page.addr * PAGESIZE, Deno.SeekMode.Start);
             for (let i = 0; i < buffer.pos;) {
@@ -172,9 +202,19 @@ export class InFileStorage extends PageStorage {
                 if (nwrite <= 0) throw new Error("Unexpected return value of write(): " + nwrite);
                 i += nwrite;
             }
+            // console.info("written page addr", page.addr);
             buffer.buffer.set(InFileStorage.emptyBuffer, 0);
             buffer.pos = 0;
-            // console.info("written page addr", page.addr);
+
+            // Assuming the last item in `pages` is the SuperPage.
+            if (i === pages.length - 2 && this.fsync && this.fsync !== "final-only") {
+                // Call fsync() before the SuperPage
+                await Deno.fdatasync(this.file!.rid);
+            }
+        }
+        if (this.fsync) {
+            // Call the fsync() second time to finish the commit.
+            await Deno.fdatasync(this.file!.rid);
         }
     }
     protected async _getLastAddr() {

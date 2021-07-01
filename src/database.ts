@@ -140,8 +140,9 @@ export class DatabaseEngine implements EngineContext {
 
     get superPage() { return this.snapshot || this.storage.superPage; }
 
-    async openFile(path: string) {
+    async openFile(path: string, options?: { fsync?: InFileStorage['fsync']; }) {
         const stor = new InFileStorage();
+        if (options) Object.assign(stor, options);
         await stor.openPath(path);
         await stor.init();
         this.storage = stor;
