@@ -3,465 +3,513 @@ export const PAGESIZE = 4096;
 import { Buffer } from "./buffer.ts";
 import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
-import { IKey, JSONValue, KeyOf, KValue, StringValue, UIntValue } from "./value.ts";
+import {
+  IKey,
+  JSONValue,
+  KeyOf,
+  KValue,
+  StringValue,
+  UIntValue,
+} from "./value.ts";
 
 export type PageAddr = number;
 
 export const enum PageType {
-    None,
-    Super = 1,
-    RootTreeNode,
-    Set,
-    Records,
-    DocSet,
-    DocRecords,
+  None,
+  Super = 1,
+  RootTreeNode,
+  Set,
+  Records,
+  DocSet,
+  DocRecords,
 }
 
 export interface PageClass<T extends Page> {
-    new(storage: PageStorage): T;
+  new (storage: PageStorage): T;
 }
 
 export abstract class Page {
-    storage: PageStorage;
-    addr: PageAddr = -1;
-    abstract get type(): PageType;
+  storage: PageStorage;
+  addr: PageAddr = -1;
+  abstract get type(): PageType;
 
-    constructor(storage: PageStorage) {
-        this.storage = storage;
-        this.init();
-    }
+  constructor(storage: PageStorage) {
+    this.storage = storage;
+    this.init();
+  }
 
-    /** Should not change pages on disk, we should always copy on write */
-    dirty = false;
+  /** Should not change pages on disk, we should always copy on write */
+  dirty = false;
 
-    get hasAddr() { return this.addr != -1; }
+  get hasAddr() {
+    return this.addr != -1;
+  }
 
-    _newerCopy: this | null = null;
+  _newerCopy: this | null = null;
 
-    /** Should be maintained by the page when changing data */
-    freeBytes: number = PAGESIZE - 4;
+  /** Should be maintained by the page when changing data */
+  freeBytes: number = PAGESIZE - 4;
 
-    init() { }
+  init() {}
 
-    /**
+  /**
      * Create a dirty copy of this page or return this page if it's already dirty.
      * @param addDirty {boolean} whether to assign the page address
      */
-    getDirty(addDirty: boolean): this {
-        if (this._newerCopy) throw new Error('getDirty on out-dated page');
-        if (this.dirty) {
-            if (addDirty && !this.hasAddr) this.storage.addDirty(this);
-            return this;
-        } else {
-            let dirty = new this._thisCtor(this.storage);
-            dirty.dirty = true;
-            this._copyTo(dirty);
-            this._newerCopy = dirty;
-            if (addDirty) this.storage.addDirty(dirty);
-            return dirty;
-        }
+  getDirty(addDirty: boolean): this {
+    if (this._newerCopy) throw new Error("getDirty on out-dated page");
+    if (this.dirty) {
+      if (addDirty && !this.hasAddr) this.storage.addDirty(this);
+      return this;
+    } else {
+      let dirty = new this._thisCtor(this.storage);
+      dirty.dirty = true;
+      this._copyTo(dirty);
+      this._newerCopy = dirty;
+      if (addDirty) this.storage.addDirty(dirty);
+      return dirty;
     }
+  }
 
-    getLatestCopy(): this {
-        let p = this;
-        while (p._newerCopy) p = p._newerCopy;
-        return p;
-    }
+  getLatestCopy(): this {
+    let p = this;
+    while (p._newerCopy) p = p._newerCopy;
+    return p;
+  }
 
-    writeTo(buf: Buffer) {
-        if (this.freeBytes < 0) {
-            console.error(this);
-            throw new Error(`page content overflow (free ${this.freeBytes})`);
-        }
-        const beginPos = buf.pos;
-        buf.writeU8(this.type);
-        buf.writeU8(0);
-        buf.writeU16(0);
-        this._writeContent(buf);
-        if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-            throw new Error(`buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`);
-        }
+  writeTo(buf: Buffer) {
+    if (this.freeBytes < 0) {
+      console.error(this);
+      throw new Error(`page content overflow (free ${this.freeBytes})`);
     }
-    readFrom(buf: Buffer) {
-        const beginPos = buf.pos;
-        const type = buf.readU8();
-        if (type != this.type) throw new Error(`Wrong type in disk, should be ${this.type}, got ${type}`);
-        if (buf.readU8() != 0) throw new Error('Non-zero reserved field');
-        if (buf.readU16() != 0) throw new Error('Non-zero reserved field');
-        this._readContent(buf);
-        if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-            throw new Error(`buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE - this.freeBytes})`);
-        }
+    const beginPos = buf.pos;
+    buf.writeU8(this.type);
+    buf.writeU8(0);
+    buf.writeU16(0);
+    this._writeContent(buf);
+    if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+      throw new Error(
+        `buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
+          this.freeBytes})`,
+      );
     }
+  }
+  readFrom(buf: Buffer) {
+    const beginPos = buf.pos;
+    const type = buf.readU8();
+    if (type != this.type) {
+      throw new Error(
+        `Wrong type in disk, should be ${this.type}, got ${type}`,
+      );
+    }
+    if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
+    if (buf.readU16() != 0) throw new Error("Non-zero reserved field");
+    this._readContent(buf);
+    if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+      throw new Error(
+        `buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
+          this.freeBytes})`,
+      );
+    }
+  }
 
-    _debugView() {
-        return {
-            type: this.type,
-            addr: this.addr,
-            dirty: this.dirty
-        };
-    }
+  _debugView() {
+    return {
+      type: this.type,
+      addr: this.addr,
+      dirty: this.dirty,
+    };
+  }
 
-    protected _copyTo(page: this) {
-        if (Object.getPrototypeOf(this) != Object.getPrototypeOf(page)) {
-            throw new Error("_copyTo() with different types");
-        }
+  protected _copyTo(page: this) {
+    if (Object.getPrototypeOf(this) != Object.getPrototypeOf(page)) {
+      throw new Error("_copyTo() with different types");
     }
-    protected _writeContent(buf: Buffer) { }
-    protected _readContent(buf: Buffer) { }
-    protected get _thisCtor(): PageClass<this> {
-        return Object.getPrototypeOf(this).constructor as PageClass<this>;
-    }
+  }
+  protected _writeContent(buf: Buffer) {}
+  protected _readContent(buf: Buffer) {}
+  protected get _thisCtor(): PageClass<this> {
+    return Object.getPrototypeOf(this).constructor as PageClass<this>;
+  }
 }
 
 export abstract class NodePage<T extends IKey<unknown>> extends Page {
-    parent?: NodePage<T> = undefined;
-    posInParent?: number = undefined;
-    keys: T[] = [];
-    children: PageAddr[] = [];
+  parent?: NodePage<T> = undefined;
+  posInParent?: number = undefined;
+  keys: T[] = [];
+  children: PageAddr[] = [];
 
-    override init() {
-        super.init();
-        this.freeBytes -= 2; // keysCount
+  override init() {
+    super.init();
+    this.freeBytes -= 2; // keysCount
+  }
+
+  setKeys(newKeys: T[], newChildren: PageAddr[]) {
+    // console.log([newKeys.length, newChildren.length]);
+    if (
+      !((newKeys.length == 0 && newChildren.length == 0) ||
+        (newKeys.length + 1 == newChildren.length) ||
+        (newChildren.length == newKeys.length))
+    ) {
+      throw new Error("Invalid args");
     }
-
-    setKeys(newKeys: T[], newChildren: PageAddr[]) {
-        // console.log([newKeys.length, newChildren.length]);
-        if (!((newKeys.length == 0 && newChildren.length == 0)
-            || (newKeys.length + 1 == newChildren.length)
-            || (newChildren.length == newKeys.length)
-        ))
-            throw new Error("Invalid args");
-        if (this.keys) {
-            this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
-        }
-        if (newChildren.length !== 0 && newChildren.length === newKeys.length) {
-            newChildren.push(0);
-        }
-        if (newKeys) {
-            this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
-        }
-        this.keys = newKeys;
-        this.children = newChildren;
+    if (this.keys) {
+      this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
     }
+    if (newChildren.length !== 0 && newChildren.length === newKeys.length) {
+      newChildren.push(0);
+    }
+    if (newKeys) {
+      this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
+    }
+    this.keys = newKeys;
+    this.children = newChildren;
+  }
 
-    /**
+  /**
      * Remove and return a range of keys, and/or, insert a key.
      * @returns `delCount` keys and `delCount` children.
      **/
-    spliceKeys(pos: number, delCount: number, key?: T, leftChild?: PageAddr)
-        : [deletedKeys: T[], deletedChildren: PageAddr[]] {
-        if (leftChild! < 0) throw new Error('Invalid leftChild');
-        // this.writeTo(new Buffer(new Uint8Array(4096), 0));
-        let deleted: T[];
-        let deletedChildren: PageAddr[];
-        if (key) {
-            deleted = this.keys.splice(pos, delCount, key);
-            deletedChildren = this.children.splice(pos, delCount, leftChild || 0);
-            if (delCount == 0 && this.keys.length == 1) {
-                this.freeBytes -= 4;
-                this.children.push(0);
-            }
-            this.freeBytes -= key.byteLength + 4;
-        } else {
-            deleted = this.keys.splice(pos, delCount);
-            deletedChildren = this.children.splice(pos, delCount);
-            if (delCount && this.keys.length == 0) {
-                this.freeBytes += 4;
-                if (this.children.pop()! != 0) throw new Error("Not implemented");
-            }
-        }
-        this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
-        // this.writeTo(new Buffer(new Uint8Array(4096), 0));
-        return [deleted, deletedChildren];
+  spliceKeys(
+    pos: number,
+    delCount: number,
+    key?: T,
+    leftChild?: PageAddr,
+  ): [deletedKeys: T[], deletedChildren: PageAddr[]] {
+    if (leftChild! < 0) throw new Error("Invalid leftChild");
+    // this.writeTo(new Buffer(new Uint8Array(4096), 0));
+    let deleted: T[];
+    let deletedChildren: PageAddr[];
+    if (key) {
+      deleted = this.keys.splice(pos, delCount, key);
+      deletedChildren = this.children.splice(pos, delCount, leftChild || 0);
+      if (delCount == 0 && this.keys.length == 1) {
+        this.freeBytes -= 4;
+        this.children.push(0);
+      }
+      this.freeBytes -= key.byteLength + 4;
+    } else {
+      deleted = this.keys.splice(pos, delCount);
+      deletedChildren = this.children.splice(pos, delCount);
+      if (delCount && this.keys.length == 0) {
+        this.freeBytes += 4;
+        if (this.children.pop()! != 0) throw new Error("Not implemented");
+      }
+    }
+    this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
+    // this.writeTo(new Buffer(new Uint8Array(4096), 0));
+    return [deleted, deletedChildren];
+  }
+
+  setChild(pos: number, child: PageAddr) {
+    if (pos < 0 || this.children.length <= pos) {
+      throw new Error("pos out of range");
+    }
+    this.children[pos] = child;
+  }
+
+  setKey(pos: number, key: T) {
+    if (pos < 0 || this.keys.length <= pos) throw new Error("pos out of range");
+    this.freeBytes -= key.byteLength - this.keys[pos].byteLength;
+    this.keys[pos] = key;
+  }
+
+  findIndex(key: KeyOf<T>):
+    | { found: true; pos: number; val: T }
+    | { found: false; pos: number; val: undefined } {
+    const keys = this.keys;
+    let l = 0, r = keys.length - 1;
+    while (l <= r) {
+      const m = Math.round((l + r) / 2);
+      const c = key.compareTo(keys[m].key);
+      // console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
+      if (c == 0) return { found: true, pos: m, val: keys[m] };
+      else if (c > 0) l = m + 1;
+      else r = m - 1;
+    }
+    return { found: false, pos: l, val: undefined };
+  }
+
+  async getAllValues(array?: T[]): Promise<T[]> {
+    if (!array) array = [];
+    await this.traverseKeys((key) => {
+      array!.push(key as any);
+    });
+    return array;
+  }
+
+  async traverseKeys(
+    func: (key: T, page: this, pos: number) => Promise<void> | void,
+  ) {
+    for (let pos = 0; pos < this.children.length; pos++) {
+      const leftAddr = this.children[pos];
+      if (leftAddr) {
+        const leftPage = await this.storage.readPage(leftAddr, this._childCtor);
+        await leftPage.traverseKeys(func as any);
+      }
+      if (pos < this.keys.length) {
+        await func(this.keys[pos], this, pos);
+      }
+    }
+  }
+
+  async findIndexRecursive(key: KeyOf<T>): Promise<
+    | { found: true; node: NodePage<T>; pos: number; val: T }
+    | { found: false; node: NodePage<T>; pos: number; val: undefined }
+  > {
+    let node = this as NodePage<T>;
+    while (true) {
+      const { found, pos, val } = node.findIndex(key);
+      if (found) return { found: true, node, pos, val: val as T };
+      const childAddr = node.children[pos];
+      if (!childAddr) return { found: false, node, pos, val: val as undefined };
+      const childNode = await this.storage.readPage(childAddr, this._childCtor);
+      childNode.parent = node;
+      childNode.posInParent = pos;
+      node = childNode;
+    }
+  }
+
+  async insert(val: T) {
+    const { found, node, pos } = await this.findIndexRecursive(
+      val.key as KeyOf<T>,
+    );
+    const dirtyNode = node.getDirty(false);
+    dirtyNode.insertAt(pos, val);
+    dirtyNode.postChange();
+  }
+
+  async set(key: KeyOf<T>, val: T | null) {
+    const { found, node, pos } = await this.findIndexRecursive(key);
+    let action: "added" | "removed" | "changed" | "noop" = "noop";
+
+    if (node._newerCopy) {
+      throw new Error("BUG: set() -> findIndex() returns old copy.");
     }
 
-    setChild(pos: number, child: PageAddr) {
-        if (pos < 0 || this.children.length <= pos) throw new Error('pos out of range');
-        this.children[pos] = child;
-    }
-
-    setKey(pos: number, key: T) {
-        if (pos < 0 || this.keys.length <= pos) throw new Error('pos out of range');
-        this.freeBytes -= key.byteLength - this.keys[pos].byteLength;
-        this.keys[pos] = key;
-    }
-
-    findIndex(key: KeyOf<T>):
-        | { found: true, pos: number, val: T; }
-        | { found: false, pos: number, val: undefined; } {
-        const keys = this.keys;
-        let l = 0, r = keys.length - 1;
-        while (l <= r) {
-            const m = Math.round((l + r) / 2);
-            const c = key.compareTo(keys[m].key);
-            // console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
-            if (c == 0) return { found: true, pos: m, val: keys[m] };
-            else if (c > 0) l = m + 1;
-            else r = m - 1;
-        }
-        return { found: false, pos: l, val: undefined };
-    }
-
-
-    async getAllValues(array?: T[]): Promise<T[]> {
-        if (!array) array = [];
-        await this.traverseKeys((key) => {
-            array!.push(key as any);
-        });
-        return array;
-    }
-
-    async traverseKeys(func: (key: T, page: this, pos: number) => Promise<void> | void) {
-        for (let pos = 0; pos < this.children.length; pos++) {
-            const leftAddr = this.children[pos];
-            if (leftAddr) {
-                const leftPage = await this.storage.readPage(leftAddr, this._childCtor);
-                await leftPage.traverseKeys(func as any);
-            }
-            if (pos < this.keys.length)
-                await func(this.keys[pos], this, pos);
-        }
-    }
-
-    async findIndexRecursive(key: KeyOf<T>): Promise<
-        | { found: true, node: NodePage<T>, pos: number, val: T; }
-        | { found: false, node: NodePage<T>, pos: number, val: undefined; }
-    > {
-        let node = this as NodePage<T>;
-        while (true) {
-            const { found, pos, val } = node.findIndex(key);
-            if (found) return { found: true, node, pos, val: val as T };
-            const childAddr = node.children[pos];
-            if (!childAddr) return { found: false, node, pos, val: val as undefined };
-            const childNode = await this.storage.readPage(childAddr, this._childCtor);
-            childNode.parent = node;
-            childNode.posInParent = pos;
-            node = childNode;
-        };
-    }
-
-    async insert(val: T) {
-        const { found, node, pos } = await this.findIndexRecursive(val.key as KeyOf<T>);
-        const dirtyNode = node.getDirty(false);
+    if (val != null) {
+      const dirtyNode = node.getDirty(false);
+      if (found) {
+        dirtyNode.setKey(pos, val);
+        action = "changed";
+      } else {
         dirtyNode.insertAt(pos, val);
+        action = "added";
+      }
+      dirtyNode.postChange();
+    } else {
+      const dirtyNode = node.getDirty(false);
+      if (found) {
+        dirtyNode.spliceKeys(pos, 1);
         dirtyNode.postChange();
+        action = "removed";
+      } // else noop
     }
+    return action;
+  }
 
-    async set(key: KeyOf<T>, val: T | null) {
-        const { found, node, pos } = await this.findIndexRecursive(key);
-        let action: 'added' | 'removed' | 'changed' | 'noop' = 'noop';
+  insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
+    this.spliceKeys(pos, 0, key, leftChild);
+  }
 
-        if (node._newerCopy) throw new Error('BUG: set() -> findIndex() returns old copy.');
+  postChange() {
+    if (this._newerCopy) throw new Error("BUG: postChange() on old copy.");
+    if (!this.dirty) throw new Error("BUG: postChange() on non-dirty page.");
+    if (this.freeBytes < 0) {
+      if (this.keys.length <= 2) {
+        throw new Error("Not implemented");
+      }
+      // console.log('spliting node with key count:', this.keys.length);
+      // console.log(this.keys.length, this.children.length);
 
-        if (val != null) {
-            const dirtyNode = node.getDirty(false);
-            if (found) {
-                dirtyNode.setKey(pos, val);
-                action = 'changed';
-            } else {
-                dirtyNode.insertAt(pos, val);
-                action = 'added';
-            }
-            dirtyNode.postChange();
-        } else {
-            const dirtyNode = node.getDirty(false);
-            if (found) {
-                dirtyNode.spliceKeys(pos, 1);
-                dirtyNode.postChange();
-                action = 'removed';
-            } // else noop
-        }
-        return action;
+      // split this node
+      const leftSib = new this._childCtor(this.storage).getDirty(true);
+      const leftCount = Math.floor(this.keys.length / 2);
+      const leftKeys = this.spliceKeys(0, leftCount);
+      leftSib.setKeys(leftKeys[0], leftKeys[1]);
+      const [[middleKey], [middleLeftChild]] = this.spliceKeys(0, 1);
+      leftSib.setChild(leftCount, middleLeftChild);
+
+      if (this.parent) {
+        // insert the middle key with the left sibling to parent
+        this.getDirty(true);
+        this.getParentDirty();
+        this.parent.setChild(this.posInParent!, this.addr);
+        this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
+        this.parent.postChange();
+        //          ^^^^^^^^^^ makeDirtyToRoot() inside
+      } else {
+        // make this node a parent of two nodes...
+        const rightChild = new this._childCtor(this.storage).getDirty(true);
+        rightChild.setKeys(this.keys, this.children);
+        this.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
+        this.getDirty(true);
+        this.makeDirtyToRoot();
+      }
+    } else {
+      this.getDirty(true);
+      if (this.parent) {
+        this.makeDirtyToRoot();
+      }
     }
+  }
 
-    insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
-        this.spliceKeys(pos, 0, key, leftChild);
-    }
+  getParentDirty(): NodePage<T> {
+    return this.parent = this.parent!.getDirty(true);
+  }
 
-    postChange() {
-        if (this._newerCopy) throw new Error('BUG: postChange() on old copy.');
-        if (!this.dirty) throw new Error('BUG: postChange() on non-dirty page.');
-        if (this.freeBytes < 0) {
-            if (this.keys.length <= 2) {
-                throw new Error("Not implemented");
-            }
-            // console.log('spliting node with key count:', this.keys.length);
-            // console.log(this.keys.length, this.children.length);
+  makeDirtyToRoot() {
+    if (!this.dirty) throw new Error("Invalid operation");
+    let up = this as NodePage<T>;
+    while (up.parent) {
+      if (up.parent.dirty) break;
+      const upParent = up.parent = up.parent.getDirty(true);
+      upParent!.children[up.posInParent!] = up.addr;
+      up = upParent;
+    }
+  }
 
-            // split this node
-            const leftSib = new this._childCtor(this.storage).getDirty(true);
-            const leftCount = Math.floor(this.keys.length / 2);
-            const leftKeys = this.spliceKeys(0, leftCount);
-            leftSib.setKeys(leftKeys[0], leftKeys[1]);
-            const [[middleKey], [middleLeftChild]] = this.spliceKeys(0, 1);
-            leftSib.setChild(leftCount, middleLeftChild);
+  override _debugView() {
+    return {
+      ...super._debugView(),
+      parentAddr: this.parent?.addr,
+      posInParent: this.posInParent,
+      keys: this.keys,
+    };
+  }
 
-            if (this.parent) {
-                // insert the middle key with the left sibling to parent
-                this.getDirty(true);
-                this.getParentDirty();
-                this.parent.setChild(this.posInParent!, this.addr);
-                this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
-                this.parent.postChange();
-                //          ^^^^^^^^^^ makeDirtyToRoot() inside
-            } else {
-                // make this node a parent of two nodes...
-                const rightChild = new this._childCtor(this.storage).getDirty(true);
-                rightChild.setKeys(this.keys, this.children);
-                this.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
-                this.getDirty(true);
-                this.makeDirtyToRoot();
-            }
-        } else {
-            this.getDirty(true);
-            if (this.parent)
-                this.makeDirtyToRoot();
-        }
+  protected override _writeContent(buf: Buffer) {
+    super._writeContent(buf);
+    buf.writeU16(this.keys.length);
+    for (let i = 0; i < this.keys.length; i++) {
+      this.keys[i].writeTo(buf);
     }
+    for (let i = 0; i < this.children.length; i++) {
+      buf.writeU32(this.children[i]);
+    }
+  }
+  protected override _readContent(buf: Buffer) {
+    super._readContent(buf);
+    const keyCount = buf.readU16();
+    const posBefore = buf.pos;
+    for (let i = 0; i < keyCount; i++) {
+      this.keys.push(this._readValue(buf));
+    }
+    const childrenCount = keyCount ? keyCount + 1 : 0;
+    for (let i = 0; i < childrenCount; i++) {
+      this.children.push(buf.readU32());
+    }
+    this.freeBytes -= buf.pos - posBefore;
+  }
+  protected override _copyTo(page: this) {
+    super._copyTo(page);
+    page.parent = this.parent;
+    page.posInParent = this.posInParent;
+    page.keys = [...this.keys];
+    page.children = [...this.children];
+    page.freeBytes = this.freeBytes;
+  }
 
-    getParentDirty(): NodePage<T> {
-        return this.parent = this.parent!.getDirty(true);
-    }
-
-    makeDirtyToRoot() {
-        if (!this.dirty) throw new Error("Invalid operation");
-        let up = this as NodePage<T>;
-        while (up.parent) {
-            if (up.parent.dirty) break;
-            const upParent = up.parent = up.parent.getDirty(true);
-            upParent!.children[up.posInParent!] = up.addr;
-            up = upParent;
-        }
-    }
-
-    override _debugView() {
-        return {
-            ...super._debugView(),
-            parentAddr: this.parent?.addr,
-            posInParent: this.posInParent,
-            keys: this.keys
-        };
-    }
-
-    protected override _writeContent(buf: Buffer) {
-        super._writeContent(buf);
-        buf.writeU16(this.keys.length);
-        for (let i = 0; i < this.keys.length; i++) {
-            this.keys[i].writeTo(buf);
-        }
-        for (let i = 0; i < this.children.length; i++) {
-            buf.writeU32(this.children[i]);
-        }
-    }
-    protected override _readContent(buf: Buffer) {
-        super._readContent(buf);
-        const keyCount = buf.readU16();
-        const posBefore = buf.pos;
-        for (let i = 0; i < keyCount; i++) {
-            this.keys.push(this._readValue(buf));
-        }
-        const childrenCount = keyCount ? keyCount + 1 : 0;
-        for (let i = 0; i < childrenCount; i++) {
-            this.children.push(buf.readU32());
-        }
-        this.freeBytes -= buf.pos - posBefore;
-    }
-    protected override _copyTo(page: this) {
-        super._copyTo(page);
-        page.parent = this.parent;
-        page.posInParent = this.posInParent;
-        page.keys = [...this.keys];
-        page.children = [...this.children];
-        page.freeBytes = this.freeBytes;
-    }
-
-    protected abstract _readValue(buf: Buffer): T;
-    protected get _childCtor(): PageClass<NodePage<T>> {
-        return this._thisCtor;
-    }
+  protected abstract _readValue(buf: Buffer): T;
+  protected get _childCtor(): PageClass<NodePage<T>> {
+    return this._thisCtor;
+  }
 }
 
 function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
-    let sum = 0;
-    for (const it of keys) {
-        sum += it.byteLength;
-    }
-    return sum;
+  let sum = 0;
+  for (const it of keys) {
+    sum += it.byteLength;
+  }
+  return sum;
 }
 
 export class RecordsPage extends NodePage<KValue<StringValue, StringValue>> {
-    get type(): PageType { return PageType.Records; }
-    protected _readValue(buf: Buffer): KValue<StringValue, StringValue> {
-        return KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom);
-    }
-    protected override get _childCtor() { return RecordsPage; }
+  get type(): PageType {
+    return PageType.Records;
+  }
+  protected _readValue(buf: Buffer): KValue<StringValue, StringValue> {
+    return KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom);
+  }
+  protected override get _childCtor() {
+    return RecordsPage;
+  }
 }
 
 export class SetPage extends RecordsPage {
-    override get type(): PageType { return PageType.Set; }
-    rev: number = 1;
-    count: number = 0;
+  override get type(): PageType {
+    return PageType.Set;
+  }
+  rev: number = 1;
+  count: number = 0;
 
-    name: string = '';
-    lock = new OneWriterLock();
+  name: string = "";
+  lock = new OneWriterLock();
 
-    override init() {
-        super.init();
-        this.freeBytes -= 8;
+  override init() {
+    super.init();
+    this.freeBytes -= 8;
+  }
+
+  override _debugView() {
+    return {
+      ...super._debugView(),
+      rev: this.rev,
+      count: this.count,
+    };
+  }
+
+  override _writeContent(buf: Buffer) {
+    buf.writeU32(this.rev);
+    buf.writeU32(this.count);
+    super._writeContent(buf);
+  }
+
+  override _readContent(buf: Buffer) {
+    this.rev = buf.readU32();
+    this.count = buf.readU32();
+    super._readContent(buf);
+  }
+
+  override _copyTo(page: SetPage) {
+    super._copyTo(page as any);
+    page.rev = this.rev;
+    page.count = this.count;
+
+    page.name = this.name;
+  }
+
+  override getDirty(addDirty: boolean) {
+    var r = super.getDirty(addDirty);
+    if (r != this) {
+      this.storage.dirtySets.push(r);
     }
-
-    override _debugView() {
-        return {
-            ...super._debugView(),
-            rev: this.rev,
-            count: this.count,
-        };
-    }
-
-    override _writeContent(buf: Buffer) {
-        buf.writeU32(this.rev);
-        buf.writeU32(this.count);
-        super._writeContent(buf);
-    }
-
-    override _readContent(buf: Buffer) {
-        this.rev = buf.readU32();
-        this.count = buf.readU32();
-        super._readContent(buf);
-    }
-
-    override _copyTo(page: SetPage) {
-        super._copyTo(page as any);
-        page.rev = this.rev;
-        page.count = this.count;
-
-        page.name = this.name;
-    }
-
-    override getDirty(addDirty: boolean) {
-        var r = super.getDirty(addDirty);
-        if (r != this) {
-            this.storage.dirtySets.push(r);
-        }
-        return r;
-    }
+    return r;
+  }
 }
 
 export class DocsPage extends NodePage<KValue<JSONValue, JSONValue>> {
-    get type(): PageType { return PageType.DocRecords; }
-    protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
-        return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
-    }
-    protected override get _childCtor() { return DocsPage; }
+  get type(): PageType {
+    return PageType.DocRecords;
+  }
+  protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
+    return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
+  }
+  protected override get _childCtor() {
+    return DocsPage;
+  }
 }
 
 export class DocSetPage extends SetPage {
-    override get type(): PageType { return PageType.DocSet; }
-    protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
-        return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
-    }
-    protected override get _childCtor() { return DocsPage as any; }
+  override get type(): PageType {
+    return PageType.DocSet;
+  }
+  protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
+    return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
+  }
+  protected override get _childCtor() {
+    return DocsPage as any;
+  }
 }
 
 // TODO
@@ -472,59 +520,65 @@ export class DocSetPage extends SetPage {
 export type SetPageAddr = UIntValue;
 
 export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
-    get type(): PageType { return PageType.RootTreeNode; }
-    protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
-        return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
-    }
-    protected override get _childCtor() { return RootTreeNode; }
+  get type(): PageType {
+    return PageType.RootTreeNode;
+  }
+  protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
+    return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
+  }
+  protected override get _childCtor() {
+    return RootTreeNode;
+  }
 }
 
 /**
  * SuperPage, also the root of RootTree.
  */
 export class SuperPage extends RootTreeNode {
-    override get type(): PageType { return PageType.Super; }
+  override get type(): PageType {
+    return PageType.Super;
+  }
 
-    version: number = 1;
-    rev: number = 1;
-    prevSuperPageAddr: PageAddr = 0;
-    setCount: number = 0;
+  version: number = 1;
+  rev: number = 1;
+  prevSuperPageAddr: PageAddr = 0;
+  setCount: number = 0;
 
-    override init() {
-        super.init();
-        this.freeBytes -= 4 * 4;
-    }
-    override _writeContent(buf: Buffer) {
-        super._writeContent(buf);
-        buf.writeU32(this.version);
-        buf.writeU32(this.rev);
-        buf.writeU32(this.prevSuperPageAddr);
-        buf.writeU32(this.setCount);
-    }
-    override _readContent(buf: Buffer) {
-        super._readContent(buf);
-        this.version = buf.readU32();
-        this.rev = buf.readU32();
-        this.prevSuperPageAddr = buf.readU32();
-        this.setCount = buf.readU32();
-    }
-    protected override _copyTo(other: this) {
-        super._copyTo(other);
-        other.rev = this.rev + 1;
-        other.version = this.version;
-        other.prevSuperPageAddr = this.prevSuperPageAddr;
-        other.setCount = this.setCount;
-    }
-    override getDirty(addDirty: boolean) {
-        var dirty = this.storage.superPage = super.getDirty(false);
-        return dirty;
-    }
-    override _debugView() {
-        return {
-            ...super._debugView(),
-            rev: this.rev,
-            version: this.version,
-            setCount: this.setCount,
-        };
-    }
+  override init() {
+    super.init();
+    this.freeBytes -= 4 * 4;
+  }
+  override _writeContent(buf: Buffer) {
+    super._writeContent(buf);
+    buf.writeU32(this.version);
+    buf.writeU32(this.rev);
+    buf.writeU32(this.prevSuperPageAddr);
+    buf.writeU32(this.setCount);
+  }
+  override _readContent(buf: Buffer) {
+    super._readContent(buf);
+    this.version = buf.readU32();
+    this.rev = buf.readU32();
+    this.prevSuperPageAddr = buf.readU32();
+    this.setCount = buf.readU32();
+  }
+  protected override _copyTo(other: this) {
+    super._copyTo(other);
+    other.rev = this.rev + 1;
+    other.version = this.version;
+    other.prevSuperPageAddr = this.prevSuperPageAddr;
+    other.setCount = this.setCount;
+  }
+  override getDirty(addDirty: boolean) {
+    var dirty = this.storage.superPage = super.getDirty(false);
+    return dirty;
+  }
+  override _debugView() {
+    return {
+      ...super._debugView(),
+      rev: this.rev,
+      version: this.version,
+      setCount: this.setCount,
+    };
+  }
 }
