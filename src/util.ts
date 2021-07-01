@@ -37,13 +37,20 @@ export class OneWriterLock {
         }
     }
 
-    enterWriter() {
+    enterWriterFromReader() {
+        if (this.writers != 0 || this.readers <= 0) throw new Error('BUG');
+        this.readers--;
+        return this.enterWriter(true);
+    }
+
+    enterWriter(asap = false) {
         if (!this.writers && !this.readers) {
             this.writers++;
             return resolved;
         } else {
             const wait = deferred<void>();
-            this.wakeWriters.push(wait);
+            if (asap) this.wakeWriters.unshift(wait);
+            else this.wakeWriters.push(wait);
             return wait;
         }
     }

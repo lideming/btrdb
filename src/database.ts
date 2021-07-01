@@ -151,36 +151,76 @@ export class DatabaseEngine implements EngineContext {
     async createSet(name: string, type: 'kv'): Promise<DbSet>;
     async createSet(name: string, type: 'doc'): Promise<DocDbSet>;
     async createSet(name: string, type: DbSetType = 'kv'): Promise<DbSet | DocDbSet> {
-        let set = await this.getSet(name, type as any);
-        if (set) return set;
-        const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
-        const setPage = new Ctorpage(this.storage).getDirty(true);
-        setPage.name = name;
-        await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
-        this.superPage!.setCount++;
-        return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+        let lockWriter = false;
+        const lock = this.commitLock;
+        await lock.enterReader();
+        try {
+            let set = await this._getSet(name, type as any, false);
+            if (set) return set;
+
+            await lock.enterWriterFromReader();
+            lockWriter = true;
+
+            // double check
+            set = await this._getSet(name, type as any, false);
+            if (set) return set;
+
+            const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
+            const setPage = new Ctorpage(this.storage).getDirty(true);
+            setPage.name = name;
+            await this.superPage!.insert(new KValue(new StringValue(name), new UIntValue(setPage.addr)));
+            this.superPage!.setCount++;
+            return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+        } finally {
+            if (lockWriter) lock.exitWriter();
+            else lock.exitReader();
+            console.info('exit', lockWriter ? 'writer' : 'reader', name);
+        }
     }
 
     async getSet(name: string, type: 'kv'): Promise<DbSet | null>;
     async getSet(name: string, type: 'doc'): Promise<DocDbSet | null>;
-    async getSet(name: string, type: DbSetType = 'kv'): Promise<DbSet | DocDbSet | null> {
-        const superPage = this.superPage!;
-        const r = await superPage.findIndexRecursive(new StringValue(name));
-        if (!r.found) return null;
-        const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
-        const setPage = await this.storage.readPage(r.val!.value.val, Ctorpage);
-        setPage.name = name;
-        return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+    getSet(name: string, type: DbSetType = 'kv'): Promise<DbSet | DocDbSet | null> {
+        return this._getSet(name, type, true);
+    }
+
+    private async _getSet(name: string, type: DbSetType, useLock: boolean): Promise<DbSet | DocDbSet | null> {
+        const lock = this.commitLock;
+        if (useLock) await lock.enterReader();
+        try {
+            const superPage = this.superPage!;
+            const r = await superPage.findIndexRecursive(new StringValue(name));
+            if (!r.found) return null;
+            const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
+            const setPage = await this.storage.readPage(r.val!.value.val, Ctorpage);
+            setPage.name = name;
+            return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+        } finally {
+            if (useLock) lock.exitReader();
+        }
     }
 
     async getSetCount() {
         return this.superPage!.setCount;
     }
 
+    async getSetNames() {
+        const lock = this.commitLock;
+        await lock.enterReader();
+        try {
+            return (await this.superPage!.getAllValues()).map(x => x.key.str);
+        } finally {
+            lock.exitReader();
+        }
+    }
+
     async commit() {
         await this.commitLock.enterWriter();
         try {
-            return await this.storage.commit();
+            // console.log('==========COMMIT==========');
+            const r = await this.storage.commit();
+            // console.log('========END COMMIT========');
+            return r;
         } finally {
             this.commitLock.exitWriter();
         }
@@ -209,6 +249,7 @@ export interface Database {
     getSet(name: string, type: 'doc'): Promise<DocDbSet | null>;
 
     getSetCount(): Promise<number>;
+    getSetNames(): Promise<string[]>;
 
     commit(): Promise<void>;
     getPrevSnapshot(): Promise<Database | null>;

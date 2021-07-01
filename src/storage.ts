@@ -11,7 +11,7 @@ export abstract class PageStorage {
     /** Pages that are dirty and pending to be written on-disk. */
     dirtyPages: Page[] = [];
 
-    /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */ 
+    /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */
     nextAddr: number = 0;
 
     /** The latest SuperPage, might be dirty. */
@@ -104,7 +104,11 @@ export abstract class PageStorage {
         if (!this.superPage) throw new Error('superPage does not exist.');
         if (this.dirtySets.length) {
             for (const set of this.dirtySets) {
-                if (set._newerCopy) throw new Error('non-latest page in dirtySets');
+                if (set._newerCopy) {
+                    console.info(this.dirtySets.map(x => [x.addr, x.name]));
+                    console.info('dirtySets length', this.dirtySets.length);
+                    throw new Error('non-latest page in dirtySets');
+                }
                 set.getDirty(true);
                 await this.superPage.set(new StringValue(set.name), new KValue(new StringValue(set.name), new UIntValue(set.addr)));
             }
@@ -120,7 +124,7 @@ export abstract class PageStorage {
         }
         if (this.cleanSuperPage) this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
         this.addDirty(this.superPage);
-        console.log('==========COMMIT==========', this.dirtyPages
+        console.log('commit', this.dirtyPages
             .length + ' pages'
             // .map(x => x._debugView())
             // .map(x => [x.addr, x.type])
@@ -131,7 +135,6 @@ export abstract class PageStorage {
         }
         while (this.dirtyPages.pop()) { }
         this.cleanSuperPage = this.superPage;
-        console.log('========END COMMIT========');
         return true;
     }
 

@@ -81,7 +81,7 @@ await runWithDatabase(async function checkSnap2(db) {
 
 var concurrentKeys = new Array(50).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
 
-await runWithDatabase(async function getset10kConcurrent (db) {
+await runWithDatabase(async function setGetCommitConcurrent(db) {
     var set = (await db.createSet("testConcurrent"))!;
     var tasks: Promise<void>[] = [];
     for (const k of concurrentKeys) {
@@ -102,7 +102,7 @@ await runWithDatabase(async function getset10kConcurrent (db) {
     assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function get10kConcurrent (db) {
+await runWithDatabase(async function getAfterConcurrent(db) {
     var set = (await db.getSet("testConcurrent"))!;
     console.info('set.count', set.count);
     let errors = [];
@@ -119,11 +119,36 @@ await runWithDatabase(async function get10kConcurrent (db) {
     assertEquals(await db.commit(), false);
 });
 
+await runWithDatabase(async function createSetGetCommitConcurrent(db) {
+    var tasks: Promise<void>[] = [];
+    for (const k of concurrentKeys) {
+        tasks.push((async () => {
+            const set = await db.createSet('k' + k[0]);
+            await set.set('key' + k, 'val' + k);
+            // console.info('<<< ' + k);
+            const val = await set!.get('key' + k);
+            if (val == 'val' + k) {
+                // console.info('>>> ' + val);
+            } else {
+                console.info('>>> expect ' + k + ' got ' + val);
+            }
+            await db.commit();
+        })());
+    }
+    await Promise.all(tasks);
+    assertEquals(await db.commit(), false);
+    assertEquals(
+        (await db.getSetNames()).filter(x => x[0] == 'k'),
+        [...new Set(concurrentKeys.map(k => 'k' + k[0]))].sort()
+    );
+});
+
+
 // set/get() lots of records
 
 var keys = new Array(10000).fill(0).map(x => Math.floor(Math.random() * 100000000000).toString());
 
-await runWithDatabase(async function set10k (db) {
+await runWithDatabase(async function set10k(db) {
     var set = (await db.getSet("test"))!;
     for (const k of keys) {
         await set.set('key' + k, 'val' + k);
@@ -132,7 +157,7 @@ await runWithDatabase(async function set10k (db) {
     assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function get10k (db) {
+await runWithDatabase(async function get10k(db) {
     var set = (await db.getSet("test"))!;
     console.info('set.count', set.count);
     for (const k of keys) {
@@ -145,7 +170,7 @@ await runWithDatabase(async function get10k (db) {
     assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function getKeys (db) {
+await runWithDatabase(async function getKeys(db) {
     var set = await db.getSet("test");
     var r = await set!.getKeys();
     var uniqueKeys = [...new Set(keys)].map(x => 'key' + x).sort();

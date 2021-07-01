@@ -207,7 +207,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     async getAllValues(array?: T[]): Promise<T[]> {
         if (!array) array = [];
         await this.traverseKeys((key) => {
-                array!.push(key as any)
+            array!.push(key as any);
         });
         return array;
     }
@@ -441,7 +441,9 @@ export class SetPage extends RecordsPage {
 
     override getDirty(addDirty: boolean) {
         var r = super.getDirty(addDirty);
-        if (r != this) this.storage.dirtySets.push(r);
+        if (r != this) {
+            this.storage.dirtySets.push(r);
+        }
         return r;
     }
 }
