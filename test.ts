@@ -1,4 +1,4 @@
-import { Database } from "./src/database.ts";
+import { Database } from "./mod.ts";
 import {
   assert,
   assertEquals,

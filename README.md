@@ -8,13 +8,14 @@
 - [x] Key-Value sets
 - [x] Document sets
   - [ ] Indexes
-  - [ ] BSON instead of JSON on disk
+  - [ ] BSON instead of JSON on disk (?)
 - [x] AC<del>I</del>D
   - [x] Isolation with concurrent reader
   - [ ] Concurrent writer (?)
 - [ ] Client / Server (?)
 - [ ] Replication (?)
 - [ ] GC (?)
+- [ ] Auto-commit (?)
 
 ## Usage
 
@@ -26,7 +27,29 @@
 >
 > Please do NOT use it in any serious production.
 
-See `test.ts`.
+### Create/open database file
+
+```ts
+const db = new Database();
+await db.openFile("data.db");
+// Will create new database if the file doesn't exist.
+```
+
+### Use key-value set
+
+```ts
+const configSet = await db.createSet("config");
+// Get the set or create if not exist.
+
+await configSet.set("username", "yuuza");
+console.info(await configSet.get("username")); // "yuuza"
+
+await db.commit();
+// Commit to persist the changes.
+```
+
+
+See also `test.ts`.
 
 ## Design
 
