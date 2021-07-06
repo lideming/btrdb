@@ -5,15 +5,17 @@
 - [x] B-Tree
 - [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
   [log-structured](https://en.wikipedia.org/wiki/Log-structured_file_system)
+- [x] Performance ([set 10k records in 150ms (single commit)](https://github.com/lideming/btrdb/runs/2995614665#step:4:261))
 - [x] Snapshots
   - [ ] Named snapshots
 - [x] Key-Value sets
 - [x] Document sets
+  - [x] Auto-id
   - [ ] Indexes
   - [ ] BSON instead of JSON on disk (?)
-- [x] AC<del>I</del>D
-  - [x] Isolation with concurrent reader
-  - [ ] Concurrent writer (?)
+- [x] ACID
+  - [x] Readers/writer lock
+  - [x] Isolation with concurrent reader on snapshots
 - [ ] Client / Server (?)
 - [ ] Replication (?)
 - [ ] GC (?)
