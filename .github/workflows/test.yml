@@ -16,4 +16,11 @@ jobs:
           deno-version: 1.x
 
       - name: Run test.ts
-        run: deno run --allow-read=testdata --allow-write=testdata test.ts
+        run: |
+          deno test \
+            --allow-read=testdata --allow-write=testdata \
+            --coverage=coverage \
+            test.ts
+
+      - name: Analyze coverage
+        run: deno coverage coverage
