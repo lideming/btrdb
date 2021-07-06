@@ -247,14 +247,20 @@ async function recreateDatabase() {
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
   console.info("");
   console.info("=============================");
-  console.info("==> run " + func.name);
+  console.info("==> test " + func.name);
   console.info("=============================");
-  console.time('open');
-  var db = new Database();
+
+  console.time("open");
+  const db = new Database();
   await db.openFile(testFile);
-  console.timeEnd('open');
-  console.time('run');
+  console.timeEnd("open");
+
+  console.time("run");
   await func(db);
-  console.timeEnd('run');
+  console.timeEnd("run");
   db.close();
+
+  const file = await Deno.open(testFile);
+  console.info("file size:", (await Deno.fstat(file.rid)).size);
+  file.close();
 }
