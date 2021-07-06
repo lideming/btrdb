@@ -26,7 +26,6 @@ export interface IDbDocSet<
   delete(id: IdType<T>): Promise<boolean>;
 }
 
-//@ts-expect-error
 export class DbDocSet extends DbSet implements IDbDocSet {
   declare private _page: DocSetPage;
   declare private page: DocSetPage;

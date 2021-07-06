@@ -13,6 +13,7 @@
       "runtimeExecutable": "deno",
       "runtimeArgs": [
         "run",
+        "--no-check",
         "--inspect",
         "--allow-all"
       ],

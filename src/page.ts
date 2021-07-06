@@ -6,14 +6,18 @@ import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
   IKey,
+  IValue,
   JSONValue,
   KeyOf,
   KValue,
   StringValue,
   UIntValue,
+  KeyType,
 } from "./value.ts";
 
 export type PageAddr = number;
+
+export type InlinablePage<T> = PageAddr | T;
 
 export const enum PageType {
   None,
@@ -23,10 +27,11 @@ export const enum PageType {
   Records,
   DocSet,
   DocRecords,
+  IndexesMap,
 }
 
 export interface PageClass<T extends Page> {
-  new (storage: PageStorage): T;
+  new(storage: PageStorage): T;
 }
 
 export abstract class Page {
@@ -51,7 +56,7 @@ export abstract class Page {
   /** Should be maintained by the page when changing data */
   freeBytes: number = PAGESIZE - 4;
 
-  init() {}
+  init() { }
 
   /**
      * Create a dirty copy of this page or return this page if it's already dirty.
@@ -91,7 +96,7 @@ export abstract class Page {
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
         `BUG: buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
-          this.freeBytes})`,
+        this.freeBytes})`,
       );
     }
   }
@@ -109,7 +114,7 @@ export abstract class Page {
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
         `BUG: buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
-          this.freeBytes})`,
+        this.freeBytes})`,
       );
     }
   }
@@ -127,8 +132,8 @@ export abstract class Page {
       throw new Error("_copyTo() with different types");
     }
   }
-  protected _writeContent(buf: Buffer) {}
-  protected _readContent(buf: Buffer) {}
+  protected _writeContent(buf: Buffer) { }
+  protected _readContent(buf: Buffer) { }
   protected get _thisCtor(): PageClass<this> {
     return Object.getPrototypeOf(this).constructor as PageClass<this>;
   }
@@ -219,8 +224,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   findIndex(key: KeyOf<T>):
-    | { found: true; pos: number; val: T }
-    | { found: false; pos: number; val: undefined } {
+    | { found: true; pos: number; val: T; }
+    | { found: false; pos: number; val: undefined; } {
     const keys = this.keys;
     let l = 0, r = keys.length - 1;
     while (l <= r) {
@@ -258,8 +263,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   async findIndexRecursive(key: KeyOf<T>): Promise<
-    | { found: true; node: NodePage<T>; pos: number; val: T }
-    | { found: false; node: NodePage<T>; pos: number; val: undefined }
+    | { found: true; node: NodePage<T>; pos: number; val: T; }
+    | { found: false; node: NodePage<T>; pos: number; val: undefined; }
   > {
     let node = this as NodePage<T>;
     while (true) {
@@ -442,98 +447,117 @@ function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
   return sum;
 }
 
-export class RecordsPage extends NodePage<KValue<StringValue, StringValue>> {
-  get type(): PageType {
-    return PageType.Records;
-  }
-  protected _readValue(buf: Buffer): KValue<StringValue, StringValue> {
-    return KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom);
-  }
-  protected override get _childCtor() {
-    return RecordsPage;
-  }
-}
-
-export class SetPage extends RecordsPage {
-  override get type(): PageType {
-    return PageType.Set;
-  }
-  rev: number = 1;
-  count: number = 0;
-
-  name: string = "";
-  lock = new OneWriterLock();
-
-  async enterCoWLock() {
-    var node = this.getLatestCopy();
-    await node.lock.enterWriter();
-    var node2 = node.getDirty(false);
-    if (node !== node2) {
-      await node2.lock.enterWriter();
-      node.lock.exitWriter();
+function buildTreePageClasses<TKey extends IKey<any>>(options: {
+  valueReader: (buf: Buffer) => TKey,
+  childPageType: PageType,
+  topPageType: PageType;
+}) {
+  class ChildNodePage extends NodePage<TKey> {
+    get type(): PageType {
+      return options.childPageType;
     }
-    return node2;
-  }
-
-  override init() {
-    super.init();
-    this.freeBytes -= 8;
-  }
-
-  override _debugView() {
-    return {
-      ...super._debugView(),
-      rev: this.rev,
-      count: this.count,
-    };
-  }
-
-  override _writeContent(buf: Buffer) {
-    buf.writeU32(this.rev);
-    buf.writeU32(this.count);
-    super._writeContent(buf);
-  }
-
-  override _readContent(buf: Buffer) {
-    this.rev = buf.readU32();
-    this.count = buf.readU32();
-    super._readContent(buf);
-  }
-
-  override _copyTo(page: SetPage) {
-    super._copyTo(page as any);
-    page.rev = this.rev;
-    page.count = this.count;
-
-    page.name = this.name;
-  }
-
-  override getDirty(addDirty: boolean) {
-    var r = super.getDirty(addDirty);
-    if (r != this) {
-      this.storage.dirtySets.push(r);
+    protected _readValue(buf: Buffer): TKey {
+      return options.valueReader(buf);
     }
-    return r;
+    protected override get _childCtor() {
+      return ChildNodePage;
+    }
   }
+
+  class TopNodePage extends ChildNodePage {
+    override get type(): PageType {
+      return options.topPageType;
+    }
+    rev: number = 1;
+    count: number = 0;
+
+    override init() {
+      super.init();
+      this.freeBytes -= 8;
+    }
+
+    override _debugView() {
+      return {
+        ...super._debugView(),
+        rev: this.rev,
+        count: this.count,
+      };
+    }
+
+    override _writeContent(buf: Buffer) {
+      buf.writeU32(this.rev);
+      buf.writeU32(this.count);
+      super._writeContent(buf);
+    }
+
+    override _readContent(buf: Buffer) {
+      this.rev = buf.readU32();
+      this.count = buf.readU32();
+      super._readContent(buf);
+    }
+
+    override _copyTo(page: this) {
+      super._copyTo(page as any);
+      page.rev = this.rev;
+      page.count = this.count;
+    }
+  }
+
+  return { top: TopNodePage, child: ChildNodePage };
 }
 
-export class DocsPage extends NodePage<KValue<JSONValue, JSONValue>> {
-  get type(): PageType {
-    return PageType.DocRecords;
+function buildSetPageClass<T extends ReturnType<typeof buildTreePageClasses>['top']>(baseClass: T) {
+  class SetPageBase extends baseClass {
+    name: string = "";
+    lock = new OneWriterLock();
+
+    async enterCoWLock() {
+      var node = this.getLatestCopy();
+      await node.lock.enterWriter();
+      var node2 = node.getDirty(false);
+      if (node !== node2) {
+        await node2.lock.enterWriter();
+        node.lock.exitWriter();
+      }
+      return node2;
+    }
+
+    override _copyTo(page: this) {
+      super._copyTo(page as any);
+      page.name = this.name;
+    }
+
+    override getDirty(addDirty: boolean) {
+      var r = super.getDirty(addDirty);
+      if (r != this) {
+        this.storage.dirtySets.push(r as any);
+      }
+      return r;
+    }
   }
-  protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
-    return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
-  }
-  protected override get _childCtor() {
-    return DocsPage;
-  }
+  return SetPageBase;
 }
 
-export class DocSetPage extends SetPage {
-  override get type(): PageType {
-    return PageType.DocSet;
-  }
+const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<KValue<StringValue, StringValue>>({
+  valueReader: (buf: Buffer) => KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
+  childPageType: PageType.Records,
+  topPageType: PageType.Set
+});
 
+export { RecordsPage };
+
+export const SetPage = buildSetPageClass(SetPageBase);
+export type SetPage = InstanceType<typeof SetPage>;
+
+const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses({
+  valueReader: (buf: Buffer) => KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
+  childPageType: PageType.DocRecords,
+  topPageType: PageType.DocSet
+});
+
+const DocSetPageBase2 = buildSetPageClass(DocSetPageBase1);
+
+export class DocSetPage extends DocSetPageBase2 {
   _lastId: any = null;
   _lastIdLen = 5;
 
@@ -567,19 +591,16 @@ export class DocSetPage extends SetPage {
     other._lastId = this._lastId;
     other._lastIdLen = this._lastIdLen;
   }
-
-  protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
-    return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
-  }
-  protected override get _childCtor() {
-    return DocsPage as any;
-  }
 }
 
-// TODO
-// class DocumentsPage ?
-// SetPage.setType ?
-// Generic RecordsPage ?
+export type IndexPageAddr = UIntValue;
+
+export class IndexesMapPage extends NodePage<KValue<StringValue, IndexPageAddr>> {
+  protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
+    return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
+  }
+  get type(): PageType { return PageType.IndexesMap; }
+}
 
 export type SetPageAddr = UIntValue;
 

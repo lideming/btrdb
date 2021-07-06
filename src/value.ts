@@ -9,7 +9,11 @@ export interface IComparable<T> {
   compareTo(other: T): -1 | 0 | 1;
 }
 
-export interface IValue extends ISerializable {}
+export interface IValue extends ISerializable { }
+
+export interface KeyType<T extends IKey<any>> {
+  readFrom(buf: Buffer): T;
+}
 
 export interface Key<T> extends IValue, IComparable<T>, IKey<T> {
   readonly hash: any;
