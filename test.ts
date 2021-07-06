@@ -249,8 +249,12 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
   console.info("=============================");
   console.info("==> run " + func.name);
   console.info("=============================");
+  console.time('open');
   var db = new Database();
   await db.openFile(testFile);
+  console.timeEnd('open');
+  console.time('run');
   await func(db);
+  console.timeEnd('run');
   db.close();
 }
