@@ -80,7 +80,7 @@ export abstract class Page {
   writeTo(buf: Buffer) {
     if (this.freeBytes < 0) {
       console.error(this);
-      throw new Error(`page content overflow (free ${this.freeBytes})`);
+      throw new Error(`BUG: page content overflow (free ${this.freeBytes})`);
     }
     const beginPos = buf.pos;
     buf.writeU8(this.type);
@@ -89,7 +89,7 @@ export abstract class Page {
     this._writeContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new Error(
-        `buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
+        `BUG: buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
           this.freeBytes})`,
       );
     }
@@ -107,7 +107,7 @@ export abstract class Page {
     this._readContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new Error(
-        `buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
+        `BUG: buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
           this.freeBytes})`,
       );
     }
@@ -133,6 +133,7 @@ export abstract class Page {
   }
 }
 
+/** A page as an B+ tree node */
 export abstract class NodePage<T extends IKey<unknown>> extends Page {
   parent?: NodePage<T> = undefined;
   posInParent?: number = undefined;
@@ -279,7 +280,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     dirtyNode.postChange();
   }
 
-  async set(key: KeyOf<T>, val: T | null) {
+  async set(key: KeyOf<T>, val: T | null, allowChange: boolean) {
     const { found, node, pos } = await this.findIndexRecursive(key);
     let action: "added" | "removed" | "changed" | "noop" = "noop";
 
@@ -290,6 +291,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (val != null) {
       const dirtyNode = node.getDirty(false);
       if (found) {
+        if (!allowChange) throw new Error("key already exists");
         dirtyNode.setKey(pos, val);
         action = "changed";
       } else {
@@ -312,6 +314,10 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     this.spliceKeys(pos, 0, key, leftChild);
   }
 
+  /**
+   * Finish copy-on-write on this node and parent nodes.
+   * Also split this node if the node is overflow.
+   */
   postChange() {
     if (this._newerCopy) throw new Error("BUG: postChange() on old copy.");
     if (!this.dirty) throw new Error("BUG: postChange() on non-dirty page.");
@@ -446,6 +452,17 @@ export class SetPage extends RecordsPage {
   name: string = "";
   lock = new OneWriterLock();
 
+  async enterCoWLock() {
+    var node = this.getLatestCopy();
+    await node.lock.enterWriter();
+    var node2 = node.getDirty(false);
+    if (node !== node2) {
+      await node2.lock.enterWriter();
+      node.lock.exitWriter();
+    }
+    return node2;
+  }
+
   override init() {
     super.init();
     this.freeBytes -= 8;
@@ -504,6 +521,41 @@ export class DocSetPage extends SetPage {
   override get type(): PageType {
     return PageType.DocSet;
   }
+
+  _lastId: any = null;
+  _lastIdLen = 5;
+
+  get lastId() {
+    return this._lastId;
+  }
+  set lastId(val) {
+    this.freeBytes += this._lastIdLen;
+    this._lastId = val;
+    this._lastIdLen = Buffer.calcStringSize(JSON.stringify(val));
+    this.freeBytes -= this._lastIdLen;
+  }
+
+  override init() {
+    super.init();
+    this.freeBytes -= 5;
+  }
+
+  override _writeContent(buf: Buffer) {
+    super._writeContent(buf);
+    buf.writeString(JSON.stringify(this.lastId));
+  }
+
+  override _readContent(buf: Buffer) {
+    super._readContent(buf);
+    this.lastId = JSON.parse(buf.readString());
+  }
+
+  override _copyTo(other: this) {
+    super._copyTo(other);
+    other._lastId = this._lastId;
+    other._lastIdLen = this._lastIdLen;
+  }
+
   protected _readValue(buf: Buffer): KValue<JSONValue, JSONValue> {
     return KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom);
   }

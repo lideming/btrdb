@@ -58,6 +58,9 @@ export class Buffer {
     if (buf.length < 255) return 1 + buf.length;
     else return 3 + buf.length;
   }
+  static calcStringSize(str: string) {
+    return Buffer.calcLenEncodedBufferSize(encoder.encode(str));
+  }
   readString() {
     var len = this.readU8();
     if (len == 255) {

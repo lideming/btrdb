@@ -137,6 +137,7 @@ export abstract class PageStorage {
         await this.superPage.set(
           new StringValue(set.name),
           new KValue(new StringValue(set.name), new UIntValue(set.addr)),
+          true,
         );
       }
       this.dirtySets = [];

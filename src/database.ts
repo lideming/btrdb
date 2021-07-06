@@ -7,7 +7,7 @@ export interface EngineContext {
   storage: PageStorage;
 }
 
-export class DbSet {
+export class DbSet implements IDbSet {
   constructor(
     private _page: SetPage,
     protected _db: DatabaseEngine,
@@ -64,15 +64,14 @@ export class DbSet {
     const keyv = new StringValue(key);
     const valv = !val ? null : new KValue(keyv, new StringValue(val));
 
-    const lockpage = this.page;
     await this._db.commitLock.enterWriter();
-    await lockpage.lock.enterWriter();
+    const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      const done = await this.page.set(keyv, valv);
+      const done = await lockpage.set(keyv, valv, true);
       if (done == "added") {
-        this.page.count += 1;
+        lockpage.count += 1;
       } else if (done == "removed") {
-        this.page.count -= 1;
+        lockpage.count -= 1;
       }
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
@@ -86,9 +85,11 @@ export class DbSet {
 }
 
 //@ts-expect-error
-export class DocDbSet extends DbSet {
+export class DbDocSet extends DbSet implements IDbDocSet {
   declare private _page: DocSetPage;
   declare private page: DocSetPage;
+
+  idGenerator: (lastId: any) => any = numberIdGenerator;
 
   async get(key: string): Promise<any | null> {
     const { found, val } = await this.page.findIndexRecursive(
@@ -99,30 +100,43 @@ export class DocDbSet extends DbSet {
   }
 
   async getAll(): Promise<{ key: any; value: any }[]> {
-    return (await this._getAllRaw() as any[]).map((x) => ({
-      key: x.key.val,
-      value: x.value.val,
-    }));
+    return (await this._getAllRaw() as any[]).map((x) => x.value.val);
   }
 
-  async getKeys(): Promise<any[]> {
+  async getIds(): Promise<any[]> {
     return (await this._getAllRaw() as any[]).map((x) => x.key.val);
   }
 
-  async set(key: any, val: any) {
-    if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
-    const keyv = new JSONValue(key);
-    const valv = !val ? null : new KValue(keyv, new JSONValue(val));
+  insert(doc: any) {
+    if (doc["id"] != null) {
+      throw new Error('"id" property should not exist on inserting');
+    }
+    return this._set(doc, true);
+  }
 
-    const lockpage = this.page;
+  upsert(doc: any) {
+    if (!("id" in doc)) throw new Error('"id" property doesn\'t exist');
+    return this._set(doc, false);
+  }
+
+  async _set(doc: any, inserting: boolean) {
+    if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
+
     await this._db.commitLock.enterWriter();
-    await lockpage.lock.enterWriter();
+    const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      const done = await this.page.set(keyv, valv);
+      let key = doc["id"];
+      if (inserting) {
+        if (key == null) key = doc["id"] = this.idGenerator(lockpage.lastId);
+        lockpage.lastId = key;
+      }
+      const keyv = new JSONValue(key);
+      const valv = !doc ? null : new KValue(keyv, new JSONValue(doc));
+      const done = await lockpage.set(keyv, valv, !inserting);
       if (done == "added") {
-        this.page.count += 1;
+        lockpage.count += 1;
       } else if (done == "removed") {
-        this.page.count -= 1;
+        lockpage.count -= 1;
       }
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
@@ -139,7 +153,7 @@ export type DbSetType = keyof typeof _setTypeInfo;
 
 const _setTypeInfo = {
   kv: { page: SetPage, dbset: DbSet },
-  doc: { page: DocSetPage, dbset: DocDbSet },
+  doc: { page: DocSetPage, dbset: DbDocSet },
 };
 
 export class DatabaseEngine implements EngineContext {
@@ -162,11 +176,11 @@ export class DatabaseEngine implements EngineContext {
   }
 
   async createSet(name: string, type: "kv"): Promise<DbSet>;
-  async createSet(name: string, type: "doc"): Promise<DocDbSet>;
+  async createSet(name: string, type: "doc"): Promise<DbDocSet>;
   async createSet(
     name: string,
     type: DbSetType = "kv",
-  ): Promise<DbSet | DocDbSet> {
+  ): Promise<DbSet | DbDocSet> {
     let lockWriter = false;
     const lock = this.commitLock;
     await lock.enterReader();
@@ -197,11 +211,11 @@ export class DatabaseEngine implements EngineContext {
   }
 
   async getSet(name: string, type: "kv"): Promise<DbSet | null>;
-  async getSet(name: string, type: "doc"): Promise<DocDbSet | null>;
+  async getSet(name: string, type: "doc"): Promise<DbDocSet | null>;
   getSet(
     name: string,
     type: DbSetType = "kv",
-  ): Promise<DbSet | DocDbSet | null> {
+  ): Promise<DbSet | DbDocSet | null> {
     return this._getSet(name, type, true);
   }
 
@@ -209,7 +223,7 @@ export class DatabaseEngine implements EngineContext {
     name: string,
     type: DbSetType,
     useLock: boolean,
-  ): Promise<DbSet | DocDbSet | null> {
+  ): Promise<DbSet | DbDocSet | null> {
     const lock = this.commitLock;
     if (useLock) await lock.enterReader();
     try {
@@ -267,14 +281,57 @@ export class DatabaseEngine implements EngineContext {
   }
 }
 
+export function numberIdGenerator(lastId: number | null) {
+  if (lastId == null) return 1;
+  return lastId + 1;
+}
+
+export interface IDbSet {
+  readonly count: number;
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  getAll(): Promise<{ key: string; value: string }[]>;
+  getKeys(): Promise<string[]>;
+  delete(key: string): Promise<void>;
+}
+
+export type IdType<T> = T extends { id: infer U } ? U : never;
+
+export type OptionalId<T extends IDocument> =
+  & Partial<Pick<T, "id">>
+  & Omit<T, "id">;
+
+export interface IDocument {
+  id: string | number;
+}
+
+export interface IDbDocSet<
+  T extends IDocument = any,
+> {
+  readonly count: number;
+  idGenerator: (lastId: IdType<T> | null) => IdType<T>;
+  get(id: IdType<T>): Promise<T>;
+  insert(doc: OptionalId<T>): Promise<void>;
+  upsert(doc: T): Promise<void>;
+  getAll(): Promise<T[]>;
+  getIds<T>(): Promise<IdType<T>[]>;
+  delete(id: IdType<T>): Promise<void>;
+}
+
 export interface Database {
   openFile(path: string): Promise<void>;
 
-  createSet(name: string, type?: "kv"): Promise<DbSet>;
-  createSet(name: string, type: "doc"): Promise<DocDbSet>;
+  createSet(name: string, type?: "kv"): Promise<IDbSet>;
+  createSet<T extends IDocument>(
+    name: string,
+    type: "doc",
+  ): Promise<IDbDocSet<T>>;
 
-  getSet(name: string, type?: "kv"): Promise<DbSet | null>;
-  getSet(name: string, type: "doc"): Promise<DocDbSet | null>;
+  getSet(name: string, type?: "kv"): Promise<IDbSet | null>;
+  getSet<T extends IDocument>(
+    name: string,
+    type: "doc",
+  ): Promise<IDbDocSet<T> | null>;
 
   getSetCount(): Promise<number>;
   getSetNames(): Promise<string[]>;

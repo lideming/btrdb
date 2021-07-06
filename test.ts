@@ -1,4 +1,4 @@
-import { Database } from "./mod.ts";
+import { Database, IDbDocSet } from "./mod.ts";
 import {
   assert,
   assertEquals,
@@ -27,16 +27,33 @@ await runWithDatabase(async function getSet(db) {
 
 // create/get() document sets
 
-await runWithDatabase(async function createDocSet(db) {
-  var set = await db.createSet("testdoc", "doc");
-  await set.set("testkey", { "id": 1, "username": "btrdb" });
-  console.info(await set.get("testkey"));
+interface Document {
+  id: number;
+  username: string;
+}
+
+await runWithDatabase(async function DocSet_insert(db) {
+  var set = await db.createSet<Document>("testdoc", "doc");
+  await set.insert({ "username": "btrdb" });
+  await set.insert({ "username": "test" });
+  assertEquals(await set.get(1), { "id": 1, "username": "btrdb" });
+  assertEquals(await set.get(2), { "id": 2, "username": "test" });
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function getDocSet(db) {
+await runWithDatabase(async function DocSet_upsert(db) {
+  var set = await db.createSet<Document>("testdoc", "doc");
+  await set.upsert({ "id": 1, "username": "whatdb" });
+  await set.upsert({ "id": 2, "username": "nobody" });
+  assertEquals(await set.get(1), { "id": 1, "username": "whatdb" });
+  assertEquals(await set.get(2), { "id": 2, "username": "nobody" });
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_get(db) {
   var set = await db.getSet("testdoc", "doc");
-  console.info(await set!.get("testkey"));
+  assertEquals(await set!.get(1), { "id": 1, "username": "whatdb" });
+  assertEquals(await set!.get(2), { "id": 2, "username": "nobody" });
   assertEquals(await db.commit(), false);
 });
 

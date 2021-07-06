@@ -25,7 +25,7 @@
 
 This project is just started. It's under heavy development!
 
-The on-disk structre and the API are NOT stable yet.
+The on-disk format structure and the API are NOT stable yet.
 
 Please do NOT use it in any serious production.
 
@@ -51,6 +51,55 @@ console.info(await configSet.get("username")); // "yuuza"
 await db.commit();
 // Commit to persist the changes.
 ```
+
+### Use document set
+
+**Create set**
+
+```ts
+interface User {
+  id: number; // An property named "id" is required.
+  username: string;
+  status: "online" | "offline";
+}
+
+const configSet = await db.createSet<User>("users", "doc");
+// Get the set or create if not exist.
+```
+
+**Insert**
+
+```ts
+await configSet.insert({ username: "yuuza", status: "offline" });
+// Insert a new document, auto id when it's not specified.
+
+console.info(await configSet.get(1));
+// { id: 1, username: "yuuza", status: "offline" }
+
+await configSet.insert({ username: "yuuza", status: "offline" });
+// Insert a new document, auto id when it's not specified.
+
+await db.commit();
+// Commit to persist the changes.
+```
+
+**Upsert**
+
+```ts
+const user = await configSet.get(1);
+user.status = "online"
+// Get user and set its status
+
+await configSet.upsert(user);
+// Use upsert apply the change to DB.
+
+// `upsert` will override the document when the same id is existing,
+// or insert as a new document if the id is not existing.
+
+console.info(await configSet.get(1));
+// { id: 1, username: "yuuza", status: "online" }
+```
+
 
 See also `test.ts`.
 
