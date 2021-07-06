@@ -68,7 +68,6 @@ export class DatabaseEngine implements EngineContext {
     } finally {
       if (lockWriter) lock.exitWriter();
       else lock.exitReader();
-      console.info("exit", lockWriter ? "writer" : "reader", name);
     }
   }
 

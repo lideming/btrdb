@@ -93,13 +93,16 @@ user.status = "online"
 // Get user and set its status
 
 await configSet.upsert(user);
-// Use upsert apply the change to DB.
+// Use upsert to apply the change.
 
 // `upsert` will override the document when the same id is existing,
 // or insert as a new document if the id is not existing.
 
 console.info(await configSet.get(1));
 // { id: 1, username: "yuuza", status: "online" }
+
+await db.commit();
+// Commit to persist the changes.
 ```
 
 

@@ -15,14 +15,27 @@ await recreateDatabase();
 await runWithDatabase(async function createSet(db) {
   var set = await db.createSet("test");
   await set.set("testkey", "testval");
-  console.info(await set.get("testkey"));
+  assertEquals(await set.get("testkey"), "testval");
   assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function getSet(db) {
   var set = await db.getSet("test");
-  console.info(await set!.get("testkey"));
+  assertEquals(await set!.get("testkey"), "testval");
   assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function getSetCount(db) {
+  assertEquals(await db.getSetCount(), 1);
+  assert(await db.createSet("testCount1"));
+  assertEquals(await db.getSetCount(), 2);
+  assert(await db.createSet("testCount2"));
+  assertEquals(await db.getSetCount(), 3);
+  assert(await db.createSet("testCount1"));
+  assertEquals(await db.getSetCount(), 3);
+  assert(await db.createSet("testCount3"));
+  assertEquals(await db.getSetCount(), 4);
+  await db.commit();
 });
 
 // create/get() document sets
@@ -97,9 +110,13 @@ await runWithDatabase(async function checkSnap2(db) {
 
 // set/get() lots of records (concurrently)
 
-var concurrentKeys = new Array(50).fill(0).map((x) =>
+const concurrentKeys = new Array(50).fill(0).map((x) =>
   Math.floor(Math.random() * 100000000000).toString()
 );
+const expectedConcurrentKeys = [...new Set(concurrentKeys)].sort();
+const expectedConcurrentSetNames = [
+  ...new Set(concurrentKeys.map((k) => "k" + k[0])),
+].sort();
 
 await runWithDatabase(async function setGetCommitConcurrent(db) {
   var set = (await db.createSet("testConcurrent"))!;
@@ -118,13 +135,13 @@ await runWithDatabase(async function setGetCommitConcurrent(db) {
     })());
   }
   await Promise.all(tasks);
-  console.info("set.count", set.count);
+  assertEquals(set.count, expectedConcurrentKeys.length);
   assertEquals(await db.commit(), false);
 });
 
 await runWithDatabase(async function getAfterConcurrent(db) {
   var set = (await db.getSet("testConcurrent"))!;
-  console.info("set.count", set.count);
+  assertEquals(set.count, expectedConcurrentKeys.length);
   let errors = [];
   for (const k of concurrentKeys) {
     const val = await set!.get("key" + k);
@@ -159,28 +176,29 @@ await runWithDatabase(async function createSetGetCommitConcurrent(db) {
   assertEquals(await db.commit(), false);
   assertEquals(
     (await db.getSetNames()).filter((x) => x[0] == "k"),
-    [...new Set(concurrentKeys.map((k) => "k" + k[0]))].sort(),
+    expectedConcurrentSetNames,
   );
 });
 
 // set/get() lots of records
 
-var keys = new Array(10000).fill(0).map((x) =>
+const keys = new Array(10000).fill(0).map((x) =>
   Math.floor(Math.random() * 100000000000).toString()
 );
+const expectedKeys = [...new Set(keys)].sort();
 
 await runWithDatabase(async function set10k(db) {
-  var set = (await db.getSet("test"))!;
+  var set = (await db.createSet("test10k"))!;
   for (const k of keys) {
     await set.set("key" + k, "val" + k);
   }
-  console.info("set.count", set.count);
+  assertEquals(set.count, expectedKeys.length);
   assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function get10k(db) {
-  var set = (await db.getSet("test"))!;
-  console.info("set.count", set.count);
+  var set = (await db.getSet("test10k"))!;
+  assertEquals(set.count, expectedKeys.length);
   for (const k of keys) {
     const val = await set!.get("key" + k);
     if (val != "val" + k) {
@@ -192,7 +210,7 @@ await runWithDatabase(async function get10k(db) {
 });
 
 await runWithDatabase(async function getKeys(db) {
-  var set = await db.getSet("test");
+  var set = await db.getSet("test10k");
   var r = await set!.getKeys();
   var uniqueKeys = [...new Set(keys)].map((x) => "key" + x).sort();
   for (let i = 0; i < uniqueKeys.length; i++) {
@@ -211,8 +229,6 @@ await runWithDatabase(async function getKeys(db) {
 //     }
 // });
 
-console.info("Tests finished.");
-
 // await runWithDatabase(async db => {
 //     console.info(await db.getSetCount());
 // });
@@ -224,19 +240,6 @@ console.info("Tests finished.");
 //     await db.commit();
 // });
 
-// await runWithDatabase(async (db) => {
-//     assertEquals(await db.getSetCount(), 0);
-//     assert(await db.createSet('test1'));
-//     assertEquals(await db.getSetCount(), 1);
-//     assert(await db.createSet('test2'));
-//     assertEquals(await db.getSetCount(), 2);
-//     assert(await db.createSet('test1'));
-//     assertEquals(await db.getSetCount(), 2);
-//     assert(await db.createSet('test3'));
-//     assertEquals(await db.getSetCount(), 3);
-//     await db.commit();
-// });
-
 async function recreateDatabase() {
   await Deno.mkdir("testdata", { recursive: true });
   try {
@@ -245,22 +248,28 @@ async function recreateDatabase() {
 }
 
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
-  console.info("");
-  console.info("=============================");
-  console.info("==> test " + func.name);
-  console.info("=============================");
+  // console.info("");
+  // console.info("=============================");
+  // console.info("==> test " + func.name);
+  // console.info("=============================");
 
-  console.time("open");
-  const db = new Database();
-  await db.openFile(testFile);
-  console.timeEnd("open");
+  Deno.test({
+    name: func.name,
+    fn: async () => {
+      console.info("\n=============================");
+      console.time("open");
+      const db = new Database();
+      await db.openFile(testFile);
+      console.timeEnd("open");
 
-  console.time("run");
-  await func(db);
-  console.timeEnd("run");
-  db.close();
+      console.time("run");
+      await func(db);
+      console.timeEnd("run");
+      db.close();
 
-  const file = await Deno.open(testFile);
-  console.info("file size:", (await Deno.fstat(file.rid)).size);
-  file.close();
+      const file = await Deno.open(testFile);
+      console.info("file size:", (await Deno.fstat(file.rid)).size);
+      file.close();
+    },
+  });
 }

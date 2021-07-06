@@ -144,7 +144,7 @@ export abstract class PageStorage {
     }
     if (!this.superPage.dirty) {
       if (this.dirtyPages.length == 0) {
-        console.log("Nothing to commit");
+        // console.log("Nothing to commit");
         return false;
       } else {
         throw new Error("super page is not dirty");
@@ -154,13 +154,13 @@ export abstract class PageStorage {
       this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
     this.addDirty(this.superPage);
-    console.log(
-      "commit",
-      this.dirtyPages
-        .length + " pages",
-      // .map(x => x._debugView())
-      // .map(x => [x.addr, x.type])
-    );
+    // console.log(
+    //   "commit",
+    //   this.dirtyPages
+    //     .length + " pages",
+    //   // .map(x => x._debugView())
+    //   // .map(x => [x.addr, x.type])
+    // );
     await this._commit(this.dirtyPages);
     for (const page of this.dirtyPages) {
       page.dirty = false;
