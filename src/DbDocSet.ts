@@ -23,7 +23,7 @@ export interface IDbDocSet<
   upsert(doc: T): Promise<void>;
   getAll(): Promise<T[]>;
   getIds<T>(): Promise<IdType<T>[]>;
-  delete(id: IdType<T>): Promise<void>;
+  delete(id: IdType<T>): Promise<boolean>;
 }
 
 //@ts-expect-error
@@ -86,7 +86,25 @@ export class DbDocSet extends DbSet implements IDbDocSet {
     }
   }
 
-  delete(key: string) {
-    return this.set(key, null);
+  async delete(key: any) {
+    if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
+
+    await this._db.commitLock.enterWriter();
+    const lockpage = await this.page.enterCoWLock();
+    try { // BEGIN WRITE LOCK
+      const keyv = new JSONValue(key);
+      const done = await lockpage.set(keyv, null, false);
+      if (done == "removed") {
+        lockpage.count -= 1;
+        return true;
+      } else if (done == "noop") {
+        return false;
+      } else {
+        throw new Error("Unexpected return value from NodePage.set: " + done);
+      }
+    } finally { // END WRITE LOCK
+      lockpage.lock.exitWriter();
+      this._db.commitLock.exitWriter();
+    }
   }
 }

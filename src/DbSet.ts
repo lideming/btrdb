@@ -5,10 +5,10 @@ import { KValue, StringValue } from "./value.ts";
 export interface IDbSet {
   readonly count: number;
   get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<void>;
+  set(key: string, value: string): Promise<boolean>;
   getAll(): Promise<{ key: string; value: string }[]>;
   getKeys(): Promise<string[]>;
-  delete(key: string): Promise<void>;
+  delete(key: string): Promise<boolean>;
 }
 
 export class DbSet implements IDbSet {
@@ -66,7 +66,7 @@ export class DbSet implements IDbSet {
   async set(key: string, val: string | null) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
     const keyv = new StringValue(key);
-    const valv = !val ? null : new KValue(keyv, new StringValue(val));
+    const valv = val == null ? null : new KValue(keyv, new StringValue(val));
 
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
@@ -76,6 +76,11 @@ export class DbSet implements IDbSet {
         lockpage.count += 1;
       } else if (done == "removed") {
         lockpage.count -= 1;
+      }
+      if (done == "noop") {
+        return false;
+      } else {
+        return true;
       }
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();

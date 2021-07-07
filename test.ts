@@ -15,14 +15,25 @@ await recreateDatabase();
 await runWithDatabase(async function createSet(db) {
   var set = await db.createSet("test");
   await set.set("testkey", "testval");
+  await set.set("testkey2", "testval2");
   assertEquals(await set.get("testkey"), "testval");
+  assertEquals(await set.get("testkey2"), "testval2");
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function getSet(db) {
+await runWithDatabase(async function Set_get(db) {
   var set = await db.getSet("test");
   assertEquals(await set!.get("testkey"), "testval");
+  assertEquals(await set!.get("testkey2"), "testval2");
   assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function Set_delete(db) {
+  var set = await db.getSet("test");
+  await set!.delete("testkey");
+  assertEquals(await set!.get("testkey"), null);
+  assertEquals(await set!.get("testkey2"), "testval2");
+  assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function getSetCount(db) {
@@ -68,6 +79,28 @@ await runWithDatabase(async function DocSet_get(db) {
   assertEquals(await set!.get(1), { "id": 1, "username": "whatdb" });
   assertEquals(await set!.get(2), { "id": 2, "username": "nobody" });
   assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function DocSet_getAll(db) {
+  var set = await db.getSet("testdoc", "doc");
+  assertEquals(await set!.getAll(), [
+    { "id": 1, "username": "whatdb" },
+    { "id": 2, "username": "nobody" },
+  ]);
+  assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function DocSet_getIds(db) {
+  var set = await db.getSet("testdoc", "doc");
+  assertEquals(await set!.getIds(), [1, 2]);
+  assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function DocSet_delete(db) {
+  var set = await db.getSet("testdoc", "doc");
+  await set!.delete(1);
+  assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }]);
+  assertEquals(await db.commit(), true);
 });
 
 // get snapshots
