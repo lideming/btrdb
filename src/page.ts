@@ -1,6 +1,7 @@
 export const PAGESIZE = 4096;
 
 import { Buffer } from "./buffer.ts";
+import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
 import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
@@ -57,7 +58,7 @@ export abstract class Page {
      * @param addDirty {boolean} whether to assign the page address
      */
   getDirty(addDirty: boolean): this {
-    if (this._newerCopy) throw new Error("getDirty on out-dated page");
+    if (this._newerCopy) throw new BugError("getDirty on out-dated page");
     if (this.dirty) {
       if (addDirty && !this.hasAddr) this.storage.addDirty(this);
       return this;
@@ -80,7 +81,7 @@ export abstract class Page {
   writeTo(buf: Buffer) {
     if (this.freeBytes < 0) {
       console.error(this);
-      throw new Error(`BUG: page content overflow (free ${this.freeBytes})`);
+      throw new BugError(`BUG: page content overflow (free ${this.freeBytes})`);
     }
     const beginPos = buf.pos;
     buf.writeU8(this.type);
@@ -88,7 +89,7 @@ export abstract class Page {
     buf.writeU16(0);
     this._writeContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-      throw new Error(
+      throw new BugError(
         `BUG: buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
           this.freeBytes})`,
       );
@@ -106,7 +107,7 @@ export abstract class Page {
     if (buf.readU16() != 0) throw new Error("Non-zero reserved field");
     this._readContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
-      throw new Error(
+      throw new BugError(
         `BUG: buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
           this.freeBytes})`,
       );
@@ -177,7 +178,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     key?: T,
     leftChild?: PageAddr,
   ): [deletedKeys: T[], deletedChildren: PageAddr[]] {
-    if (leftChild! < 0) throw new Error("Invalid leftChild");
+    if (leftChild! < 0) throw new BugError("Invalid leftChild");
     // this.writeTo(new Buffer(new Uint8Array(4096), 0));
     let deleted: T[];
     let deletedChildren: PageAddr[];
@@ -204,13 +205,15 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
   setChild(pos: number, child: PageAddr) {
     if (pos < 0 || this.children.length <= pos) {
-      throw new Error("pos out of range");
+      throw new BugError("pos out of range");
     }
     this.children[pos] = child;
   }
 
   setKey(pos: number, key: T) {
-    if (pos < 0 || this.keys.length <= pos) throw new Error("pos out of range");
+    if (pos < 0 || this.keys.length <= pos) {
+      throw new BugError("pos out of range");
+    }
     this.freeBytes -= key.byteLength - this.keys[pos].byteLength;
     this.keys[pos] = key;
   }
@@ -280,21 +283,28 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     dirtyNode.postChange();
   }
 
-  async set(key: KeyOf<T>, val: T | null, allowChange: boolean) {
+  async set(
+    key: KeyOf<T>,
+    val: T | null,
+    allowChange: boolean | "change-only",
+  ) {
     const { found, node, pos } = await this.findIndexRecursive(key);
     let action: "added" | "removed" | "changed" | "noop" = "noop";
 
     if (node._newerCopy) {
-      throw new Error("BUG: set() -> findIndex() returns old copy.");
+      throw new BugError("BUG: set() -> findIndex() returns old copy.");
     }
 
     if (val != null) {
       const dirtyNode = node.getDirty(false);
       if (found) {
-        if (!allowChange) throw new Error("key already exists");
+        if (!allowChange) throw new AlreadyExistError("key already exists");
         dirtyNode.setKey(pos, val);
         action = "changed";
       } else {
+        if (allowChange === "change-only") {
+          throw new NotExistError("key doesn't exists");
+        }
         dirtyNode.insertAt(pos, val);
         action = "added";
       }
@@ -319,8 +329,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
    * Also split this node if the node is overflow.
    */
   postChange() {
-    if (this._newerCopy) throw new Error("BUG: postChange() on old copy.");
-    if (!this.dirty) throw new Error("BUG: postChange() on non-dirty page.");
+    if (this._newerCopy) throw new BugError("BUG: postChange() on old copy.");
+    if (!this.dirty) throw new BugError("BUG: postChange() on non-dirty page.");
     if (this.freeBytes < 0) {
       if (this.keys.length <= 2) {
         throw new Error("Not implemented");
@@ -365,7 +375,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   makeDirtyToRoot() {
-    if (!this.dirty) throw new Error("Invalid operation");
+    if (!this.dirty) {
+      throw new BugError("BUG: makeDirtyToRoot() on non-dirty page");
+    }
     let up = this as NodePage<T>;
     while (up.parent) {
       if (up.parent.dirty) break;

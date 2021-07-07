@@ -46,7 +46,24 @@ await runWithDatabase(async function getSetCount(db) {
   assertEquals(await db.getSetCount(), 3);
   assert(await db.createSet("testCount3"));
   assertEquals(await db.getSetCount(), 4);
-  await db.commit();
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function deleteSet(db) {
+  assertEquals(await db.deleteSet("testCount3"), true);
+  assertEquals(await db.getSet("testCount3"), null);
+  assertEquals(await db.getSetCount(), 3);
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function deleteSet_afterModify(db) {
+  const set = await db.getSet("testCount1");
+  assert(set);
+  await set.set("somechange", "somevalue");
+  assertEquals(await db.deleteSet("testCount1"), true);
+  assertEquals(await db.getSet("testCount1"), null);
+  assertEquals(await db.getSetCount(), 2);
+  assertEquals(await db.commit(), true);
 });
 
 // create/get() document sets

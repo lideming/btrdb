@@ -1,4 +1,5 @@
 import { Buffer } from "./buffer.ts";
+import { NotExistError } from "./errors.ts";
 import {
   Page,
   PageAddr,
@@ -134,11 +135,20 @@ export abstract class PageStorage {
           throw new Error("non-latest page in dirtySets");
         }
         set.getDirty(true);
-        await this.superPage.set(
-          new StringValue(set.name),
-          new KValue(new StringValue(set.name), new UIntValue(set.addr)),
-          true,
-        );
+        try {
+          await this.superPage.set(
+            new StringValue(set.name),
+            new KValue(new StringValue(set.name), new UIntValue(set.addr)),
+            "change-only",
+          );
+        } catch (error) {
+          if (error instanceof NotExistError) {
+            // This set is deleted.
+            // TODO: remove dirty pages of this set.
+            continue;
+          }
+          throw error;
+        }
       }
       this.dirtySets = [];
     }

@@ -6,6 +6,7 @@ import { DocSetPage, RecordsPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import { JSONValue, KValue, StringValue, UIntValue } from "./value.ts";
+import { BugError } from "./errors.ts";
 
 export interface EngineContext {
   storage: PageStorage;
@@ -100,6 +101,29 @@ export class DatabaseEngine implements EngineContext {
     }
   }
 
+  async deleteSet(name: string): Promise<boolean> {
+    let lockWriter = false;
+    const lock = this.commitLock;
+    await lock.enterWriter();
+    try {
+      const done = await this.superPage!.set(
+        new StringValue(name),
+        null,
+        false,
+      );
+      if (done == "removed") {
+        this.superPage!.setCount--;
+        return true;
+      } else if (done == "noop") {
+        return false;
+      } else {
+        throw new BugError("Unexpected return value: " + done);
+      }
+    } finally {
+      lock.exitWriter();
+    }
+  }
+
   async getSetCount() {
     return this.superPage!.setCount;
   }
@@ -161,6 +185,8 @@ export interface Database {
     name: string,
     type: "doc",
   ): Promise<IDbDocSet<T> | null>;
+
+  deleteSet(name: string): Promise<boolean>;
 
   getSetCount(): Promise<number>;
   getSetNames(): Promise<string[]>;
