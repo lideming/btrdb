@@ -66,6 +66,15 @@ await runWithDatabase(async function deleteSet_afterModify(db) {
   assertEquals(await db.commit(), true);
 });
 
+await runWithDatabase(async function deleteSet_check(db) {
+  assertEquals(await db.getSet("testCount1"), null);
+  assertEquals(await db.getSet("testCount3"), null);
+  assertEquals(await db.deleteSet("testCount1"), false);
+  assertEquals(await db.deleteSet("testCount3"), false);
+  assertEquals(await db.getSetCount(), 2);
+  assertEquals(await db.commit(), false);
+});
+
 // create/get() document sets
 
 interface Document {

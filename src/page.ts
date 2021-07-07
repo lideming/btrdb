@@ -310,8 +310,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       }
       dirtyNode.postChange();
     } else {
-      const dirtyNode = node.getDirty(false);
       if (found) {
+        const dirtyNode = node.getDirty(false);
         dirtyNode.spliceKeys(pos, 1);
         dirtyNode.postChange();
         action = "removed";
