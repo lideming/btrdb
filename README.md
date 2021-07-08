@@ -21,6 +21,8 @@
 - [ ] GC (?)
 - [ ] Auto-commit (?)
 
+[![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
+
 ## Usage
 
 ### ⚠️ Warning! ⚠️
