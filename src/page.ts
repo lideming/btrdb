@@ -9,10 +9,10 @@ import {
   IValue,
   JSONValue,
   KeyOf,
+  KeyType,
   KValue,
   StringValue,
   UIntValue,
-  KeyType,
 } from "./value.ts";
 
 export type PageAddr = number;
@@ -31,7 +31,7 @@ export const enum PageType {
 }
 
 export interface PageClass<T extends Page> {
-  new(storage: PageStorage): T;
+  new (storage: PageStorage): T;
 }
 
 export abstract class Page {
@@ -56,7 +56,7 @@ export abstract class Page {
   /** Should be maintained by the page when changing data */
   freeBytes: number = PAGESIZE - 4;
 
-  init() { }
+  init() {}
 
   /**
      * Create a dirty copy of this page or return this page if it's already dirty.
@@ -96,7 +96,7 @@ export abstract class Page {
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
         `BUG: buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
-        this.freeBytes})`,
+          this.freeBytes})`,
       );
     }
   }
@@ -114,7 +114,7 @@ export abstract class Page {
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
         `BUG: buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
-        this.freeBytes})`,
+          this.freeBytes})`,
       );
     }
   }
@@ -132,8 +132,8 @@ export abstract class Page {
       throw new Error("_copyTo() with different types");
     }
   }
-  protected _writeContent(buf: Buffer) { }
-  protected _readContent(buf: Buffer) { }
+  protected _writeContent(buf: Buffer) {}
+  protected _readContent(buf: Buffer) {}
   protected get _thisCtor(): PageClass<this> {
     return Object.getPrototypeOf(this).constructor as PageClass<this>;
   }
@@ -224,8 +224,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   findIndex(key: KeyOf<T>):
-    | { found: true; pos: number; val: T; }
-    | { found: false; pos: number; val: undefined; } {
+    | { found: true; pos: number; val: T }
+    | { found: false; pos: number; val: undefined } {
     const keys = this.keys;
     let l = 0, r = keys.length - 1;
     while (l <= r) {
@@ -263,8 +263,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   async findIndexRecursive(key: KeyOf<T>): Promise<
-    | { found: true; node: NodePage<T>; pos: number; val: T; }
-    | { found: false; node: NodePage<T>; pos: number; val: undefined; }
+    | { found: true; node: NodePage<T>; pos: number; val: T }
+    | { found: false; node: NodePage<T>; pos: number; val: undefined }
   > {
     let node = this as NodePage<T>;
     while (true) {
@@ -448,8 +448,8 @@ function calcSizeOfKeys<T>(keys: Iterable<IKey<T>>) {
 }
 
 function buildTreePageClasses<TKey extends IKey<any>>(options: {
-  valueReader: (buf: Buffer) => TKey,
-  childPageType: PageType,
+  valueReader: (buf: Buffer) => TKey;
+  childPageType: PageType;
   topPageType: PageType;
 }) {
   class ChildNodePage extends NodePage<TKey> {
@@ -509,7 +509,9 @@ function buildTreePageClasses<TKey extends IKey<any>>(options: {
   return { top: TopNodePage, child: ChildNodePage };
 }
 
-function buildSetPageClass<T extends ReturnType<typeof buildTreePageClasses>['top']>(baseClass: T) {
+function buildSetPageClass<
+  T extends ReturnType<typeof buildTreePageClasses>["top"],
+>(baseClass: T) {
   class SetPageBase extends baseClass {
     name: string = "";
     lock = new OneWriterLock();
@@ -543,10 +545,13 @@ function buildSetPageClass<T extends ReturnType<typeof buildTreePageClasses>['to
 
 export type KVNodeType = KValue<StringValue, StringValue>;
 
-const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<KValue<StringValue, StringValue>>({
-  valueReader: (buf: Buffer) => KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
+const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<
+  KValue<StringValue, StringValue>
+>({
+  valueReader: (buf: Buffer) =>
+    KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
   childPageType: PageType.Records,
-  topPageType: PageType.Set
+  topPageType: PageType.Set,
 });
 
 export { RecordsPage };
@@ -557,9 +562,10 @@ export type SetPage = InstanceType<typeof SetPage>;
 export type DocNodeType = KValue<JSONValue, JSONValue>;
 
 const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses({
-  valueReader: (buf: Buffer) => KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
+  valueReader: (buf: Buffer) =>
+    KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
   childPageType: PageType.DocRecords,
-  topPageType: PageType.DocSet
+  topPageType: PageType.DocSet,
 });
 
 const DocSetPageBase2 = buildSetPageClass(DocSetPageBase1);
@@ -602,11 +608,14 @@ export class DocSetPage extends DocSetPageBase2 {
 
 export type IndexPageAddr = UIntValue;
 
-export class IndexesMapPage extends NodePage<KValue<StringValue, IndexPageAddr>> {
+export class IndexesMapPage
+  extends NodePage<KValue<StringValue, IndexPageAddr>> {
   protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
     return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
   }
-  get type(): PageType { return PageType.IndexesMap; }
+  get type(): PageType {
+    return PageType.IndexesMap;
+  }
 }
 
 export type SetPageAddr = UIntValue;

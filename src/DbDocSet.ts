@@ -27,7 +27,9 @@ export interface IDbDocSet<
 }
 
 export class DbDocSet extends DbSet implements IDbDocSet {
-  protected get page() { return super.page as DocSetPage; }
+  protected get page() {
+    return super.page as DocSetPage;
+  }
 
   idGenerator: (lastId: any) => any = numberIdGenerator;
 
