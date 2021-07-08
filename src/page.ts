@@ -453,6 +453,9 @@ function buildTreePageClasses<TKey extends IKey<any>>(options: {
   topPageType: PageType;
 }) {
   class ChildNodePage extends NodePage<TKey> {
+    constructor(...args: any[]) {
+      super(...(args as [PageStorage]));
+    }
     get type(): PageType {
       return options.childPageType;
     }
@@ -538,6 +541,8 @@ function buildSetPageClass<T extends ReturnType<typeof buildTreePageClasses>['to
   return SetPageBase;
 }
 
+export type KVNodeType = KValue<StringValue, StringValue>;
+
 const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<KValue<StringValue, StringValue>>({
   valueReader: (buf: Buffer) => KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
   childPageType: PageType.Records,
@@ -548,6 +553,8 @@ export { RecordsPage };
 
 export const SetPage = buildSetPageClass(SetPageBase);
 export type SetPage = InstanceType<typeof SetPage>;
+
+export type DocNodeType = KValue<JSONValue, JSONValue>;
 
 const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses({
   valueReader: (buf: Buffer) => KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),

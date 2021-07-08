@@ -1,5 +1,5 @@
 import { DatabaseEngine } from "./database.ts";
-import { SetPage } from "./page.ts";
+import { KVNodeType, SetPage } from "./page.ts";
 import { KValue, StringValue } from "./value.ts";
 
 export interface IDbSet {
@@ -12,14 +12,18 @@ export interface IDbSet {
 }
 
 export class DbSet implements IDbSet {
+  protected _page: SetPage;
+
   constructor(
-    private _page: SetPage,
+    page: SetPage,
     protected _db: DatabaseEngine,
     public readonly name: string,
     protected isSnapshot: boolean,
-  ) {}
+  ) {
+    this._page = page;
+  }
 
-  private get page() {
+  protected get page() {
     if (this.isSnapshot) return this._page;
     return this._page = this._page.getLatestCopy();
   }
@@ -36,7 +40,7 @@ export class DbSet implements IDbSet {
         new StringValue(key),
       );
       if (!found) return null;
-      return val!.value.str;
+      return (val as KVNodeType)!.value.str;
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
@@ -54,13 +58,13 @@ export class DbSet implements IDbSet {
 
   async getAll(): Promise<{ key: string; value: string }[]> {
     return (await this._getAllRaw()).map((x) => ({
-      key: x.key.str,
-      value: x.value.str,
+      key: (x as KVNodeType).key.str,
+      value: (x as KVNodeType).value.str,
     }));
   }
 
   async getKeys(): Promise<string[]> {
-    return (await this._getAllRaw()).map((x) => x.key.str);
+    return (await this._getAllRaw()).map((x) => (x as KVNodeType).key.str);
   }
 
   async set(key: string, val: string | null) {

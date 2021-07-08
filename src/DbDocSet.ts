@@ -1,5 +1,5 @@
 import { numberIdGenerator } from "./database.ts";
-import { DocSetPage } from "./page.ts";
+import { DocNodeType, DocSetPage } from "./page.ts";
 import { JSONValue, KValue } from "./value.ts";
 import { DbSet } from "./DbSet.ts";
 
@@ -27,8 +27,7 @@ export interface IDbDocSet<
 }
 
 export class DbDocSet extends DbSet implements IDbDocSet {
-  declare private _page: DocSetPage;
-  declare private page: DocSetPage;
+  protected get page() { return super.page as DocSetPage; }
 
   idGenerator: (lastId: any) => any = numberIdGenerator;
 
@@ -37,15 +36,15 @@ export class DbDocSet extends DbSet implements IDbDocSet {
       new JSONValue(key),
     );
     if (!found) return null;
-    return (val!.value as any).val;
+    return (val as DocNodeType)!.value.val;
   }
 
   async getAll(): Promise<{ key: any; value: any }[]> {
-    return (await this._getAllRaw() as any[]).map((x) => x.value.val);
+    return (await this._getAllRaw() as DocNodeType[]).map((x) => x.value.val);
   }
 
   async getIds(): Promise<any[]> {
-    return (await this._getAllRaw() as any[]).map((x) => x.key.val);
+    return (await this._getAllRaw() as DocNodeType[]).map((x) => x.key.val);
   }
 
   insert(doc: any) {
