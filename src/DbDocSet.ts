@@ -13,6 +13,8 @@ export interface IDocument {
   id: string | number;
 }
 
+export type IndexDef<T> = Record<string, (doc: T) => any>;
+
 export interface IDbDocSet<
   T extends IDocument = any,
 > {
@@ -24,6 +26,8 @@ export interface IDbDocSet<
   getAll(): Promise<T[]>;
   getIds<T>(): Promise<IdType<T>[]>;
   delete(id: IdType<T>): Promise<boolean>;
+  useIndexes(indexDefs: IndexDef<T>): Promise<void>;
+  getFromIndex(index: string, key: any): Promise<T | void>;
 }
 
 export class DbDocSet implements IDbDocSet {
@@ -106,6 +110,7 @@ export class DbDocSet implements IDbDocSet {
       } else if (done == "removed") {
         lockpage.count -= 1;
       }
+      // TODO: update indexes
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
       this._db.commitLock.exitWriter();
@@ -128,9 +133,56 @@ export class DbDocSet implements IDbDocSet {
       } else {
         throw new Error("Unexpected return value from NodePage.set: " + done);
       }
+      // TODO: update indexes
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
       this._db.commitLock.exitWriter();
     }
+  }
+
+  async useIndexes(indexDefs: IndexDef<any>): Promise<void> {
+    const toBuild: string[] = [];
+    const toRemove: string[] = [];
+    const currentIndex = this.page.indexes;
+
+    for (const key in indexDefs) {
+      if (Object.prototype.hasOwnProperty.call(indexDefs, key)) {
+        const func = indexDefs[key];
+        if (
+          !Object.prototype.hasOwnProperty.call(currentIndex, key) ||
+          currentIndex[key].funcStr != func.toString()
+        ) {
+          toBuild.push(key);
+        }
+      }
+    }
+
+    for (const key in currentIndex) {
+      if (Object.prototype.hasOwnProperty.call(currentIndex, key)) {
+        if (!Object.prototype.hasOwnProperty.call(indexDefs, key)) {
+          toRemove.push(key);
+        }
+      }
+    }
+
+    if (toBuild.length || toRemove.length) {
+      if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
+      await this._db.commitLock.enterWriter();
+      const lockpage = await this.page.enterCoWLock();
+      try { // BEGIN WRITE LOCK
+        const newIndexes = { ...currentIndex };
+        for (const key of toRemove) {
+          delete newIndexes[key];
+        }
+        // TODO: build indexes
+      } finally { // END WRITE LOCK
+        lockpage.lock.exitWriter();
+        this._db.commitLock.exitWriter();
+      }
+    }
+  }
+
+  getFromIndex(index: string, key: any): Promise<any> {
+    throw new Error("Method not implemented.");
   }
 }

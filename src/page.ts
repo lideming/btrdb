@@ -28,7 +28,8 @@ export const enum PageType {
   Records,
   DocSet,
   DocRecords,
-  IndexesMap,
+  IndexTop,
+  Index,
 }
 
 export interface PageClass<T extends Page> {
@@ -551,8 +552,8 @@ const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<
 >({
   valueReader: (buf: Buffer) =>
     KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
-  childPageType: PageType.Records,
   topPageType: PageType.Set,
+  childPageType: PageType.Records,
 });
 
 export { RecordsPage };
@@ -566,8 +567,8 @@ const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses<
   DocNodeType
 >({
   valueReader: (buf: Buffer) => DocumentValue.readFrom(buf),
-  childPageType: PageType.DocRecords,
   topPageType: PageType.DocSet,
+  childPageType: PageType.DocRecords,
 });
 
 const DocSetPageBase2 = buildSetPageClass(DocSetPageBase1);
@@ -586,39 +587,86 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= this._lastIdLen;
   }
 
+  indexes: Record<string, IndexInfo> = {};
+
+  setIndexes(newIndexes: this["indexes"]) {
+    this.freeBytes += calcIndexInfoSize(this.indexes);
+    this.freeBytes -= calcIndexInfoSize(newIndexes);
+    this.indexes = newIndexes;
+  }
+
   override init() {
     super.init();
-    this.freeBytes -= 5;
+    this.freeBytes -= 5 + 1;
   }
 
   override _writeContent(buf: Buffer) {
     super._writeContent(buf);
     buf.writeString(JSON.stringify(this.lastId));
+
+    const indexKeys = Object.keys(this.indexes);
+    buf.writeU8(indexKeys.length);
+    for (const k of indexKeys) {
+      buf.writeString(k);
+      buf.writeString(this.indexes[k].funcStr);
+      buf.writeU32(this.indexes[k].addr);
+    }
   }
 
   override _readContent(buf: Buffer) {
     super._readContent(buf);
     this.lastId = JSON.parse(buf.readString());
+
+    const indexCount = buf.readU8();
+    const indexBegin = buf.pos;
+    for (let i = 0; i < indexCount; i++) {
+      const k = buf.readString();
+      this.indexes[k] = {
+        funcStr: buf.readString(),
+        addr: buf.readU32(),
+        cachedFunc: null,
+      };
+    }
+    this.freeBytes -= buf.pos - indexBegin;
   }
 
   override _copyTo(other: this) {
     super._copyTo(other);
     other._lastId = this._lastId;
     other._lastIdLen = this._lastIdLen;
+    other.indexes = this.indexes;
   }
 }
 
-export type IndexPageAddr = UIntValue;
-
-export class IndexesMapPage
-  extends NodePage<KValue<StringValue, IndexPageAddr>> {
-  protected _readValue(buf: Buffer): KValue<StringValue, UIntValue> {
-    return KValue.readFrom(buf, StringValue.readFrom, UIntValue.readFrom);
-  }
-  get type(): PageType {
-    return PageType.IndexesMap;
-  }
+interface IndexInfo {
+  funcStr: string;
+  addr: PageAddr;
+  cachedFunc: null | ((doc: any) => any);
 }
+
+function calcIndexInfoSize(indexes: Record<string, IndexInfo>) {
+  let size = 0;
+  for (const key in indexes) {
+    if (Object.prototype.hasOwnProperty.call(indexes, key)) {
+      const info = indexes[key];
+      size += Buffer.calcStringSize(key) + Buffer.calcStringSize(info.funcStr) +
+        4;
+    }
+  }
+  return size;
+}
+
+const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
+  KValue<JSONValue, JSONValue>
+>({
+  valueReader: (buf: Buffer) =>
+    KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
+  topPageType: PageType.IndexTop,
+  childPageType: PageType.Index,
+});
+
+export { IndexTopPage };
+export type IndexTopPage = InstanceType<typeof IndexTopPage>;
 
 export type SetPageAddr = UIntValue;
 
