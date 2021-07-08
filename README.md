@@ -64,7 +64,7 @@ await db.commit();
 
 ```ts
 interface User {
-  id: number; // An property named "id" is required.
+  id: number; // A property named "id" is required.
   username: string;
   status: "online" | "offline";
 }
@@ -91,6 +91,9 @@ await db.commit();
 
 **Upsert**
 
+`upsert` will update the document with the same id, or insert a new document if
+the id does not exist.
+
 ```ts
 const user = await configSet.get(1);
 user.status = "online";
@@ -98,9 +101,6 @@ user.status = "online";
 
 await configSet.upsert(user);
 // Use upsert to apply the change.
-
-// `upsert` will override the document when the same id is existing,
-// or insert as a new document if the id is not existing.
 
 console.info(await configSet.get(1));
 // { id: 1, username: "yuuza", status: "online" }
