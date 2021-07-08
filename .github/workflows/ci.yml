@@ -1,4 +1,4 @@
-name: test
+name: CI
 
 on:
   push:
@@ -31,3 +31,17 @@ jobs:
         with:
           file: ./coverage.lcov
           fail_ci_if_error: true
+
+  fmt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Check fmt
+        run: deno fmt --check

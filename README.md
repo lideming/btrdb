@@ -5,7 +5,9 @@
 - [x] B-Tree
 - [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
   [log-structured](https://en.wikipedia.org/wiki/Log-structured_file_system)
-- [x] Performance ([set 10k records in 150ms (single commit)](https://github.com/lideming/btrdb/runs/2995614665#step:4:261))
+- [x] Performance
+  ([set 10k records in 150ms (single
+  commit)](https://github.com/lideming/btrdb/runs/2995614665#step:4:261))
 - [x] Snapshots
   - [ ] Named snapshots
 - [x] Key-Value sets
@@ -91,7 +93,7 @@ await db.commit();
 
 ```ts
 const user = await configSet.get(1);
-user.status = "online"
+user.status = "online";
 // Get user and set its status
 
 await configSet.upsert(user);
@@ -106,7 +108,6 @@ console.info(await configSet.get(1));
 await db.commit();
 // Commit to persist the changes.
 ```
-
 
 See also `test.ts`.
 
