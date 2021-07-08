@@ -65,7 +65,7 @@ export class DatabaseEngine implements EngineContext {
         new KValue(new StringValue(name), new UIntValue(setPage.addr)),
       );
       this.superPage!.setCount++;
-      return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+      return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
     } finally {
       if (lockWriter) lock.exitWriter();
       else lock.exitReader();
@@ -93,9 +93,12 @@ export class DatabaseEngine implements EngineContext {
       const r = await superPage.findIndexRecursive(new StringValue(name));
       if (!r.found) return null;
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
-      const setPage = await this.storage.readPage(r.val!.value.val, Ctorpage);
+      const setPage = await this.storage.readPage(
+        r.val!.value.val,
+        Ctorpage as any,
+      ) as SetPage;
       setPage.name = name;
-      return new Ctordbset(setPage, this, name, !!this.snapshot) as any;
+      return new Ctordbset(setPage as any, this, name, !!this.snapshot);
     } finally {
       if (useLock) lock.exitReader();
     }

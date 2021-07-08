@@ -1,6 +1,6 @@
-import { numberIdGenerator } from "./database.ts";
+import { DatabaseEngine, numberIdGenerator } from "./database.ts";
 import { DocNodeType, DocSetPage } from "./page.ts";
-import { JSONValue, KValue } from "./value.ts";
+import { DocumentValue, JSONValue, KValue } from "./value.ts";
 import { DbSet } from "./DbSet.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
@@ -26,9 +26,25 @@ export interface IDbDocSet<
   delete(id: IdType<T>): Promise<boolean>;
 }
 
-export class DbDocSet extends DbSet implements IDbDocSet {
+export class DbDocSet implements IDbDocSet {
+  protected _page: DocSetPage;
+
+  constructor(
+    page: DocSetPage,
+    protected _db: DatabaseEngine,
+    public readonly name: string,
+    protected isSnapshot: boolean,
+  ) {
+    this._page = page;
+  }
+
   protected get page() {
-    return super.page as DocSetPage;
+    if (this.isSnapshot) return this._page;
+    return this._page = this._page.getLatestCopy();
+  }
+
+  get count() {
+    return this.page.count;
   }
 
   idGenerator: (lastId: any) => any = numberIdGenerator;
@@ -38,11 +54,21 @@ export class DbDocSet extends DbSet implements IDbDocSet {
       new JSONValue(key),
     );
     if (!found) return null;
-    return (val as DocNodeType)!.value.val;
+    return (val as DocNodeType)!.val;
+  }
+
+  protected async _getAllRaw() {
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    try { // BEGIN READ LOCK
+      return (await this.page.getAllValues());
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
   }
 
   async getAll(): Promise<{ key: any; value: any }[]> {
-    return (await this._getAllRaw() as DocNodeType[]).map((x) => x.value.val);
+    return (await this._getAllRaw() as DocNodeType[]).map((x) => x.val);
   }
 
   async getIds(): Promise<any[]> {
@@ -73,7 +99,7 @@ export class DbDocSet extends DbSet implements IDbDocSet {
         lockpage.lastId = key;
       }
       const keyv = new JSONValue(key);
-      const valv = !doc ? null : new KValue(keyv, new JSONValue(doc));
+      const valv = !doc ? null : new DocumentValue(doc);
       const done = await lockpage.set(keyv, valv, !inserting);
       if (done == "added") {
         lockpage.count += 1;

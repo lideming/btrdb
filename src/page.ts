@@ -5,6 +5,7 @@ import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
 import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
+  DocumentValue,
   IKey,
   IValue,
   JSONValue,
@@ -559,11 +560,12 @@ export { RecordsPage };
 export const SetPage = buildSetPageClass(SetPageBase);
 export type SetPage = InstanceType<typeof SetPage>;
 
-export type DocNodeType = KValue<JSONValue, JSONValue>;
+export type DocNodeType = DocumentValue;
 
-const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses({
-  valueReader: (buf: Buffer) =>
-    KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
+const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses<
+  DocNodeType
+>({
+  valueReader: (buf: Buffer) => DocumentValue.readFrom(buf),
   childPageType: PageType.DocRecords,
   topPageType: PageType.DocSet,
 });

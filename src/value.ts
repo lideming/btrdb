@@ -36,7 +36,7 @@ export class StringValue implements Key<StringValue> {
   get hash() {
     return this.str;
   }
-  get key() {
+  get key(): Key<any> {
     return this;
   }
   get byteLength(): number {
@@ -135,5 +135,26 @@ export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
   [Deno.customInspect]() {
     return "KV(" + Deno.inspect(this.key) + ", " + Deno.inspect(this.value) +
       ")";
+  }
+}
+
+export class DocumentValue extends JSONValue implements IKey<any> {
+  keyValue: JSONValue;
+  constructor(val: any, stringified?: string) {
+    super(val, stringified);
+    this.keyValue = new JSONValue(this.val.id);
+  }
+
+  get key() {
+    return this.keyValue;
+  }
+
+  static readFrom(buf: Buffer) {
+    const str = buf.readString();
+    return new DocumentValue(JSON.parse(str), str);
+  }
+
+  [Symbol.for("Deno.customInspect")]() {
+    return "Doc(" + Deno.inspect(this.val) + ")";
   }
 }
