@@ -23,4 +23,11 @@ jobs:
             test.ts
 
       - name: Analyze coverage
-        run: deno coverage coverage
+        run: |
+          deno coverage coverage --lcov > coverage.lcov
+
+      - name: Codecov
+        uses: codecov/codecov-action@v1.5.2
+        with:
+          file: ./coverage.lcov
+          fail_ci_if_error: true
