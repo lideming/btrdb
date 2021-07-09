@@ -75,13 +75,13 @@ export class DbSet implements IDbSet {
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      const done = await lockpage.set(keyv, valv, true);
-      if (done == "added") {
+      const { action } = await lockpage.set(keyv, valv, true);
+      if (action == "added") {
         lockpage.count += 1;
-      } else if (done == "removed") {
+      } else if (action == "removed") {
         lockpage.count -= 1;
       }
-      if (done == "noop") {
+      if (action == "noop") {
         return false;
       } else {
         return true;

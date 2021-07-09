@@ -1,7 +1,8 @@
 import { DatabaseEngine, numberIdGenerator } from "./database.ts";
-import { DocNodeType, DocSetPage } from "./page.ts";
+import { DocNodeType, DocSetPage, IndexInfo, IndexTopPage } from "./page.ts";
 import { DocumentValue, JSONValue, KValue } from "./value.ts";
 import { DbSet } from "./DbSet.ts";
+import { BugError } from "./errors.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
@@ -79,38 +80,79 @@ export class DbDocSet implements IDbDocSet {
     return (await this._getAllRaw() as DocNodeType[]).map((x) => x.key.val);
   }
 
-  insert(doc: any) {
+  async insert(doc: any) {
     if (doc["id"] != null) {
       throw new Error('"id" property should not exist on inserting');
     }
-    return this._set(doc, true);
+    await this._set(null, doc, true);
   }
 
-  upsert(doc: any) {
-    if (!("id" in doc)) throw new Error('"id" property doesn\'t exist');
-    return this._set(doc, false);
+  async upsert(doc: any) {
+    const key = doc["id"];
+    if (key == null) throw new Error('"id" property doesn\'t exist');
+    await this._set(key, doc, false);
   }
 
-  async _set(doc: any, inserting: boolean) {
+  async _set(key: any, doc: any, inserting: boolean) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
 
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      let key = doc["id"];
       if (inserting) {
         if (key == null) key = doc["id"] = this.idGenerator(lockpage.lastId);
         lockpage.lastId = key;
       }
       const keyv = new JSONValue(key);
       const valv = !doc ? null : new DocumentValue(doc);
-      const done = await lockpage.set(keyv, valv, !inserting);
-      if (done == "added") {
+      const { action, oldValue: oldDoc } = await lockpage.set(
+        keyv,
+        valv,
+        !inserting,
+      );
+      if (action == "added") {
         lockpage.count += 1;
-      } else if (done == "removed") {
+      } else if (action == "removed") {
         lockpage.count -= 1;
       }
-      // TODO: update indexes
+
+      try {
+        const newIndexes: Record<string, IndexInfo> = {};
+        for (const [indexName, indexInfo] of Object.entries(lockpage.indexes)) {
+          const index =
+            (await this.page.storage.readPage(indexInfo.addr, IndexTopPage))
+              .getDirty(false);
+          if (oldDoc) {
+            const oldKey = new JSONValue(
+              indexInfo.func((oldDoc as DocNodeType).val),
+            );
+            const setResult = await index.set(oldKey, null, false);
+            if (setResult.action != "removed") {
+              throw new BugError(
+                "BUG: can not remove index key: " +
+                  Deno.inspect({ oldDoc, indexInfo, oldKey, setResult }),
+              );
+            }
+          }
+          if (doc) {
+            const kv = new KValue(new JSONValue(indexInfo.func(doc)), keyv);
+            await index.set(kv.key, kv, false);
+          }
+          newIndexes[indexName] = new IndexInfo(
+            indexInfo.funcStr,
+            index.getLatestCopy().getDirty(true).addr,
+            indexInfo.cachedFunc,
+          );
+        }
+        lockpage.setIndexes(newIndexes);
+      } catch (error) {
+        // Failed in index updating (duplicated key in unique index?)
+        // Rollback the change.
+        await lockpage.set(keyv, oldDoc, true);
+        throw error;
+      }
+
+      return { action, key: keyv };
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
       this._db.commitLock.exitWriter();
@@ -118,26 +160,8 @@ export class DbDocSet implements IDbDocSet {
   }
 
   async delete(key: any) {
-    if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
-
-    await this._db.commitLock.enterWriter();
-    const lockpage = await this.page.enterCoWLock();
-    try { // BEGIN WRITE LOCK
-      const keyv = new JSONValue(key);
-      const done = await lockpage.set(keyv, null, false);
-      if (done == "removed") {
-        lockpage.count -= 1;
-        return true;
-      } else if (done == "noop") {
-        return false;
-      } else {
-        throw new Error("Unexpected return value from NodePage.set: " + done);
-      }
-      // TODO: update indexes
-    } finally { // END WRITE LOCK
-      lockpage.lock.exitWriter();
-      this._db.commitLock.exitWriter();
-    }
+    const { action } = await this._set(key, null, false);
+    return action == "removed";
   }
 
   async useIndexes(indexDefs: IndexDef<any>): Promise<void> {
@@ -174,7 +198,18 @@ export class DbDocSet implements IDbDocSet {
         for (const key of toRemove) {
           delete newIndexes[key];
         }
-        // TODO: build indexes
+        for (const key of toBuild) {
+          const func = indexDefs[key];
+          const info: IndexInfo = new IndexInfo(func.toString(), -1, func);
+          const index = new IndexTopPage(lockpage.storage).getDirty(true);
+          await lockpage.traverseKeys(async (k: DocumentValue) => {
+            const indexKV = new KValue(new JSONValue(func(k.val)), k.key);
+            await index.set(indexKV.key, indexKV, false);
+          });
+          info.addr = index.addr;
+          newIndexes[key] = info;
+        }
+        lockpage.setIndexes(newIndexes);
       } finally { // END WRITE LOCK
         lockpage.lock.exitWriter();
         this._db.commitLock.exitWriter();
@@ -182,7 +217,28 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
-  getFromIndex(index: string, key: any): Promise<any> {
-    throw new Error("Method not implemented.");
+  async getFromIndex(index: string, key: any): Promise<any> {
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    try { // BEGIN READ LOCK
+      const info = lockpage.indexes[index];
+      if (!info) throw new Error("Specified index does not exist.");
+      const indexPage = await this.page.storage.readPage(
+        info.addr,
+        IndexTopPage,
+      );
+      const indexResult = await indexPage.findIndexRecursive(
+        new JSONValue(key),
+      );
+      if (!indexResult.found) return null;
+      const docKey = indexResult.val.value;
+      const docResult = await lockpage.findIndexRecursive(docKey);
+      if (!docResult.found) {
+        throw new BugError("BUG: found in index but document does not exist.");
+      }
+      return (docResult.val as DocNodeType).val;
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
   }
 }

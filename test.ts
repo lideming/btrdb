@@ -129,6 +129,76 @@ await runWithDatabase(async function DocSet_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
+// use indexes
+
+await runWithDatabase(async function DocSet_indexes_before_insert(db) {
+  var set = await db.createSet<Document>("testindexes", "doc");
+  await set.useIndexes({
+    username: (p) => p.username,
+  });
+  await set.insert({ "username": "btrdb" });
+  await set.insert({ "username": "test" });
+  assertEquals(await set.getFromIndex("username", "btrdb"), {
+    "id": 1,
+    "username": "btrdb",
+  });
+  assertEquals(await set.getFromIndex("username", "test"), {
+    "id": 2,
+    "username": "test",
+  });
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_indexes_after_insert(db) {
+  var set = await db.createSet<Document>("testindexes2", "doc");
+  await set.insert({ "username": "btrdb" });
+  await set.insert({ "username": "test" });
+  await set.useIndexes({
+    username: (p) => p.username,
+  });
+  assertEquals(await set.getFromIndex("username", "btrdb"), {
+    "id": 1,
+    "username": "btrdb",
+  });
+  assertEquals(await set.getFromIndex("username", "test"), {
+    "id": 2,
+    "username": "test",
+  });
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_indexes_before_delete(db) {
+  var set = await db.getSet<Document>("testindexes2", "doc");
+  assert(set);
+  await set.upsert({ "id": 2, "username": "nobody" });
+  assertEquals(await set.getAll(), [
+    { "id": 1, "username": "btrdb" },
+    { "id": 2, "username": "nobody" },
+  ]);
+  assertEquals(await set.getFromIndex("username", "btrdb"), {
+    "id": 1,
+    "username": "btrdb",
+  });
+  assertEquals(await set.getFromIndex("username", "nobody"), {
+    "id": 2,
+    "username": "nobody",
+  });
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_indexes_before_delete(db) {
+  var set = await db.getSet("testindexes2", "doc");
+  assert(set);
+  await set.delete(1);
+  assertEquals(await set.getAll(), [{ "id": 2, "username": "nobody" }]);
+  assertEquals(await set.getFromIndex("username", "btrdb"), null);
+  assertEquals(await set.getFromIndex("username", "nobody"), {
+    "id": 2,
+    "username": "nobody",
+  });
+  assertEquals(await db.commit(), true);
+});
+
 // get snapshots
 
 await runWithDatabase(async function createSetSnap(db) {

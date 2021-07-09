@@ -109,18 +109,18 @@ export class DatabaseEngine implements EngineContext {
     const lock = this.commitLock;
     await lock.enterWriter();
     try {
-      const done = await this.superPage!.set(
+      const { action } = await this.superPage!.set(
         new StringValue(name),
         null,
         false,
       );
-      if (done == "removed") {
+      if (action == "removed") {
         this.superPage!.setCount--;
         return true;
-      } else if (done == "noop") {
+      } else if (action == "noop") {
         return false;
       } else {
-        throw new BugError("Unexpected return value: " + done);
+        throw new BugError("Unexpected return value: " + action);
       }
     } finally {
       lock.exitWriter();

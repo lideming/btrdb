@@ -295,7 +295,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     val: T | null,
     allowChange: boolean | "change-only",
   ) {
-    const { found, node, pos } = await this.findIndexRecursive(key);
+    const { found, node, pos, val: oldValue } = await this.findIndexRecursive(
+      key,
+    );
     let action: "added" | "removed" | "changed" | "noop" = "noop";
 
     if (node._newerCopy) {
@@ -324,7 +326,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         action = "removed";
       } // else noop
     }
-    return action;
+    return { action, oldValue: oldValue ?? null };
   }
 
   insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
@@ -621,11 +623,11 @@ export class DocSetPage extends DocSetPageBase2 {
     const indexBegin = buf.pos;
     for (let i = 0; i < indexCount; i++) {
       const k = buf.readString();
-      this.indexes[k] = {
-        funcStr: buf.readString(),
-        addr: buf.readU32(),
-        cachedFunc: null,
-      };
+      this.indexes[k] = new IndexInfo(
+        buf.readString(),
+        buf.readU32(),
+        null,
+      );
     }
     this.freeBytes -= buf.pos - indexBegin;
   }
@@ -638,10 +640,20 @@ export class DocSetPage extends DocSetPageBase2 {
   }
 }
 
-interface IndexInfo {
-  funcStr: string;
-  addr: PageAddr;
-  cachedFunc: null | ((doc: any) => any);
+export class IndexInfo {
+  constructor(
+    public funcStr: string,
+    public addr: PageAddr,
+    public cachedFunc: null | ((doc: any) => any),
+  ) {
+  }
+
+  get func() {
+    if (!this.cachedFunc) {
+      this.cachedFunc = (1, eval)(this.funcStr);
+    }
+    return this.cachedFunc!;
+  }
 }
 
 function calcIndexInfoSize(indexes: Record<string, IndexInfo>) {
@@ -666,7 +678,7 @@ const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
 });
 
 export { IndexTopPage };
-export type IndexTopPage = InstanceType<typeof IndexTopPage>;
+// export type IndexTopPage = InstanceType<typeof IndexTopPage>;
 
 export type SetPageAddr = UIntValue;
 
