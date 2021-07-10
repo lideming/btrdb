@@ -182,7 +182,10 @@ export function numberIdGenerator(lastId: number | null) {
 }
 
 export interface Database {
-  openFile(path: string): Promise<void>;
+  openFile(
+    path: string,
+    options?: { fsync?: InFileStorage["fsync"] },
+  ): Promise<void>;
 
   createSet(name: string, type?: "kv"): Promise<IDbSet>;
   createSet<T extends IDocument>(

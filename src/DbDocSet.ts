@@ -146,11 +146,17 @@ export class DbDocSet implements IDbDocSet {
         }
         if (doc) {
           const kv = new KValue(new JSONValue(indexInfo.func(doc)), keyv);
-          await index.set(
-            new KeyComparator(kv.key),
+          const setResult = await index.set(
+            indexInfo.unique ? new KeyComparator(kv.key) : kv,
             kv,
-            indexInfo.unique ? "no-change" : "can-append",
+            "no-change",
           );
+          if (setResult.action != "added") {
+            throw new BugError(
+              "BUG: can not add index key: " +
+                Deno.inspect({ kv, indexInfo, setResult }),
+            );
+          }
         }
         // The indexesInfo size should not change, skip setIndexes() here.
         lockpage.indexes[indexName].addr =
@@ -225,9 +231,9 @@ export class DbDocSet implements IDbDocSet {
           await lockpage.traverseKeys(async (k: DocumentValue) => {
             const indexKV = new KValue(new JSONValue(func(k.val)), k.key);
             await index.set(
-              new KeyComparator(indexKV.key),
+              unique ? new KeyComparator(indexKV.key) : indexKV,
               indexKV,
-              unique ? "no-change" : "can-append",
+              "no-change",
             );
           });
           info.addr = index.addr;
@@ -279,7 +285,6 @@ export class DbDocSet implements IDbDocSet {
         IndexTopPage,
       );
       const keyv = new JSONValue(key);
-      console.info(indexPage._debugView());
       const indexResult = await indexPage.findKeyRecursive(
         new KeyComparator(keyv),
       );
@@ -290,47 +295,98 @@ export class DbDocSet implements IDbDocSet {
       const stack = [];
       let node = indexResult.node;
       let pos = indexResult.pos;
-      let val = indexResult.val;
 
       // find most-left
-      while (pos && keyv.compareTo(node.keys[pos - 1].key) === 0) {
-        pos -= 1;
-        val = node.keys[pos];
-      }
-
+      let cont;
       do {
-        const docKey = val.value;
-        const docResult = await lockpage.findKeyRecursive(
-          new KeyComparator(docKey),
-        );
-        if (!docResult.found) {
-          throw new BugError(
-            "BUG: found in index but document does not exist.",
-          );
+        cont = false;
+        if (
+          node.parent && node.posInParent! > 0 &&
+          keyv.compareTo(node.parent.keys[node.posInParent! - 1].key) === 0
+        ) {
+          pos = node.posInParent! - 1;
+          node = node.parent;
         }
-        result.push((docResult.val as DocNodeType).val);
-        pos++;
+        while (pos && keyv.compareTo(node.keys[pos - 1].key) === 0) {
+          // Go left
+          pos -= 1;
+        }
         if (node.children[pos]) {
-          stack.push({ node, pos });
-          node = await node.readChildPage(pos);
-          pos = 0;
-        } else if (node.keys.length == pos) {
-          if (stack.length) {
-            const pop = stack.pop();
-            node = pop!.node;
-            pos = pop!.pos;
-          } else if (node.parent) {
-            node = node.parent;
-            pos = node.posInParent! + 1;
+          // Go down to left child
+          let leftNode = await node.readChildPage(pos);
+          while (leftNode.children[leftNode.children.length - 1]) {
+            leftNode = await leftNode.readChildPage(
+              leftNode.children.length - 1,
+            );
+          }
+          if (
+            keyv.compareTo(leftNode.keys[leftNode.keys.length - 1].key) === 0
+          ) {
+            node = leftNode;
+            pos = node.keys.length - 1;
+            cont = true;
+          }
+        }
+      } while (cont);
+
+      while (true) {
+        const val = node.keys[pos];
+        if (val) {
+          const comp = keyv.compareTo(val.key);
+          if (comp === 0) {
+            // Get one result and go right
+            const docKey = val.value;
+            const docResult = await lockpage.findKeyRecursive(
+              new KeyComparator(docKey),
+            );
+            if (!docResult.found) {
+              throw new BugError(
+                "BUG: found in index but document does not exist.",
+              );
+            }
+            result.push((docResult.val as DocNodeType).val);
           } else {
             break;
           }
         }
-        val = node.keys[pos];
-      } while (keyv.compareTo(val.key) === 0);
+        pos++;
+        if (node.children[pos]) {
+          // Go left down to child
+          do {
+            node = await node.readChildPage(pos);
+            pos = 0;
+          } while (node.children[0]);
+        }
+        if (node.children.length == pos) {
+          // The end of this node, try go up
+          if (node.parent) {
+            pos = node.posInParent!;
+            node = node.parent;
+          } else {
+            break;
+          }
+        }
+      }
       return result;
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
+  }
+
+  async _dump() {
+    return {
+      docTree: await this.page._dumpTree(),
+      indexes: Object.fromEntries(
+        await Promise.all(
+          Object.entries(this.page.indexes).map(async ([name, info]) => {
+            const indexPage = await this.page.storage.readPage(
+              info.addr,
+              IndexTopPage,
+            );
+            return [name, await indexPage._dumpTree()];
+          }),
+        ),
+      ),
+    };
   }
 }

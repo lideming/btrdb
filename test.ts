@@ -2,7 +2,7 @@ import { Database, IDbDocSet } from "./mod.ts";
 import {
   assert,
   assertEquals,
-} from "https://deno.land/std@0.74.0/testing/asserts.ts";
+} from "https://deno.land/std@0.100.0/testing/asserts.ts";
 import { PAGESIZE } from "./src/page.ts";
 
 const testFile = "testdata/testdb.db";
@@ -78,14 +78,14 @@ await runWithDatabase(async function deleteSet_check(db) {
 
 // create/get() document sets
 
-interface Document {
+interface TestUser {
   id: number;
   username: string;
   gender?: "m" | "f";
 }
 
 await runWithDatabase(async function DocSet_insert(db) {
-  var set = await db.createSet<Document>("testdoc", "doc");
+  var set = await db.createSet<TestUser>("testdoc", "doc");
   await set.insert({ "username": "btrdb" });
   await set.insert({ "username": "test" });
   assertEquals(await set.get(1), { "id": 1, "username": "btrdb" });
@@ -94,7 +94,7 @@ await runWithDatabase(async function DocSet_insert(db) {
 });
 
 await runWithDatabase(async function DocSet_upsert(db) {
-  var set = await db.createSet<Document>("testdoc", "doc");
+  var set = await db.createSet<TestUser>("testdoc", "doc");
   await set.upsert({ "id": 1, "username": "whatdb" });
   await set.upsert({ "id": 2, "username": "nobody" });
   assertEquals(await set.get(1), { "id": 1, "username": "whatdb" });
@@ -134,7 +134,7 @@ await runWithDatabase(async function DocSet_delete(db) {
 // use indexes
 
 await runWithDatabase(async function DocSet_indexes_before_insert(db) {
-  var set = await db.createSet<Document>("testindexes", "doc");
+  var set = await db.createSet<TestUser>("testindexes", "doc");
   await set.useIndexes({
     username: { unique: true, key: (u) => u.username },
     gender: (u) => u.gender,
@@ -142,7 +142,6 @@ await runWithDatabase(async function DocSet_indexes_before_insert(db) {
   await set.insert({ "username": "btrdb", gender: "m" });
   await set.insert({ "username": "test", gender: "m" });
   await set.insert({ "username": "the3rd", gender: "f" });
-  console.info((set as any).page._debugView());
   assertEquals(await set.getFromIndex("username", "btrdb"), {
     "id": 1,
     "username": "btrdb",
@@ -159,14 +158,14 @@ await runWithDatabase(async function DocSet_indexes_before_insert(db) {
     "gender": "f",
   });
   assertEquals(await set.findIndex("gender", "m"), [
-    { "id": 2, "username": "test", "gender": "m" },
     { "id": 1, "username": "btrdb", "gender": "m" },
+    { "id": 2, "username": "test", "gender": "m" },
   ]);
   assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function DocSet_indexes_after_insert(db) {
-  var set = await db.createSet<Document>("testindexes2", "doc");
+  var set = await db.createSet<TestUser>("testindexes2", "doc");
   await set.insert({ "username": "btrdb", "gender": "m" });
   await set.insert({ "username": "test", "gender": "m" });
   await set.insert({ "username": "the3rd", "gender": "f" });
@@ -190,14 +189,14 @@ await runWithDatabase(async function DocSet_indexes_after_insert(db) {
     "gender": "f",
   });
   assertEquals(await set.findIndex("gender", "m"), [
-    { "id": 2, "username": "test", "gender": "m" },
     { "id": 1, "username": "btrdb", "gender": "m" },
+    { "id": 2, "username": "test", "gender": "m" },
   ]);
   assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function DocSet_indexes_after_upsert(db) {
-  var set = await db.getSet<Document>("testindexes2", "doc");
+  var set = await db.getSet<TestUser>("testindexes2", "doc");
   assert(set);
   await set.upsert({ "id": 2, "username": "nobody", "gender": "f" });
   assertEquals(await set.getAll(), [
@@ -215,6 +214,9 @@ await runWithDatabase(async function DocSet_indexes_after_upsert(db) {
     "username": "nobody",
     "gender": "f",
   });
+  assertEquals(await set.findIndex("gender", "m"), [
+    { "id": 1, "username": "btrdb", "gender": "m" },
+  ]);
   assertEquals(await set.findIndex("gender", "f"), [
     { "id": 2, "username": "nobody", "gender": "f" },
     { "id": 3, "username": "the3rd", "gender": "f" },
@@ -236,6 +238,11 @@ await runWithDatabase(async function DocSet_indexes_after_delete(db) {
     "username": "nobody",
     "gender": "f",
   });
+  assertEquals(await set.findIndex("gender", "m"), []);
+  assertEquals(await set.findIndex("gender", "f"), [
+    { "id": 2, "username": "nobody", "gender": "f" },
+    { "id": 3, "username": "the3rd", "gender": "f" },
+  ]);
   assertEquals(await db.commit(), true);
 });
 
@@ -248,7 +255,6 @@ await runWithDatabase(async function createSetSnap(db) {
 });
 
 await runWithDatabase(async function checkSnap(db) {
-  console.info((db as any).superPage._debugView());
   var set = await db.getSet("snap1");
   assertEquals(await set!.get("somekey"), "somevalue");
   var snap = await db.getPrevSnapshot(); // before commit "a"
@@ -280,8 +286,7 @@ await runWithDatabase(async function checkSnap2(db) {
 
 // set/get() lots of records (concurrently)
 
-// TODO: fix failing on keys > 120
-const concurrentKeys = new Array(100).fill(0).map((x) =>
+const concurrentKeys = new Array(200).fill(0).map((x) =>
   Math.floor(Math.random() * 100000000000).toString()
 );
 const expectedConcurrentKeys = [...new Set(concurrentKeys)].sort();
@@ -347,15 +352,15 @@ await runWithDatabase(async function createSetGetCommitConcurrent(db) {
   );
 });
 
-// set/get() lots of records
+// set/get() lots of key-value records
 
-const keys = new Array(10000).fill(0).map((x) =>
-  Math.floor(Math.random() * 100000000000).toString()
+const keys = new Array(100000).fill(0).map((x, i) =>
+  Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString()
 );
 const expectedKeys = [...new Set(keys)].sort();
 
-await runWithDatabase(async function set10k(db) {
-  var set = (await db.createSet("test10k"))!;
+await runWithDatabase(async function setMassive(db) {
+  var set = (await db.createSet("testMassive"))!;
   for (const k of keys) {
     await set.set("key" + k, "val" + k);
   }
@@ -363,8 +368,8 @@ await runWithDatabase(async function set10k(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function get10k(db) {
-  var set = (await db.getSet("test10k"))!;
+await runWithDatabase(async function getMassive(db) {
+  var set = (await db.getSet("testMassive"))!;
   const errors = [];
   assertEquals(set.count, expectedKeys.length);
   for (const k of keys) {
@@ -378,7 +383,7 @@ await runWithDatabase(async function get10k(db) {
 });
 
 await runWithDatabase(async function getKeys(db) {
-  var set = await db.getSet("test10k");
+  var set = await db.getSet("testMassive");
   var r = await set!.getKeys();
   var uniqueKeys = [...new Set(keys)].map((x) => "key" + x).sort();
   for (let i = 0; i < uniqueKeys.length; i++) {
@@ -387,6 +392,120 @@ await runWithDatabase(async function getKeys(db) {
     }
   }
   // await db.commit();
+});
+
+interface TestDoc {
+  id: string;
+}
+
+const lastThreeSet = [...new Set(keys.map((x) => x.substr(x.length - 3)))]
+  .sort();
+const lastThreeMap = lastThreeSet.map((
+  three,
+) => [three, keys.filter((x) => x.endsWith(three)).sort()]);
+
+await runWithDatabase(async function DocSet_upsertMassive(db) {
+  var set = await db.createSet<TestDoc>("docMassive", "doc");
+  await set.useIndexes({
+    lastThree: (d) => d.id.substr(d.id.length - 3),
+  });
+  for (const k of keys) {
+    await set.upsert({ id: k });
+  }
+  assertEquals(await db.commit(), true);
+  const actualIndexResults = (await Promise.all(
+    lastThreeSet.map((three) => set.findIndex("lastThree", three)),
+  )).map((x) => x.map((x) => x.id).sort());
+  const expectedIndexResults = lastThreeMap.map((x) => x[1]);
+  try {
+    assertEquals(actualIndexResults, expectedIndexResults);
+  } catch (error) {
+    await dumpObjectToFile("testdata/tree.txt", await (set as any)._dump());
+    await dumpObjectToFile("testdata/actual.txt", actualIndexResults);
+    await dumpObjectToFile("testdata/expected.txt", expectedIndexResults);
+    throw new Error("test failed, dump is created under 'testdata' folder");
+  }
+  assertEquals(set.count, expectedKeys.length);
+});
+
+const fives = keys.map((x) => x.substring(0, 5));
+const fivesSet = [...new Set(fives)].sort();
+const fiveLastThreeSet = [
+  ...new Set(fivesSet.map((x) => x.substring(x.length - 3))),
+];
+const fiveLastThreeMap = fiveLastThreeSet.map(
+  (three) => [three, fivesSet.filter((x) => x.endsWith(three)).sort()] as const,
+);
+
+await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
+  var set = await db.createSet<TestDoc>("docMassive2", "doc");
+  await set.useIndexes({
+    lastThree: (d) => d.id.substr(d.id.length - 3),
+  });
+  for (const k of fives) {
+    await set.upsert({ id: k });
+  }
+  assertEquals(await db.commit(), true);
+  const actualIndexResults = (await Promise.all(
+    fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+  )).map((x) => x.map((x) => x.id).sort());
+  const expectedIndexResults = fiveLastThreeMap.map((x) => x[1]);
+  try {
+    assertEquals(actualIndexResults, expectedIndexResults);
+  } catch (error) {
+    await dumpObjectToFile(
+      "testdata/five_tree.txt",
+      await (set as any)._dump(),
+    );
+    await dumpObjectToFile("testdata/five_actual.txt", actualIndexResults);
+    await dumpObjectToFile("testdata/five_expected.txt", expectedIndexResults);
+    throw new Error("test failed, dump is created under 'testdata' folder");
+  }
+  assertEquals(set.count, fivesSet.length);
+});
+
+await runWithDatabase(async function DocSet_deleteMassive(db) {
+  var set = await db.createSet<TestDoc>("docMassive2", "doc");
+  // TODO: removing this line will make the test fail
+  await dumpObjectToFile(
+    "testdata/five_before_delete_tree.txt",
+    await (set as any)._dump(),
+  );
+  const toDelete = fivesSet.filter((x) => x[1] == "0");
+  let actualIndexResults = null;
+  const expectedIndexResults = fiveLastThreeMap.map((x) =>
+    x[1].filter((x) => x[1] != "0")
+  );
+  try {
+    for (const k of toDelete) {
+      // console.info('delete', k);
+      await set.delete(k);
+    }
+    assertEquals(await db.commit(), true);
+    actualIndexResults = (await Promise.all(
+      fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+    )).map((x) => x.map((x) => x.id).sort());
+    assertEquals(actualIndexResults, expectedIndexResults);
+    assertEquals(set.count, fivesSet.length - toDelete.length);
+  } catch (error) {
+    console.info(error);
+    console.info("generating dump...");
+    await dumpObjectToFile(
+      "testdata/five_delete_tree.txt",
+      await (set as any)._dump(),
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_actual.txt",
+      actualIndexResults,
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_expected.txt",
+      expectedIndexResults,
+    );
+    throw new Error(
+      "test failed, dump is created under 'testdata' folder: " + error,
+    );
+  }
 });
 
 // await runWithDatabase(async function lotsOfCommits (db) {
@@ -415,6 +534,17 @@ async function recreateDatabase() {
   } catch {}
 }
 
+function dumpObjectToFile(file: string, obj: any) {
+  const inspectOptions: Deno.InspectOptions = {
+    colors: false,
+    iterableLimit: 100000,
+    depth: 10,
+    compact: false,
+    trailingComma: true,
+  };
+  return Deno.writeTextFile(file, Deno.inspect(obj, inspectOptions));
+}
+
 async function runWithDatabase(func: (db: Database) => Promise<void>) {
   // console.info("");
   // console.info("=============================");
@@ -427,7 +557,7 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
       console.info("\n=============================");
       console.time("open");
       const db = new Database();
-      await db.openFile(testFile);
+      await db.openFile(testFile, { fsync: false });
       console.timeEnd("open");
 
       console.time("run");

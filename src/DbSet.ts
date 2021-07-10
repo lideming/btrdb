@@ -99,4 +99,8 @@ export class DbSet implements IDbSet {
   delete(key: string) {
     return this.set(key, null);
   }
+
+  async _dump() {
+    return { kvTree: await this.page._dumpTree() };
+  }
 }

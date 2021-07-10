@@ -138,6 +138,10 @@ export abstract class Page {
     };
   }
 
+  [Symbol.for("Deno.customInspect")]() {
+    return "Page(" + Deno.inspect(this._debugView()) + ")";
+  }
+
   protected _copyTo(page: this) {
     if (Object.getPrototypeOf(this) != Object.getPrototypeOf(page)) {
       throw new Error("_copyTo() with different types");
@@ -267,6 +271,21 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     return childNode;
   }
 
+  async _dumpTree() {
+    const result: any[] = [];
+    for (let pos = 0; pos < this.children.length; pos++) {
+      const leftAddr = this.children[pos];
+      if (leftAddr) {
+        const leftPage = await this.readChildPage(pos);
+        result.push(await leftPage._dumpTree());
+      }
+      if (pos < this.keys.length) {
+        result.push(this.keys[pos]);
+      }
+    }
+    return result;
+  }
+
   async traverseKeys(
     func: (key: T, page: this, pos: number) => Promise<void> | void,
   ) {
@@ -330,7 +349,8 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
           throw new AlreadyExistError("key already exists");
         } else if (policy === "can-append") {
           // TODO: omit key on appended value
-          dirtyNode.insertAt(pos, val);
+          dirtyNode.insertAt(pos, val, dirtyNode.children[pos]);
+          dirtyNode.children[pos + 1] = 0;
           action = "added";
         } else {
           dirtyNode.setKey(pos, val);
@@ -437,12 +457,13 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (!this.dirty) {
       throw new BugError("BUG: makeDirtyToRoot() on non-dirty page");
     }
-    let up = this as NodePage<T>;
-    while (up.parent) {
-      if (up.parent.dirty) break;
-      const upParent = up.parent = up.parent.getDirty(true);
-      upParent.children[up.posInParent!] = up.addr;
-      up = upParent;
+    let node = this as NodePage<T>;
+    while (node.parent) {
+      const parent = node.parent;
+      const dirtyParent = node.parent = parent.getDirty(true);
+      dirtyParent.children[node.posInParent!] = node.addr;
+      node = dirtyParent;
+      if (parent === dirtyParent) break;
     }
   }
 
