@@ -5,7 +5,13 @@ import type { IDbSet } from "./DbSet.ts";
 import { DocSetPage, RecordsPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
-import { JSONValue, KValue, StringValue, UIntValue } from "./value.ts";
+import {
+  JSONValue,
+  KeyComparator,
+  KValue,
+  StringValue,
+  UIntValue,
+} from "./value.ts";
 import { BugError } from "./errors.ts";
 
 export interface EngineContext {
@@ -54,7 +60,7 @@ export class DatabaseEngine implements EngineContext {
       await lock.enterWriterFromReader();
       lockWriter = true;
 
-      // double check
+      // double check after entered lock writer, another writer may have create it before.
       set = await this._getSet(name, type as any, false);
       if (set) return set;
 
@@ -90,7 +96,9 @@ export class DatabaseEngine implements EngineContext {
     if (useLock) await lock.enterReader();
     try {
       const superPage = this.superPage!;
-      const r = await superPage.findIndexRecursive(new StringValue(name));
+      const r = await superPage.findKeyRecursive(
+        new KeyComparator(new StringValue(name)),
+      );
       if (!r.found) return null;
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
       const setPage = await this.storage.readPage(
@@ -105,14 +113,13 @@ export class DatabaseEngine implements EngineContext {
   }
 
   async deleteSet(name: string): Promise<boolean> {
-    let lockWriter = false;
     const lock = this.commitLock;
     await lock.enterWriter();
     try {
       const { action } = await this.superPage!.set(
-        new StringValue(name),
+        new KeyComparator(new StringValue(name)),
         null,
-        false,
+        "no-change",
       );
       if (action == "removed") {
         this.superPage!.setCount--;

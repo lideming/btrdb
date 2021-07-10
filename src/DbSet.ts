@@ -1,6 +1,6 @@
 import { DatabaseEngine } from "./database.ts";
 import { KVNodeType, SetPage } from "./page.ts";
-import { KValue, StringValue } from "./value.ts";
+import { KeyComparator, KValue, StringValue } from "./value.ts";
 
 export interface IDbSet {
   readonly count: number;
@@ -36,8 +36,8 @@ export class DbSet implements IDbSet {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      const { found, val } = await this.page.findIndexRecursive(
-        new StringValue(key),
+      const { found, val } = await this.page.findKeyRecursive(
+        new KeyComparator(new StringValue(key)),
       );
       if (!found) return null;
       return (val as KVNodeType)!.value.str;
@@ -75,7 +75,11 @@ export class DbSet implements IDbSet {
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      const { action } = await lockpage.set(keyv, valv, true);
+      const { action } = await lockpage.set(
+        new KeyComparator(keyv),
+        valv,
+        "can-change",
+      );
       if (action == "added") {
         lockpage.count += 1;
       } else if (action == "removed") {

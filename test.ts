@@ -3,6 +3,7 @@ import {
   assert,
   assertEquals,
 } from "https://deno.land/std@0.74.0/testing/asserts.ts";
+import { PAGESIZE } from "./src/page.ts";
 
 const testFile = "testdata/testdb.db";
 
@@ -80,6 +81,7 @@ await runWithDatabase(async function deleteSet_check(db) {
 interface Document {
   id: number;
   username: string;
+  gender?: "m" | "f";
 }
 
 await runWithDatabase(async function DocSet_insert(db) {
@@ -134,67 +136,105 @@ await runWithDatabase(async function DocSet_delete(db) {
 await runWithDatabase(async function DocSet_indexes_before_insert(db) {
   var set = await db.createSet<Document>("testindexes", "doc");
   await set.useIndexes({
-    username: (p) => p.username,
+    username: { unique: true, key: (u) => u.username },
+    gender: (u) => u.gender,
   });
-  await set.insert({ "username": "btrdb" });
-  await set.insert({ "username": "test" });
+  await set.insert({ "username": "btrdb", gender: "m" });
+  await set.insert({ "username": "test", gender: "m" });
+  await set.insert({ "username": "the3rd", gender: "f" });
+  console.info((set as any).page._debugView());
   assertEquals(await set.getFromIndex("username", "btrdb"), {
     "id": 1,
     "username": "btrdb",
+    "gender": "m",
   });
   assertEquals(await set.getFromIndex("username", "test"), {
     "id": 2,
     "username": "test",
+    "gender": "m",
   });
+  assertEquals(await set.getFromIndex("username", "the3rd"), {
+    "id": 3,
+    "username": "the3rd",
+    "gender": "f",
+  });
+  assertEquals(await set.findIndex("gender", "m"), [
+    { "id": 2, "username": "test", "gender": "m" },
+    { "id": 1, "username": "btrdb", "gender": "m" },
+  ]);
   assertEquals(await db.commit(), true);
 });
 
 await runWithDatabase(async function DocSet_indexes_after_insert(db) {
   var set = await db.createSet<Document>("testindexes2", "doc");
-  await set.insert({ "username": "btrdb" });
-  await set.insert({ "username": "test" });
+  await set.insert({ "username": "btrdb", "gender": "m" });
+  await set.insert({ "username": "test", "gender": "m" });
+  await set.insert({ "username": "the3rd", "gender": "f" });
   await set.useIndexes({
-    username: (p) => p.username,
+    username: { unique: true, key: (u) => u.username },
+    gender: (u) => u.gender,
   });
   assertEquals(await set.getFromIndex("username", "btrdb"), {
     "id": 1,
     "username": "btrdb",
+    "gender": "m",
   });
   assertEquals(await set.getFromIndex("username", "test"), {
     "id": 2,
     "username": "test",
+    "gender": "m",
   });
+  assertEquals(await set.getFromIndex("username", "the3rd"), {
+    "id": 3,
+    "username": "the3rd",
+    "gender": "f",
+  });
+  assertEquals(await set.findIndex("gender", "m"), [
+    { "id": 2, "username": "test", "gender": "m" },
+    { "id": 1, "username": "btrdb", "gender": "m" },
+  ]);
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_before_delete(db) {
+await runWithDatabase(async function DocSet_indexes_after_upsert(db) {
   var set = await db.getSet<Document>("testindexes2", "doc");
   assert(set);
-  await set.upsert({ "id": 2, "username": "nobody" });
+  await set.upsert({ "id": 2, "username": "nobody", "gender": "f" });
   assertEquals(await set.getAll(), [
-    { "id": 1, "username": "btrdb" },
-    { "id": 2, "username": "nobody" },
+    { "id": 1, "username": "btrdb", "gender": "m" },
+    { "id": 2, "username": "nobody", "gender": "f" },
+    { "id": 3, "username": "the3rd", "gender": "f" },
   ]);
   assertEquals(await set.getFromIndex("username", "btrdb"), {
     "id": 1,
     "username": "btrdb",
+    "gender": "m",
   });
   assertEquals(await set.getFromIndex("username", "nobody"), {
     "id": 2,
     "username": "nobody",
+    "gender": "f",
   });
+  assertEquals(await set.findIndex("gender", "f"), [
+    { "id": 2, "username": "nobody", "gender": "f" },
+    { "id": 3, "username": "the3rd", "gender": "f" },
+  ]);
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_before_delete(db) {
+await runWithDatabase(async function DocSet_indexes_after_delete(db) {
   var set = await db.getSet("testindexes2", "doc");
   assert(set);
   await set.delete(1);
-  assertEquals(await set.getAll(), [{ "id": 2, "username": "nobody" }]);
+  assertEquals(await set.getAll(), [
+    { "id": 2, "username": "nobody", "gender": "f" },
+    { "id": 3, "username": "the3rd", "gender": "f" },
+  ]);
   assertEquals(await set.getFromIndex("username", "btrdb"), null);
   assertEquals(await set.getFromIndex("username", "nobody"), {
     "id": 2,
     "username": "nobody",
+    "gender": "f",
   });
   assertEquals(await db.commit(), true);
 });
@@ -208,6 +248,7 @@ await runWithDatabase(async function createSetSnap(db) {
 });
 
 await runWithDatabase(async function checkSnap(db) {
+  console.info((db as any).superPage._debugView());
   var set = await db.getSet("snap1");
   assertEquals(await set!.get("somekey"), "somevalue");
   var snap = await db.getPrevSnapshot(); // before commit "a"
@@ -239,7 +280,8 @@ await runWithDatabase(async function checkSnap2(db) {
 
 // set/get() lots of records (concurrently)
 
-const concurrentKeys = new Array(50).fill(0).map((x) =>
+// TODO: fix failing on keys > 120
+const concurrentKeys = new Array(100).fill(0).map((x) =>
   Math.floor(Math.random() * 100000000000).toString()
 );
 const expectedConcurrentKeys = [...new Set(concurrentKeys)].sort();
@@ -253,13 +295,8 @@ await runWithDatabase(async function setGetCommitConcurrent(db) {
   for (const k of concurrentKeys) {
     tasks.push((async () => {
       await set.set("key" + k, "val" + k);
-      // console.info('<<< ' + k);
       const val = await set!.get("key" + k);
-      if (val == "val" + k) {
-        // console.info('>>> ' + val);
-      } else {
-        console.info(">>> expect " + k + " got " + val);
-      }
+      assertEquals(val, "val" + k);
       await db.commit();
     })());
   }
@@ -282,6 +319,7 @@ await runWithDatabase(async function getAfterConcurrent(db) {
   if (errors) {
     console.info("errors", errors.length, errors);
   }
+  assertEquals(errors, []);
   assertEquals(await db.commit(), false);
 });
 
@@ -327,14 +365,15 @@ await runWithDatabase(async function set10k(db) {
 
 await runWithDatabase(async function get10k(db) {
   var set = (await db.getSet("test10k"))!;
+  const errors = [];
   assertEquals(set.count, expectedKeys.length);
   for (const k of keys) {
     const val = await set!.get("key" + k);
     if (val != "val" + k) {
-      console.error("expect", k, "got", val);
+      errors.push("expect " + k + " got " + val);
     }
   }
-  console.info("read done");
+  assertEquals(errors, []);
   assertEquals(await db.commit(), false);
 });
 
@@ -397,7 +436,8 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
       db.close();
 
       const file = await Deno.open(testFile);
-      console.info("file size:", (await Deno.fstat(file.rid)).size);
+      const size = (await Deno.fstat(file.rid)).size;
+      console.info("file size:", size, `(${size / PAGESIZE} pages)`);
       file.close();
     },
   });

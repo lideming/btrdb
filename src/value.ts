@@ -110,7 +110,8 @@ export class JSONValue extends StringValue {
   }
 }
 
-export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
+export class KValue<K extends Key<K>, V extends IValue>
+  implements IKey<K>, IComparable<KValue<K, V>> {
   constructor(
     public readonly key: K,
     public readonly value: V,
@@ -130,6 +131,11 @@ export class KValue<K extends Key<K>, V extends IValue> implements IKey<K> {
     readValue: ValueReader<V>,
   ) {
     return new KValue<K, V>(readKey(buf), readValue(buf));
+  }
+
+  compareTo(other: this) {
+    return this.key.compareTo(other.key) ||
+      (this.value as any).compareTo(other.value);
   }
 
   [Deno.customInspect]() {
@@ -156,5 +162,14 @@ export class DocumentValue extends JSONValue implements IKey<any> {
 
   [Symbol.for("Deno.customInspect")]() {
     return "Doc(" + Deno.inspect(this.val) + ")";
+  }
+}
+
+export class KeyComparator<T extends IKey<any>> implements IComparable<T> {
+  constructor(readonly key: KeyOf<T>) {
+  }
+  compareTo(other: T): 0 | 1 | -1 {
+    // console.info("KeyCompare", this.key, other, other.key);
+    return this.key.compareTo(other.key);
   }
 }

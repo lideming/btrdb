@@ -9,7 +9,7 @@ import {
   SetPage,
   SuperPage,
 } from "./page.ts";
-import { KValue, StringValue, UIntValue } from "./value.ts";
+import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 
 const CACHE_LIMIT = 16 * 1024;
 
@@ -137,7 +137,7 @@ export abstract class PageStorage {
         set.getDirty(true);
         try {
           await this.superPage.set(
-            new StringValue(set.name),
+            new KeyComparator(new StringValue(set.name)),
             new KValue(new StringValue(set.name), new UIntValue(set.addr)),
             "change-only",
           );
@@ -272,7 +272,7 @@ export class InFileStorage extends PageStorage {
     }
   }
   protected async _getLastAddr() {
-    return Math.floor(await this.file!.seek(0, Deno.SeekMode.End) / 4096);
+    return Math.floor(await this.file!.seek(0, Deno.SeekMode.End) / PAGESIZE);
   }
   protected _close() {
     this.file!.close();

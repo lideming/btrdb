@@ -6,9 +6,11 @@ import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
   DocumentValue,
+  IComparable,
   IKey,
   IValue,
   JSONValue,
+  KeyComparator,
   KeyOf,
   KeyType,
   KValue,
@@ -79,6 +81,12 @@ export abstract class Page {
     }
   }
 
+  removeDirty() {
+    if (this._newerCopy) throw new BugError("removeDirty on out-dated page");
+    if (!this.dirty) throw new BugError("removeDirty on non-dirty page");
+    // TODO
+  }
+
   getLatestCopy(): this {
     let p = this;
     while (p._newerCopy) p = p._newerCopy;
@@ -121,11 +129,12 @@ export abstract class Page {
     }
   }
 
-  _debugView() {
+  _debugView(): any {
     return {
       type: this.type,
       addr: this.addr,
       dirty: this.dirty,
+      newerCopy: this._newerCopy?._debugView(),
     };
   }
 
@@ -186,7 +195,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     leftChild?: PageAddr,
   ): [deletedKeys: T[], deletedChildren: PageAddr[]] {
     if (leftChild! < 0) throw new BugError("Invalid leftChild");
-    // this.writeTo(new Buffer(new Uint8Array(4096), 0));
     let deleted: T[];
     let deletedChildren: PageAddr[];
     if (key) {
@@ -206,7 +214,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       }
     }
     this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
-    // this.writeTo(new Buffer(new Uint8Array(4096), 0));
     return [deleted, deletedChildren];
   }
 
@@ -225,14 +232,14 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     this.keys[pos] = key;
   }
 
-  findIndex(key: KeyOf<T>):
+  findKey(key: IComparable<T>):
     | { found: true; pos: number; val: T }
     | { found: false; pos: number; val: undefined } {
     const keys = this.keys;
     let l = 0, r = keys.length - 1;
     while (l <= r) {
       const m = Math.round((l + r) / 2);
-      const c = key.compareTo(keys[m].key);
+      const c = key.compareTo(keys[m]);
       // console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
       if (c == 0) return { found: true, pos: m, val: keys[m] };
       else if (c > 0) l = m + 1;
@@ -249,13 +256,24 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     return array;
   }
 
+  async readChildPage(pos: number) {
+    const childNode = await this.storage.readPage(
+      this.children[pos],
+      this._childCtor,
+    );
+    childNode.parent = this;
+    childNode.posInParent = pos;
+
+    return childNode;
+  }
+
   async traverseKeys(
     func: (key: T, page: this, pos: number) => Promise<void> | void,
   ) {
     for (let pos = 0; pos < this.children.length; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
-        const leftPage = await this.storage.readPage(leftAddr, this._childCtor);
+        const leftPage = await this.readChildPage(pos);
         await leftPage.traverseKeys(func as any);
       }
       if (pos < this.keys.length) {
@@ -264,26 +282,23 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
   }
 
-  async findIndexRecursive(key: KeyOf<T>): Promise<
+  async findKeyRecursive(key: IComparable<T>): Promise<
     | { found: true; node: NodePage<T>; pos: number; val: T }
     | { found: false; node: NodePage<T>; pos: number; val: undefined }
   > {
     let node = this as NodePage<T>;
     while (true) {
-      const { found, pos, val } = node.findIndex(key);
+      const { found, pos, val } = node.findKey(key);
       if (found) return { found: true, node, pos, val: val as T };
       const childAddr = node.children[pos];
       if (!childAddr) return { found: false, node, pos, val: val as undefined };
-      const childNode = await this.storage.readPage(childAddr, this._childCtor);
-      childNode.parent = node;
-      childNode.posInParent = pos;
-      node = childNode;
+      node = await node.readChildPage(pos);
     }
   }
 
   async insert(val: T) {
-    const { found, node, pos } = await this.findIndexRecursive(
-      val.key as KeyOf<T>,
+    const { found, node, pos } = await this.findKeyRecursive(
+      new KeyComparator(val.key as KeyOf<T>),
     );
     const dirtyNode = node.getDirty(false);
     dirtyNode.insertAt(pos, val);
@@ -291,27 +306,38 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   async set(
-    key: KeyOf<T>,
+    key: KeyComparator<T> | T,
     val: T | null,
-    allowChange: boolean | "change-only",
+    policy: "can-change" | "no-change" | "change-only" | "can-append",
   ) {
-    const { found, node, pos, val: oldValue } = await this.findIndexRecursive(
-      key,
+    const { found, node, pos, val: oldValue } = await this.findKeyRecursive(
+      key as IComparable<T>,
     );
     let action: "added" | "removed" | "changed" | "noop" = "noop";
 
     if (node._newerCopy) {
+      console.info({
+        cur: node._debugView(),
+        new: node._newerCopy._debugView(),
+      });
       throw new BugError("BUG: set() -> findIndex() returns old copy.");
     }
 
     if (val != null) {
       const dirtyNode = node.getDirty(false);
       if (found) {
-        if (!allowChange) throw new AlreadyExistError("key already exists");
-        dirtyNode.setKey(pos, val);
-        action = "changed";
+        if (policy === "no-change") {
+          throw new AlreadyExistError("key already exists");
+        } else if (policy === "can-append") {
+          // TODO: omit key on appended value
+          dirtyNode.insertAt(pos, val);
+          action = "added";
+        } else {
+          dirtyNode.setKey(pos, val);
+          action = "changed";
+        }
       } else {
-        if (allowChange === "change-only") {
+        if (policy === "change-only") {
           throw new NotExistError("key doesn't exists");
         }
         dirtyNode.insertAt(pos, val);
@@ -320,13 +346,37 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       dirtyNode.postChange();
     } else {
       if (found) {
-        const dirtyNode = node.getDirty(false);
-        dirtyNode.spliceKeys(pos, 1);
-        dirtyNode.postChange();
+        await node.deleteAt(pos);
         action = "removed";
       } // else noop
     }
     return { action, oldValue: oldValue ?? null };
+  }
+
+  async deleteAt(pos: number) {
+    const dirtyNode = this.getDirty(false);
+    const leftAddr = dirtyNode.children[pos];
+    if (leftAddr) {
+      const leftNode = (await dirtyNode.readChildPage(pos)).getDirty(true);
+      const leftKey = leftNode.keys[leftNode.keys.length - 1];
+      dirtyNode.spliceKeys(pos, 1, leftKey, leftNode.addr);
+      await leftNode.deleteAt(leftNode.keys.length - 1);
+      dirtyNode.postChange();
+      // TODO
+    } else {
+      dirtyNode.spliceKeys(pos, 1);
+      if (dirtyNode.keys.length == 0 && dirtyNode.parent) {
+        dirtyNode.parent.setChild(
+          dirtyNode.posInParent!,
+          dirtyNode.children[0],
+        );
+        dirtyNode.parent!.postChange();
+        dirtyNode.parent = undefined;
+        dirtyNode.removeDirty();
+      } else {
+        dirtyNode.postChange();
+      }
+    }
   }
 
   insertAt(pos: number, key: T, leftChild: PageAddr = 0) {
@@ -391,7 +441,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     while (up.parent) {
       if (up.parent.dirty) break;
       const upParent = up.parent = up.parent.getDirty(true);
-      upParent!.children[up.posInParent!] = up.addr;
+      upParent.children[up.posInParent!] = up.addr;
       up = upParent;
     }
   }
@@ -612,6 +662,7 @@ export class DocSetPage extends DocSetPageBase2 {
       buf.writeString(k);
       buf.writeString(this.indexes[k].funcStr);
       buf.writeU32(this.indexes[k].addr);
+      buf.writeU8(+this.indexes[k].unique);
     }
   }
 
@@ -626,6 +677,7 @@ export class DocSetPage extends DocSetPageBase2 {
       this.indexes[k] = new IndexInfo(
         buf.readString(),
         buf.readU32(),
+        !!buf.readU8(),
         null,
       );
     }
@@ -636,7 +688,7 @@ export class DocSetPage extends DocSetPageBase2 {
     super._copyTo(other);
     other._lastId = this._lastId;
     other._lastIdLen = this._lastIdLen;
-    other.indexes = this.indexes;
+    other.indexes = { ...this.indexes };
   }
 }
 
@@ -644,6 +696,7 @@ export class IndexInfo {
   constructor(
     public funcStr: string,
     public addr: PageAddr,
+    public unique: boolean,
     public cachedFunc: null | ((doc: any) => any),
   ) {
   }
@@ -662,7 +715,7 @@ function calcIndexInfoSize(indexes: Record<string, IndexInfo>) {
     if (Object.prototype.hasOwnProperty.call(indexes, key)) {
       const info = indexes[key];
       size += Buffer.calcStringSize(key) + Buffer.calcStringSize(info.funcStr) +
-        4;
+        4 + 1;
     }
   }
   return size;

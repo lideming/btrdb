@@ -44,7 +44,7 @@ export class OneWriterLock {
 
   enterWriterFromReader() {
     if (this.writers != 0 || this.readers <= 0) throw new Error("BUG");
-    this.readers--;
+    this.exitReader();
     return this.enterWriter(true);
   }
 

@@ -1,6 +1,6 @@
 import { DatabaseEngine, numberIdGenerator } from "./database.ts";
 import { DocNodeType, DocSetPage, IndexInfo, IndexTopPage } from "./page.ts";
-import { DocumentValue, JSONValue, KValue } from "./value.ts";
+import { DocumentValue, JSONValue, KeyComparator, KValue } from "./value.ts";
 import { DbSet } from "./DbSet.ts";
 import { BugError } from "./errors.ts";
 
@@ -14,7 +14,11 @@ export interface IDocument {
   id: string | number;
 }
 
-export type IndexDef<T> = Record<string, (doc: T) => any>;
+export type KeySelector<T> = (doc: T) => any;
+export type IndexDef<T> = Record<
+  string,
+  KeySelector<T> | { key: KeySelector<T>; unique?: boolean }
+>;
 
 export interface IDbDocSet<
   T extends IDocument = any,
@@ -28,7 +32,8 @@ export interface IDbDocSet<
   getIds<T>(): Promise<IdType<T>[]>;
   delete(id: IdType<T>): Promise<boolean>;
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
-  getFromIndex(index: string, key: any): Promise<T | void>;
+  getFromIndex(index: string, key: any): Promise<T | null>;
+  findIndex(index: string, key: any): Promise<T[]>;
 }
 
 export class DbDocSet implements IDbDocSet {
@@ -55,8 +60,8 @@ export class DbDocSet implements IDbDocSet {
   idGenerator: (lastId: any) => any = numberIdGenerator;
 
   async get(key: string): Promise<any | null> {
-    const { found, val } = await this.page.findIndexRecursive(
-      new JSONValue(key),
+    const { found, val } = await this.page.findKeyRecursive(
+      new KeyComparator(new JSONValue(key)),
     );
     if (!found) return null;
     return (val as DocNodeType)!.val;
@@ -106,9 +111,9 @@ export class DbDocSet implements IDbDocSet {
       const keyv = new JSONValue(key);
       const valv = !doc ? null : new DocumentValue(doc);
       const { action, oldValue: oldDoc } = await lockpage.set(
-        keyv,
+        new KeyComparator(keyv),
         valv,
-        !inserting,
+        inserting ? "no-change" : "can-change",
       );
       if (action == "added") {
         lockpage.count += 1;
@@ -116,41 +121,47 @@ export class DbDocSet implements IDbDocSet {
         lockpage.count -= 1;
       }
 
-      try {
-        const newIndexes: Record<string, IndexInfo> = {};
-        for (const [indexName, indexInfo] of Object.entries(lockpage.indexes)) {
-          const index =
-            (await this.page.storage.readPage(indexInfo.addr, IndexTopPage))
-              .getDirty(false);
-          if (oldDoc) {
-            const oldKey = new JSONValue(
-              indexInfo.func((oldDoc as DocNodeType).val),
+      // TODO: rollback changes on (unique) index failed?
+      // The following try-catch won't work well because some indexes may have changed.
+      // try {
+      for (const [indexName, indexInfo] of Object.entries(lockpage.indexes)) {
+        const index =
+          (await lockpage.storage.readPage(indexInfo.addr, IndexTopPage))
+            .getDirty(false);
+        if (oldDoc) {
+          const oldKey = new JSONValue(
+            indexInfo.func((oldDoc as DocNodeType).val),
+          );
+          const setResult = await index.set(
+            new KValue(oldKey, oldDoc.key),
+            null,
+            "no-change",
+          );
+          if (setResult.action != "removed") {
+            throw new BugError(
+              "BUG: can not remove index key: " +
+                Deno.inspect({ oldDoc, indexInfo, oldKey, setResult }),
             );
-            const setResult = await index.set(oldKey, null, false);
-            if (setResult.action != "removed") {
-              throw new BugError(
-                "BUG: can not remove index key: " +
-                  Deno.inspect({ oldDoc, indexInfo, oldKey, setResult }),
-              );
-            }
           }
-          if (doc) {
-            const kv = new KValue(new JSONValue(indexInfo.func(doc)), keyv);
-            await index.set(kv.key, kv, false);
-          }
-          newIndexes[indexName] = new IndexInfo(
-            indexInfo.funcStr,
-            index.getLatestCopy().getDirty(true).addr,
-            indexInfo.cachedFunc,
+        }
+        if (doc) {
+          const kv = new KValue(new JSONValue(indexInfo.func(doc)), keyv);
+          await index.set(
+            new KeyComparator(kv.key),
+            kv,
+            indexInfo.unique ? "no-change" : "can-append",
           );
         }
-        lockpage.setIndexes(newIndexes);
-      } catch (error) {
-        // Failed in index updating (duplicated key in unique index?)
-        // Rollback the change.
-        await lockpage.set(keyv, oldDoc, true);
-        throw error;
+        // The indexesInfo size should not change, skip setIndexes() here.
+        lockpage.indexes[indexName].addr =
+          index.getLatestCopy().getDirty(true).addr;
       }
+      // } catch (error) {
+      //   // Failed in index updating (duplicated key in unique index?)
+      //   // Rollback the change.
+      //   await lockpage.set(keyv, oldDoc, true);
+      //   throw error;
+      // }
 
       return { action, key: keyv };
     } finally { // END WRITE LOCK
@@ -199,12 +210,25 @@ export class DbDocSet implements IDbDocSet {
           delete newIndexes[key];
         }
         for (const key of toBuild) {
-          const func = indexDefs[key];
-          const info: IndexInfo = new IndexInfo(func.toString(), -1, func);
+          const obj = indexDefs[key];
+          const func = typeof obj == "function" ? obj : obj.key;
+          const unique = typeof obj == "function"
+            ? false
+            : (obj.unique ?? false);
+          const info: IndexInfo = new IndexInfo(
+            func.toString(),
+            -1,
+            unique,
+            func,
+          );
           const index = new IndexTopPage(lockpage.storage).getDirty(true);
           await lockpage.traverseKeys(async (k: DocumentValue) => {
             const indexKV = new KValue(new JSONValue(func(k.val)), k.key);
-            await index.set(indexKV.key, indexKV, false);
+            await index.set(
+              new KeyComparator(indexKV.key),
+              indexKV,
+              unique ? "no-change" : "can-append",
+            );
           });
           info.addr = index.addr;
           newIndexes[key] = info;
@@ -227,16 +251,84 @@ export class DbDocSet implements IDbDocSet {
         info.addr,
         IndexTopPage,
       );
-      const indexResult = await indexPage.findIndexRecursive(
-        new JSONValue(key),
+      const indexResult = await indexPage.findKeyRecursive(
+        new KeyComparator(new JSONValue(key)),
       );
       if (!indexResult.found) return null;
       const docKey = indexResult.val.value;
-      const docResult = await lockpage.findIndexRecursive(docKey);
+      const docResult = await lockpage.findKeyRecursive(
+        new KeyComparator(docKey),
+      );
       if (!docResult.found) {
         throw new BugError("BUG: found in index but document does not exist.");
       }
       return (docResult.val as DocNodeType).val;
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
+  }
+
+  async findIndex(index: string, key: any): Promise<any[]> {
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    try { // BEGIN READ LOCK
+      const info = lockpage.indexes[index];
+      if (!info) throw new Error("Specified index does not exist.");
+      const indexPage = await this.page.storage.readPage(
+        info.addr,
+        IndexTopPage,
+      );
+      const keyv = new JSONValue(key);
+      console.info(indexPage._debugView());
+      const indexResult = await indexPage.findKeyRecursive(
+        new KeyComparator(keyv),
+      );
+
+      const result: any[] = [];
+      if (!indexResult.found) return result;
+
+      const stack = [];
+      let node = indexResult.node;
+      let pos = indexResult.pos;
+      let val = indexResult.val;
+
+      // find most-left
+      while (pos && keyv.compareTo(node.keys[pos - 1].key) === 0) {
+        pos -= 1;
+        val = node.keys[pos];
+      }
+
+      do {
+        const docKey = val.value;
+        const docResult = await lockpage.findKeyRecursive(
+          new KeyComparator(docKey),
+        );
+        if (!docResult.found) {
+          throw new BugError(
+            "BUG: found in index but document does not exist.",
+          );
+        }
+        result.push((docResult.val as DocNodeType).val);
+        pos++;
+        if (node.children[pos]) {
+          stack.push({ node, pos });
+          node = await node.readChildPage(pos);
+          pos = 0;
+        } else if (node.keys.length == pos) {
+          if (stack.length) {
+            const pop = stack.pop();
+            node = pop!.node;
+            pos = pop!.pos;
+          } else if (node.parent) {
+            node = node.parent;
+            pos = node.posInParent! + 1;
+          } else {
+            break;
+          }
+        }
+        val = node.keys[pos];
+      } while (keyv.compareTo(val.key) === 0);
+      return result;
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
