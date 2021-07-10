@@ -460,7 +460,9 @@ await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
     );
     await dumpObjectToFile("testdata/five_actual.txt", actualIndexResults);
     await dumpObjectToFile("testdata/five_expected.txt", expectedIndexResults);
-    throw new Error("test failed, dump is created under 'testdata' folder: " + error);
+    throw new Error(
+      "test failed, dump is created under 'testdata' folder: " + error,
+    );
   }
   assertEquals(set.count, fivesSet.length);
 });
@@ -531,7 +533,7 @@ async function recreateDatabase() {
   await Deno.mkdir("testdata", { recursive: true });
   try {
     await Deno.remove(testFile);
-  } catch { }
+  } catch {}
 }
 
 function dumpObjectToFile(file: string, obj: any) {
@@ -545,7 +547,10 @@ function dumpObjectToFile(file: string, obj: any) {
   return Deno.writeTextFile(file, Deno.inspect(obj, inspectOptions));
 }
 
-async function runWithDatabase(func: (db: Database) => Promise<void>, only?: boolean) {
+async function runWithDatabase(
+  func: (db: Database) => Promise<void>,
+  only?: boolean,
+) {
   // console.info("");
   // console.info("=============================");
   // console.info("==> test " + func.name);
@@ -570,6 +575,6 @@ async function runWithDatabase(func: (db: Database) => Promise<void>, only?: boo
       console.info("file size:", size, `(${size / PAGESIZE} pages)`);
       file.close();
     },
-    only
+    only,
   });
 }

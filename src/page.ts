@@ -209,7 +209,10 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       deleted = this.keys.splice(pos, delCount);
       deletedChildren = this.children.splice(pos, delCount);
       if (delCount && this.keys.length == 0) {
-        if (this.children[0] === 0) { this.children.pop(); this.freeBytes += 4; }
+        if (this.children[0] === 0) {
+          this.children.pop();
+          this.freeBytes += 4;
+        }
       }
     }
     this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
@@ -267,7 +270,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   async _dumpTree() {
-    const result: any[] = [`(addr ${this.addr}${this.dirty ? " (dirty)" : ''})`];
+    const result: any[] = [
+      `(addr ${this.addr}${this.dirty ? " (dirty)" : ""})`,
+    ];
     for (let pos = 0; pos < this.children.length; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
@@ -304,7 +309,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     while (true) {
       const { found, pos, val } = node.findKey(key);
       if (found) return { found: true, node, pos, val: val as T };
-      if (!node.children[pos]) return { found: false, node, pos, val: val as undefined };
+      if (!node.children[pos]) {
+        return { found: false, node, pos, val: val as undefined };
+      }
       node = await node.readChildPage(pos);
     }
   }
@@ -374,7 +381,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       let leftSubNode = await dirtyNode.readChildPage(pos);
       const leftNode = leftSubNode;
       while (leftSubNode.children[leftSubNode.children.length - 1]) {
-        leftSubNode = await leftSubNode.readChildPage(leftSubNode.children.length - 1);
+        leftSubNode = await leftSubNode.readChildPage(
+          leftSubNode.children.length - 1,
+        );
       }
       const leftKey = leftSubNode.keys[leftSubNode.keys.length - 1];
       dirtyNode.spliceKeys(pos, 1, leftKey, leftNode.addr);
