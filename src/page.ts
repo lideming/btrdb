@@ -209,8 +209,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       deleted = this.keys.splice(pos, delCount);
       deletedChildren = this.children.splice(pos, delCount);
       if (delCount && this.keys.length == 0) {
-        this.freeBytes += 4;
-        if (this.children.pop()! != 0) throw new Error("Not implemented");
+        if (this.children[0] === 0) { this.children.pop(); this.freeBytes += 4; }
       }
     }
     this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
@@ -268,7 +267,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   async _dumpTree() {
-    const result: any[] = [];
+    const result: any[] = [`(addr ${this.addr}${this.dirty ? " (dirty)" : ''})`];
     for (let pos = 0; pos < this.children.length; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
@@ -372,12 +371,14 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     const dirtyNode = this.getDirty(false);
     const oldLeftAddr = dirtyNode.children[pos];
     if (oldLeftAddr) {
-      const leftNode = (await dirtyNode.readChildPage(pos)).getDirty(true);
-      const leftKey = leftNode.keys[leftNode.keys.length - 1];
+      let leftSubNode = await dirtyNode.readChildPage(pos);
+      const leftNode = leftSubNode;
+      while (leftSubNode.children[leftSubNode.children.length - 1]) {
+        leftSubNode = await leftSubNode.readChildPage(leftSubNode.children.length - 1);
+      }
+      const leftKey = leftSubNode.keys[leftSubNode.keys.length - 1];
       dirtyNode.spliceKeys(pos, 1, leftKey, leftNode.addr);
-      leftNode.parent = dirtyNode;
-      leftNode.posInParent = pos;
-      await leftNode.deleteAt(leftNode.keys.length - 1);
+      await leftSubNode.deleteAt(leftSubNode.keys.length - 1);
       dirtyNode.postChange();
       // TODO
     } else {
