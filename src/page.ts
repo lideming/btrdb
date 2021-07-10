@@ -115,7 +115,7 @@ export abstract class Page {
     const type = buf.readU8();
     if (type != this.type) {
       throw new Error(
-        `Wrong type in disk, should be ${this.type}, got ${type}`,
+        `Wrong type in disk, should be ${this.type}, got ${type}, addr ${this.addr}`,
       );
     }
     if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
@@ -170,16 +170,12 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     // console.log([newKeys.length, newChildren.length]);
     if (
       !((newKeys.length == 0 && newChildren.length == 0) ||
-        (newKeys.length + 1 == newChildren.length) ||
-        (newChildren.length == newKeys.length))
+        (newKeys.length + 1 == newChildren.length))
     ) {
       throw new Error("Invalid args");
     }
     if (this.keys) {
       this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
-    }
-    if (newChildren.length !== 0 && newChildren.length === newKeys.length) {
-      newChildren.push(0);
     }
     if (newKeys) {
       this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
@@ -309,8 +305,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     while (true) {
       const { found, pos, val } = node.findKey(key);
       if (found) return { found: true, node, pos, val: val as T };
-      const childAddr = node.children[pos];
-      if (!childAddr) return { found: false, node, pos, val: val as undefined };
+      if (!node.children[pos]) return { found: false, node, pos, val: val as undefined };
       node = await node.readChildPage(pos);
     }
   }
@@ -350,7 +345,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
         } else if (policy === "can-append") {
           // TODO: omit key on appended value
           dirtyNode.insertAt(pos, val, dirtyNode.children[pos]);
-          dirtyNode.children[pos + 1] = 0;
+          dirtyNode.setChild(pos + 1, 0);
           action = "added";
         } else {
           dirtyNode.setKey(pos, val);
@@ -375,11 +370,13 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
   async deleteAt(pos: number) {
     const dirtyNode = this.getDirty(false);
-    const leftAddr = dirtyNode.children[pos];
-    if (leftAddr) {
+    const oldLeftAddr = dirtyNode.children[pos];
+    if (oldLeftAddr) {
       const leftNode = (await dirtyNode.readChildPage(pos)).getDirty(true);
       const leftKey = leftNode.keys[leftNode.keys.length - 1];
       dirtyNode.spliceKeys(pos, 1, leftKey, leftNode.addr);
+      leftNode.parent = dirtyNode;
+      leftNode.posInParent = pos;
       await leftNode.deleteAt(leftNode.keys.length - 1);
       dirtyNode.postChange();
       // TODO
@@ -421,6 +418,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       const leftSib = new this._childCtor(this.storage).getDirty(true);
       const leftCount = Math.floor(this.keys.length / 2);
       const leftKeys = this.spliceKeys(0, leftCount);
+      leftKeys[1].push(0);
       leftSib.setKeys(leftKeys[0], leftKeys[1]);
       const [[middleKey], [middleLeftChild]] = this.spliceKeys(0, 1);
       leftSib.setChild(leftCount, middleLeftChild);
@@ -461,7 +459,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     while (node.parent) {
       const parent = node.parent;
       const dirtyParent = node.parent = parent.getDirty(true);
-      dirtyParent.children[node.posInParent!] = node.addr;
+      dirtyParent.setChild(node.posInParent!, node.addr);
       node = dirtyParent;
       if (parent === dirtyParent) break;
     }

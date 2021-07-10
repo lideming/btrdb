@@ -21,6 +21,7 @@ export class OneWriterLock {
   pendingReaders = 0;
   wakeAllReaders: Deferred<void> | null = null;
   wakeWriters: Deferred<void>[] = [];
+  private _prefer = false;
 
   enterReader() {
     if (!this.writers) {
@@ -65,7 +66,8 @@ export class OneWriterLock {
       throw new Error("BUG, " + this.writers + ", " + this.readers);
     }
     this.writers--;
-    if (Math.random() < 0.5) {
+    this._prefer = !this._prefer;
+    if (this._prefer) {
       // Prefer to wake reader rather than writer
       if (this.wakeAllReaders) {
         this.wakeAllReaders.resolve();

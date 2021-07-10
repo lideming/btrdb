@@ -9,6 +9,7 @@ import {
   SetPage,
   SuperPage,
 } from "./page.ts";
+import { OneWriterLock } from "./util.ts";
 import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 
 const CACHE_LIMIT = 16 * 1024;
@@ -195,6 +196,7 @@ export abstract class PageStorage {
 
 export class InFileStorage extends PageStorage {
   file: Deno.File | undefined = undefined;
+  lock = new OneWriterLock();
 
   /**
      * `"final-only"` (default): call the fsync once only after final writing.
@@ -229,12 +231,14 @@ export class InFileStorage extends PageStorage {
     addr: number,
     buffer: Uint8Array,
   ): Promise<void> {
+    await this.lock.enterWriter();
     await this.file!.seek(addr * PAGESIZE, Deno.SeekMode.Start);
     for (let i = 0; i < PAGESIZE;) {
       const nread = await this.file!.read(buffer.subarray(i));
       if (nread === null) throw new Error("Unexpected EOF");
       i += nread;
     }
+    this.lock.exitWriter();
   }
   protected async _commit(pages: Page[]): Promise<void> {
     // If fsync is enable (which used to ensure the data is correctly written on-disk),
@@ -244,6 +248,7 @@ export class InFileStorage extends PageStorage {
     // 3) Write the SuperPage.
     // 4) Call fsync().
 
+    await this.lock.enterWriter();
     const buffer = new Buffer(new Uint8Array(PAGESIZE), 0);
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
@@ -270,6 +275,7 @@ export class InFileStorage extends PageStorage {
       // Call the fsync() second time to finish the commit.
       await Deno.fdatasync(this.file!.rid);
     }
+    this.lock.exitWriter();
   }
   protected async _getLastAddr() {
     return Math.floor(await this.file!.seek(0, Deno.SeekMode.End) / PAGESIZE);

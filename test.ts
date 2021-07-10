@@ -286,8 +286,8 @@ await runWithDatabase(async function checkSnap2(db) {
 
 // set/get() lots of records (concurrently)
 
-const concurrentKeys = new Array(200).fill(0).map((x) =>
-  Math.floor(Math.random() * 100000000000).toString()
+const concurrentKeys = new Array(200).fill(0).map((x, i) =>
+  Math.floor(Math.abs(Math.sin(i)) * 100000000000).toString()
 );
 const expectedConcurrentKeys = [...new Set(concurrentKeys)].sort();
 const expectedConcurrentSetNames = [
@@ -442,15 +442,16 @@ await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
   await set.useIndexes({
     lastThree: (d) => d.id.substr(d.id.length - 3),
   });
-  for (const k of fives) {
-    await set.upsert({ id: k });
-  }
-  assertEquals(await db.commit(), true);
-  const actualIndexResults = (await Promise.all(
-    fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
-  )).map((x) => x.map((x) => x.id).sort());
   const expectedIndexResults = fiveLastThreeMap.map((x) => x[1]);
+  let actualIndexResults = null;
   try {
+    for (const k of fives) {
+      await set.upsert({ id: k });
+    }
+    assertEquals(await db.commit(), true);
+    actualIndexResults = (await Promise.all(
+      fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+    )).map((x) => x.map((x) => x.id).sort());
     assertEquals(actualIndexResults, expectedIndexResults);
   } catch (error) {
     await dumpObjectToFile(
@@ -459,18 +460,17 @@ await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
     );
     await dumpObjectToFile("testdata/five_actual.txt", actualIndexResults);
     await dumpObjectToFile("testdata/five_expected.txt", expectedIndexResults);
-    throw new Error("test failed, dump is created under 'testdata' folder");
+    throw new Error("test failed, dump is created under 'testdata' folder: " + error);
   }
   assertEquals(set.count, fivesSet.length);
 });
 
 await runWithDatabase(async function DocSet_deleteMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive2", "doc");
-  // TODO: removing this line will make the test fail
-  await dumpObjectToFile(
-    "testdata/five_before_delete_tree.txt",
-    await (set as any)._dump(),
-  );
+  // await dumpObjectToFile(
+  //   "testdata/five_before_delete_tree.txt",
+  //   await (set as any)._dump(),
+  // );
   const toDelete = fivesSet.filter((x) => x[1] == "0");
   let actualIndexResults = null;
   const expectedIndexResults = fiveLastThreeMap.map((x) =>
@@ -531,7 +531,7 @@ async function recreateDatabase() {
   await Deno.mkdir("testdata", { recursive: true });
   try {
     await Deno.remove(testFile);
-  } catch {}
+  } catch { }
 }
 
 function dumpObjectToFile(file: string, obj: any) {
@@ -545,7 +545,7 @@ function dumpObjectToFile(file: string, obj: any) {
   return Deno.writeTextFile(file, Deno.inspect(obj, inspectOptions));
 }
 
-async function runWithDatabase(func: (db: Database) => Promise<void>) {
+async function runWithDatabase(func: (db: Database) => Promise<void>, only?: boolean) {
   // console.info("");
   // console.info("=============================");
   // console.info("==> test " + func.name);
@@ -570,5 +570,6 @@ async function runWithDatabase(func: (db: Database) => Promise<void>) {
       console.info("file size:", size, `(${size / PAGESIZE} pages)`);
       file.close();
     },
+    only
   });
 }
