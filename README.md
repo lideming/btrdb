@@ -13,7 +13,7 @@
 - [x] Key-Value sets
 - [x] Document sets
   - [x] Auto-id
-  - [ ] Indexes
+  - [x] Indexes
   - [ ] BSON instead of JSON on disk (?)
 - [x] ACID
   - [x] Readers/writer lock
