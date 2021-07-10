@@ -1,4 +1,4 @@
-export const PAGESIZE = 4096;
+export const PAGESIZE = +(Deno.env.get("BTRDB_PAGESIZE") || 4096);
 
 import { Buffer } from "./buffer.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";

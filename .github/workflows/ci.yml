@@ -20,6 +20,7 @@ jobs:
           deno test \
             --allow-read=testdata --allow-write=testdata \
             --coverage=coverage \
+            --allow-env \
             test.ts
 
       - name: Analyze coverage
@@ -31,6 +32,29 @@ jobs:
         with:
           file: ./coverage.lcov
           fail_ci_if_error: true
+
+  test-pagesize:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        page_size: [512, 1024, 2048, 8192]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Run test.ts (page size ${{ matrix.page_size }})
+        run: |
+          BTRDB_PAGESIZE=${{ matrix.page_size }} \
+            deno test \
+            --allow-read=testdata --allow-write=testdata \
+            --allow-env \
+            test.ts
 
   fmt:
     runs-on: ubuntu-latest
