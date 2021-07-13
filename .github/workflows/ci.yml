@@ -17,15 +17,16 @@ jobs:
 
       - name: Run test.ts
         run: |
+          mkdir -p testdata
           deno test \
             --allow-read=testdata --allow-write=testdata \
-            --coverage=coverage \
+            --coverage=testdata/coverage \
             --allow-env \
             test.ts
 
       - name: Analyze coverage
         run: |
-          deno coverage coverage --lcov > coverage.lcov
+          deno coverage testdata/coverage --lcov > testdata/coverage.lcov
 
       - name: Codecov
         uses: codecov/codecov-action@v1.5.2
@@ -38,7 +39,7 @@ jobs:
 
     strategy:
       matrix:
-        page_size: [512, 1024, 2048, 8192]
+        page_size: [256, 512, 1024, 2048, 8192]
 
     steps:
       - uses: actions/checkout@v2

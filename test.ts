@@ -423,7 +423,7 @@ await runWithDatabase(async function DocSet_upsertMassive(db) {
     await dumpObjectToFile("testdata/tree.txt", await (set as any)._dump());
     await dumpObjectToFile("testdata/actual.txt", actualIndexResults);
     await dumpObjectToFile("testdata/expected.txt", expectedIndexResults);
-    throw new Error("test failed, dump is created under 'testdata' folder");
+    throw new Error("test failed, dump is created under 'testdata' folder: " + error);
   }
   assertEquals(set.count, expectedKeys.length);
 });
