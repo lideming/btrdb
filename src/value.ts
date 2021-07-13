@@ -169,7 +169,15 @@ export class KeyComparator<T extends IKey<any>> implements IComparable<T> {
   constructor(readonly key: KeyOf<T>) {
   }
   compareTo(other: T): 0 | 1 | -1 {
-    // console.info("KeyCompare", this.key, other, other.key);
     return this.key.compareTo(other.key);
+  }
+}
+
+export class KeyLeftmostComparator<T extends IKey<any>>
+  implements IComparable<T> {
+  constructor(readonly key: KeyOf<T>) {
+  }
+  compareTo(other: T): 0 | 1 | -1 {
+    return this.key.compareTo(other.key) || -1; // always return -1 if the key equals
   }
 }

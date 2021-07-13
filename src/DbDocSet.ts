@@ -1,6 +1,12 @@
 import { DatabaseEngine, numberIdGenerator } from "./database.ts";
 import { DocNodeType, DocSetPage, IndexInfo, IndexTopPage } from "./page.ts";
-import { DocumentValue, JSONValue, KeyComparator, KValue } from "./value.ts";
+import {
+  DocumentValue,
+  JSONValue,
+  KeyComparator,
+  KeyLeftmostComparator,
+  KValue,
+} from "./value.ts";
 import { DbSet } from "./DbSet.ts";
 import { BugError } from "./errors.ts";
 
@@ -286,48 +292,13 @@ export class DbDocSet implements IDbDocSet {
       );
       const keyv = new JSONValue(key);
       const indexResult = await indexPage.findKeyRecursive(
-        new KeyComparator(keyv),
+        new KeyLeftmostComparator(keyv),
       );
 
       const result: any[] = [];
-      if (!indexResult.found) return result;
 
-      const stack = [];
       let node = indexResult.node;
       let pos = indexResult.pos;
-
-      // find most-left
-      let cont;
-      do {
-        cont = false;
-        if (
-          node.parent && node.posInParent! > 0 &&
-          keyv.compareTo(node.parent.keys[node.posInParent! - 1].key) === 0
-        ) {
-          pos = node.posInParent! - 1;
-          node = node.parent;
-        }
-        while (pos && keyv.compareTo(node.keys[pos - 1].key) === 0) {
-          // Go left
-          pos -= 1;
-        }
-        if (node.children[pos]) {
-          // Go down to left child
-          let leftNode = await node.readChildPage(pos);
-          while (leftNode.children[leftNode.children.length - 1]) {
-            leftNode = await leftNode.readChildPage(
-              leftNode.children.length - 1,
-            );
-          }
-          if (
-            keyv.compareTo(leftNode.keys[leftNode.keys.length - 1].key) === 0
-          ) {
-            node = leftNode;
-            pos = node.keys.length - 1;
-            cont = true;
-          }
-        }
-      } while (cont);
 
       while (true) {
         const val = node.keys[pos];
