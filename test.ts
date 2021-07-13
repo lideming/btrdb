@@ -575,6 +575,11 @@ async function runWithDatabase(
       const file = await Deno.open(testFile);
       const size = (await Deno.fstat(file.rid)).size;
       console.info("file size:", size, `(${size / PAGESIZE} pages)`);
+      const storage = (db as any).storage;
+      if (storage.written) {
+        console.info("space efficient:", (1 - (storage.writtenFreebytes / storage.written)).toFixed(3))
+      }
+      console.info("")
       file.close();
     },
     only,

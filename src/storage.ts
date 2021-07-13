@@ -32,6 +32,10 @@ export abstract class PageStorage {
   /** When a SetPage is dirty, it will be added into here. */
   dirtySets: SetPage[] = [];
 
+  written = 0;
+
+  writtenFreebytes = 0;
+
   async init() {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
@@ -253,6 +257,8 @@ export class InFileStorage extends PageStorage {
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
       page.writeTo(buffer);
+      this.written += PAGESIZE;
+      this.writtenFreebytes += page.freeBytes;
       await this.file!.seek(page.addr * PAGESIZE, Deno.SeekMode.Start);
       for (let i = 0; i < buffer.pos;) {
         const nwrite = await this.file!.write(buffer.buffer.subarray(i));
