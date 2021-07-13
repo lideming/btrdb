@@ -577,9 +577,12 @@ async function runWithDatabase(
       console.info("file size:", size, `(${size / PAGESIZE} pages)`);
       const storage = (db as any).storage;
       if (storage.written) {
-        console.info("space efficient:", (1 - (storage.writtenFreebytes / storage.written)).toFixed(3))
+        console.info(
+          "space efficient:",
+          (1 - (storage.writtenFreebytes / storage.written)).toFixed(3),
+        );
       }
-      console.info("")
+      console.info("");
       file.close();
     },
     only,
