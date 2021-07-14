@@ -433,7 +433,11 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (!this.dirty) throw new BugError("BUG: postChange() on non-dirty page.");
     if (this.freeBytes < 0) {
       if (this.keys.length <= 2) {
-        throw new Error("Not implemented");
+        // TODO: write large value into "ExtentPage"
+        throw new Error(
+          "Not implemented. freeBytes=" + this.freeBytes +
+            " keys=" + Deno.inspect(this.keys),
+        );
       }
       // console.log('spliting node with key count:', this.keys.length);
       // console.log(this.keys.length, this.children.length);
