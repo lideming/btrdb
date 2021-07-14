@@ -46,28 +46,43 @@ export class Buffer {
     this.writeLenEncodedBuffer(buf);
   }
   writeLenEncodedBuffer(buf: Uint8Array) {
-    if (buf.length < 255) {
-      this.writeU8(buf.length);
-    } else {
-      this.writeU8(255);
-      this.writeU16(buf.length);
-    }
+    this.writeEncodedUint(buf.length);
     this.writeBuffer(buf);
   }
-  static calcLenEncodedBufferSize(buf: Uint8Array) {
-    if (buf.length < 255) return 1 + buf.length;
-    else return 3 + buf.length;
+  writeEncodedUint(val: number) {
+    if (val < 254) {
+      this.writeU8(val);
+    } else if (val < 65536) {
+      this.writeU8(254);
+      this.writeU16(val);
+    } else {
+      this.writeU8(255);
+      this.writeU32(val);
+    }
+  }
+  readEncodedUint() {
+    var val = this.readU8();
+    if (val < 254) {
+      return val;
+    } else if (val == 254) {
+      return this.readU16();
+    } else {
+      return this.readU32();
+    }
+  }
+  readString() {
+    const len = this.readEncodedUint();
+    const str = decoder.decode(this.buffer.subarray(this.pos, this.pos + len));
+    this.pos += len;
+    return str;
   }
   static calcStringSize(str: string) {
     return Buffer.calcLenEncodedBufferSize(encoder.encode(str));
   }
-  readString() {
-    var len = this.readU8();
-    if (len == 255) {
-      len = this.readU16();
-    }
-    const str = decoder.decode(this.buffer.subarray(this.pos, this.pos + len));
-    this.pos += len;
-    return str;
+  static calcLenEncodedBufferSize(buf: Uint8Array) {
+    return Buffer.calcEncodedUintSize(buf.length) + buf.length;
+  }
+  static calcEncodedUintSize(len: number) {
+    return (len < 254) ? 1 : (len < 65536) ? 3 : 5;
   }
 }

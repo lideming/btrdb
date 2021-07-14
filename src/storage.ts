@@ -1,6 +1,7 @@
 import { Buffer } from "./buffer.ts";
 import { NotExistError } from "./errors.ts";
 import {
+  DataPage,
   Page,
   PageAddr,
   PageClass,
@@ -10,7 +11,15 @@ import {
   SuperPage,
 } from "./page.ts";
 import { OneWriterLock } from "./util.ts";
-import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
+import {
+  IValue,
+  KeyComparator,
+  KValue,
+  PageOffsetValue,
+  StringValue,
+  UIntValue,
+  ValueType,
+} from "./value.ts";
 
 const CACHE_LIMIT = 16 * 1024;
 
@@ -31,6 +40,9 @@ export abstract class PageStorage {
 
   /** When a SetPage is dirty, it will be added into here. */
   dirtySets: SetPage[] = [];
+
+  dataPage: DataPage | undefined = undefined;
+  dataPageBuffer: Buffer | undefined = undefined;
 
   written = 0;
 
@@ -129,6 +141,93 @@ export abstract class PageStorage {
     page.addr = this.nextAddr++;
     this.dirtyPages.push(page);
     this.cache.set(page.addr, page);
+  }
+
+  addData(val: IValue) {
+    if (!this.dataPage || this.dataPage.freeBytes == 0) {
+      this.createDataPage();
+    }
+    const valLength = val.byteLength;
+    const headerLength = Buffer.calcEncodedUintSize(val.byteLength);
+    const totalLength = headerLength + valLength;
+
+    let pageAddr: number;
+    let offset: number;
+
+    if (this.dataPage!.freeBytes >= totalLength) {
+      // Can write the whole value into the current data page.
+      pageAddr = this.dataPage!.addr;
+      offset = this.dataPageBuffer!.pos;
+      this.dataPageBuffer!.writeEncodedUint(valLength);
+      val.writeTo(this.dataPageBuffer!);
+      this.dataPage!.freeBytes -= totalLength;
+    } else {
+      // We need to split it into pages.
+      if (this.dataPage!.freeBytes < headerLength) {
+        // If current page even cannot fit the header...
+        this.createDataPage();
+      }
+      // Writing header
+      pageAddr = this.dataPage!.addr;
+      offset = this.dataPageBuffer!.pos;
+      this.dataPageBuffer!.writeEncodedUint(valLength);
+      // Make a temporary buffer and write value into it.
+      const valBuffer = new Buffer(new Uint8Array(valLength), 0);
+      val.writeTo(valBuffer);
+      // Start writing to pages...
+      let written = 0;
+      while (written < valLength) {
+        if (this.dataPage!.freeBytes == 0) {
+          this.createDataPage();
+        }
+        const toWrite = Math.min(valLength - written, this.dataPage!.freeBytes);
+        this.dataPageBuffer!.writeBuffer(
+          valBuffer.buffer.subarray(written, written + toWrite),
+        );
+        written += toWrite;
+        this.dataPage!.freeBytes -= toWrite;
+      }
+    }
+    return new PageOffsetValue(pageAddr, offset);
+  }
+
+  async readData<T extends IValue>(
+    pageOffset: PageOffsetValue,
+    type: ValueType<T>,
+  ) {
+    let page = await this.readPage(pageOffset.addr, DataPage);
+    let buffer = new Buffer(page.buffer!, pageOffset.offset);
+    const valLength = buffer.readEncodedUint();
+    let bufferLeft = buffer.buffer.length - buffer.pos;
+    if (valLength <= bufferLeft) {
+      return type.readFrom(buffer);
+    } else {
+      const valBuffer = new Buffer(new Uint8Array(valLength), 0);
+      let read = 0;
+      while (read < valLength) {
+        if (bufferLeft == 0) {
+          page = await this.readPage(page.addr + 1, DataPage);
+          buffer = new Buffer(page.buffer!, 0);
+          bufferLeft = buffer.buffer.length;
+        }
+        const toRead = Math.min(bufferLeft, valLength - read);
+        valBuffer.writeBuffer(
+          buffer.pos || buffer.buffer.length != toRead
+            ? buffer.buffer.subarray(buffer.pos, buffer.pos + toRead)
+            : buffer.buffer,
+        );
+        read += toRead;
+        bufferLeft -= toRead;
+      }
+      return type.readFrom(valBuffer);
+    }
+  }
+
+  createDataPage() {
+    this.dataPage = new DataPage(this);
+    this.dataPage.createBuffer();
+    this.dataPageBuffer = new Buffer(this.dataPage.buffer!, 0);
+    this.addDirty(this.dataPage);
   }
 
   async commit() {

@@ -246,54 +246,57 @@ await runWithDatabase(async function DocSet_indexes_after_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_demo(db) {
-  interface User {
-    id: number;
-    username: string;
-    status: "online" | "offline";
-    role: "admin" | "user";
-  }
+// TODO remove this condition once we have finished DataPage
+if (PAGESIZE != 256) {
+  await runWithDatabase(async function DocSet_indexes_demo(db) {
+    interface User {
+      id: number;
+      username: string;
+      status: "online" | "offline";
+      role: "admin" | "user";
+    }
 
-  const userSet = await db.createSet<User>("users", "doc");
+    const userSet = await db.createSet<User>("users", "doc");
 
-  // Define indexes on the set and update indexes if needed.
-  userSet.useIndexes({
-    status: (user) => user.status,
-    // define "status" index, which indexing the value of user.status for each user in the set
+    // Define indexes on the set and update indexes if needed.
+    userSet.useIndexes({
+      status: (user) => user.status,
+      // define "status" index, which indexing the value of user.status for each user in the set
 
-    username: { unique: true, key: (user) => user.username },
-    // define "username" unique index, which does not allow duplicated username.
+      username: { unique: true, key: (user) => user.username },
+      // define "username" unique index, which does not allow duplicated username.
 
-    onlineAdmin: (user) => user.status == "online" && user.role == "admin",
-    // define "onlineAdmin" index, the value is a computed boolean.
+      onlineAdmin: (user) => user.status == "online" && user.role == "admin",
+      // define "onlineAdmin" index, the value is a computed boolean.
+    });
+
+    await userSet.insert({ username: "yuuza", status: "online", role: "user" });
+    await userSet.insert({ username: "foo", status: "offline", role: "admin" });
+    await userSet.insert({ username: "bar", status: "online", role: "admin" });
+
+    // Get all online users
+    console.info(await userSet.findIndex("status", "online"), [
+      { username: "yuuza", status: "online", role: "user", id: 1 },
+      { username: "bar", status: "online", role: "admin", id: 3 },
+    ]);
+
+    // Get all users named 'yuuza'
+    console.info(await userSet.findIndex("username", "yuuza"), [{
+      username: "yuuza",
+      status: "online",
+      role: "user",
+      id: 1,
+    }]);
+
+    // Get all online admins
+    console.info(await userSet.findIndex("onlineAdmin", true), [{
+      username: "bar",
+      status: "online",
+      role: "admin",
+      id: 3,
+    }]);
   });
-
-  await userSet.insert({ username: "yuuza", status: "online", role: "user" });
-  await userSet.insert({ username: "foo", status: "offline", role: "admin" });
-  await userSet.insert({ username: "bar", status: "online", role: "admin" });
-
-  // Get all online users
-  console.info(await userSet.findIndex("status", "online"), [
-    { username: "yuuza", status: "online", role: "user", id: 1 },
-    { username: "bar", status: "online", role: "admin", id: 3 },
-  ]);
-
-  // Get all users named 'yuuza'
-  console.info(await userSet.findIndex("username", "yuuza"), [{
-    username: "yuuza",
-    status: "online",
-    role: "user",
-    id: 1,
-  }]);
-
-  // Get all online admins
-  console.info(await userSet.findIndex("onlineAdmin", true), [{
-    username: "bar",
-    status: "online",
-    role: "admin",
-    id: 3,
-  }]);
-});
+}
 
 // get snapshots
 

@@ -47,6 +47,7 @@ export const enum PageType {
   DocRecords,
   IndexTop,
   Index,
+  Data,
 }
 
 export interface PageClass<T extends Page> {
@@ -432,7 +433,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (this._newerCopy) throw new BugError("BUG: postChange() on old copy.");
     if (!this.dirty) throw new BugError("BUG: postChange() on non-dirty page.");
     if (this.freeBytes < 0) {
-      if (this.keys.length <= 2) {
+      if (this.keys.length <= 1) {
         // TODO: write large value into "ExtentPage"
         throw new Error(
           "Not implemented. freeBytes=" + this.freeBytes +
@@ -779,6 +780,36 @@ const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
 
 export { IndexTopPage };
 // export type IndexTopPage = InstanceType<typeof IndexTopPage>;
+
+export class DataPage extends Page {
+  get type(): PageType {
+    return PageType.Data;
+  }
+
+  buffer: Uint8Array | null = null;
+
+  createBuffer() {
+    this.buffer = new Uint8Array(PAGESIZE - 4);
+  }
+
+  get usedBytes() {
+    return PAGESIZE - this.freeBytes - 4;
+  }
+
+  addUsage(len: number) {
+    this.freeBytes -= len;
+  }
+
+  _writeContent(buf: Buffer) {
+    super._writeContent(buf);
+    buf.writeBuffer(this.buffer!.subarray(0, this.usedBytes));
+  }
+  _readContent(buf: Buffer) {
+    super._readContent(buf);
+    this.buffer = buf.buffer.subarray(buf.pos, PAGESIZE - 4);
+    this.freeBytes = 0;
+  }
+}
 
 export type SetPageAddr = UIntValue;
 

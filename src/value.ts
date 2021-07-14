@@ -11,9 +11,11 @@ export interface IComparable<T> {
 
 export interface IValue extends ISerializable {}
 
-export interface KeyType<T extends IKey<any>> {
+export interface ValueType<T extends IValue> {
   readFrom(buf: Buffer): T;
 }
+
+export type KeyType<T extends IKey<any>> = ValueType<T>;
 
 export interface Key<T> extends IValue, IComparable<T>, IKey<T> {
   readonly hash: any;
@@ -179,5 +181,17 @@ export class KeyLeftmostComparator<T extends IKey<any>>
   }
   compareTo(other: T): 0 | 1 | -1 {
     return this.key.compareTo(other.key) || -1; // always return -1 if the key equals
+  }
+}
+
+export class PageOffsetValue implements IValue {
+  constructor(readonly addr: number, readonly offset: number) {
+  }
+  writeTo(buf: Buffer): void {
+    buf.writeU32(this.addr);
+    buf.writeU16(this.offset);
+  }
+  get byteLength() {
+    return 4 + 2;
   }
 }
