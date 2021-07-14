@@ -64,7 +64,7 @@ export abstract class Page {
   }
 
   /** Should not change pages on disk, we should always copy on write */
-  dirty = false;
+  dirty = true;
 
   get hasAddr() {
     return this.addr != -1;

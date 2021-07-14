@@ -95,6 +95,7 @@ export abstract class PageStorage {
     const buffer = new Uint8Array(PAGESIZE);
     const promise = this._readPageBuffer(addr, buffer).then(() => {
       const page = new type(this);
+      page.dirty = false;
       page.addr = addr;
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
       page.readFrom(new Buffer(buffer, 0));
