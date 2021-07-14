@@ -1,4 +1,19 @@
-export const PAGESIZE = +(Deno.env.get("BTRDB_PAGESIZE") || 4096);
+export const PAGESIZE = getPageSize() || 4096;
+
+function getPageSize() {
+  try {
+    const val = Deno.env.get("BTRDB_PAGESIZE");
+    if (!val) return null;
+    const num = parseInt(val);
+    if (isNaN(num)) {
+      console.error("BTRDB_PAGESIZE: expected an integer");
+      return null;
+    }
+    return num;
+  } catch (error) {
+    return null;
+  }
+}
 
 import { Buffer } from "./buffer.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
