@@ -404,7 +404,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       dirtyNode.spliceKeys(pos, 1, leftKey, leftNode.addr);
       await leftSubNode.deleteAt(leftSubNode.keys.length - 1);
       dirtyNode.postChange();
-      // TODO
     } else {
       dirtyNode.spliceKeys(pos, 1);
       if (dirtyNode.keys.length == 0 && dirtyNode.parent) {
