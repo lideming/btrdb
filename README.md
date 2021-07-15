@@ -1,21 +1,23 @@
 # btrdb - B-tree DataBase
 
-btrdb is a CoW NoSQL database engine inspired by btrfs.
+btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
 
 [![CI](https://github.com/lideming/btrdb/actions/workflows/ci.yml/badge.svg)](https://github.com/lideming/btrdb/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
 
 - [x] Deno runtime
 - [x] Node.js runtime
+  - [x] Compatibility layer
   - [x] ES module bundle
   - [ ] CommonJS bundle
   - [ ] Publish to NPM registry
 - [x] B-Tree
+- [x] Single file
 - [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
   [log-structured](https://en.wikipedia.org/wiki/Log-structured_file_system)
-- [x] Performance
-  ([set 10k records in 150ms (single
-  commit)](https://github.com/lideming/btrdb/runs/2995614665#step:4:261))
+- [x] Good performance even written in pure TypeScript
+  - [x] [Set 100k key-value pairs under 1.2s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:296)
+  - [x] [Insert 100k documents under 3.3s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:320)
 - [x] [Snapshots](#Use-snapshots)
   - [x] Named snapshots
 - [x] [Key-Value sets](#Use-key-value-set)
