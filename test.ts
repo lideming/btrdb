@@ -5,9 +5,16 @@ import {
 } from "https://deno.land/std@0.100.0/testing/asserts.ts";
 import { PAGESIZE } from "./src/page.ts";
 
+const databaseTests: {
+  func: (db: Database) => Promise<void>;
+  only?: boolean;
+}[] = [];
+
 const testFile = "testdata/testdb.db";
 
 await new Promise((r) => setTimeout(r, 300));
+
+console.info("preparing test data...");
 
 await recreateDatabase();
 
@@ -688,38 +695,61 @@ async function runWithDatabase(
   func: (db: Database) => Promise<void>,
   only?: boolean,
 ) {
-  // console.info("");
-  // console.info("=============================");
-  // console.info("==> test " + func.name);
-  // console.info("=============================");
-
   Deno.test({
     name: func.name,
-    fn: async () => {
-      console.info("\n=============================");
-      console.time("open");
-      const db = new Database();
-      await db.openFile(testFile, { fsync: false });
-      console.timeEnd("open");
-
-      console.time("run");
-      await func(db);
-      console.timeEnd("run");
-      db.close();
-
-      const file = await Deno.open(testFile);
-      const size = (await Deno.fstat(file.rid)).size;
-      console.info("file size:", size, `(${size / PAGESIZE} pages)`);
-      const storage = (db as any).storage;
-      if (storage.written) {
-        console.info(
-          "space efficient:",
-          (1 - (storage.writtenFreebytes / storage.written)).toFixed(3),
-        );
-      }
-      console.info("");
-      file.close();
-    },
+    fn: () => runDbTest(func),
     only,
   });
+
+  databaseTests.push({ func, only });
+}
+
+async function runDbTest(func: (db: Database) => Promise<void>) {
+  console.time("open");
+  const db = new Database();
+  await db.openFile(testFile, { fsync: false });
+  console.timeEnd("open");
+
+  console.time("run");
+  await func(db);
+  console.timeEnd("run");
+  db.close();
+
+  const file = await Deno.open(testFile);
+  const size = (await file.stat()).size;
+  console.info("file size:", size, `(${size / PAGESIZE} pages)`);
+  const storage = (db as any).storage;
+  if (storage.written) {
+    console.info(
+      "space efficient:",
+      (1 - (storage.writtenFreebytes / storage.written)).toFixed(3),
+    );
+  }
+  file.close();
+}
+
+export async function run() {
+  const useOnly = databaseTests.filter((x) => x.only).length > 0;
+  let total = databaseTests.length, passed = 0, failed = 0, ignored = 0;
+  for (const { func, only } of databaseTests) {
+    if (!useOnly || only) {
+      console.info("");
+      console.info("=============================");
+      console.info("==> test " + func.name);
+      console.info("=============================");
+      try {
+        await runDbTest(func);
+        passed++;
+      } catch (error) {
+        console.error("error in test", error);
+        failed++;
+      }
+      console.info("");
+    } else {
+      ignored++;
+    }
+  }
+  const stat = { total, passed, failed, ignored };
+  console.info("Tests completed", stat);
+  return stat;
 }

@@ -70,3 +70,31 @@ jobs:
 
       - name: Check fmt
         run: deno fmt --check
+
+  node:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Build bundle for Node
+        run: |
+          mkdir -p build
+          deno bundle nodeCompat/mod.ts > build/btrdb.mjs
+          deno bundle nodeCompat/nodeTest.js > build/test.mjs
+
+      - name: Upload bundle to artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: btrdb-node
+          path: build/btrdb.mjs
+
+      - name: Run tests in Node
+        run: |
+          mkdir -p testdata
+          node build/test.mjs

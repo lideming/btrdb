@@ -148,7 +148,7 @@ export class KValue<K extends Key<K>, V extends IValue>
       (this.value as any).compareTo(other.value);
   }
 
-  [Deno.customInspect]() {
+  [Symbol.for("Deno.customInspect")]() {
     return "KV(" + Deno.inspect(this.key) + ", " + Deno.inspect(this.value) +
       ")";
   }
