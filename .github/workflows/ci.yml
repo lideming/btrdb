@@ -34,29 +34,6 @@ jobs:
           file: ./testdata/coverage.lcov
           fail_ci_if_error: true
 
-  test-pagesize:
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        page_size: [256, 512, 1024, 2048, 8192]
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: 1.x
-
-      - name: Run test.ts (page size ${{ matrix.page_size }})
-        run: |
-          BTRDB_PAGESIZE=${{ matrix.page_size }} \
-            deno test \
-            --allow-read=testdata --allow-write=testdata \
-            --allow-env \
-            test.ts
-
   fmt:
     runs-on: ubuntu-latest
 
@@ -99,3 +76,43 @@ jobs:
           mkdir -p testdata
           node nodeCompat/example.mjs && \
             node dist/test.mjs
+
+  perf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Run test.ts without "deno test"
+        run: |
+          mkdir -p testdata
+          deno eval \
+            "import {run} from './test.ts'; var r = await run(); Deno.exit(!!(r.total != r.passed));"
+
+  test-pagesize:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        page_size: [256, 512, 1024, 2048, 8192]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Run test.ts (page size ${{ matrix.page_size }})
+        run: |
+          BTRDB_PAGESIZE=${{ matrix.page_size }} \
+            deno test \
+            --allow-read=testdata --allow-write=testdata \
+            --allow-env \
+            test.ts
