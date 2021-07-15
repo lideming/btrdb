@@ -131,6 +131,20 @@ await runWithDatabase(async function DocSet_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
+await runWithDatabase(async function DocSet_largeDocument(db) {
+  var set = await db.getSet<TestUser>("testdoc", "doc");
+  let str = "";
+  for (let i = 0; i < 10000; i++) {
+    str += Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString();
+  }
+  await set!.insert({ "username": str });
+  assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }, {
+    "id": 3,
+    "username": str,
+  }]);
+  assertEquals(await db.commit(), true);
+});
+
 // use indexes
 
 await runWithDatabase(async function DocSet_indexes_before_insert(db) {
