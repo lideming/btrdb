@@ -69,7 +69,7 @@ export abstract class PageStorage {
           break;
         } catch (error) {
           console.error(error);
-          console.log(
+          console.info(
             "[RECOVERY] trying read super page from addr " + (--rootAddr),
           );
         }
@@ -196,9 +196,6 @@ export abstract class PageStorage {
     pageOffset: PageOffsetValue,
     type: ValueType<T>,
   ) {
-    if (pageOffset.addr == 4489 && pageOffset.offset == 4080) {
-      console.info("i");
-    }
     let page = await this.readPage(pageOffset.addr, DataPage);
     let buffer = new Buffer(page.buffer!, pageOffset.offset);
     const valLength = buffer.readEncodedUint();

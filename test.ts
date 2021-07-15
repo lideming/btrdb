@@ -131,16 +131,46 @@ await runWithDatabase(async function DocSet_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
+let longString = "";
+for (let i = 0; i < 10000; i++) {
+  longString += Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString();
+}
+
 await runWithDatabase(async function DocSet_largeDocument(db) {
   var set = await db.getSet<TestUser>("testdoc", "doc");
-  let str = "";
-  for (let i = 0; i < 10000; i++) {
-    str += Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString();
-  }
-  await set!.insert({ "username": str });
+  await set!.insert({ "username": longString });
   assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }, {
     "id": 3,
-    "username": str,
+    "username": longString,
+  }]);
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_largeDocument_after_index(db) {
+  var set = await db.getSet<TestUser>("testdoc", "doc");
+  assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }, {
+    "id": 3,
+    "username": longString,
+  }]);
+  await set!.useIndexes({
+    username10: (u) => u.username.substr(0, Math.min(10, u.username.length)),
+  });
+  assertEquals(await set!.findIndex("username10", longString.substr(0, 10)), [{
+    "id": 3,
+    "username": longString,
+  }]);
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function DocSet_largeDocument_before_index(db) {
+  var set = await db.getSet<TestUser>("testdoc", "doc");
+  await set!.useIndexes({
+    username10: (u) => u.username.substr(0, Math.min(10, u.username.length)),
+    username8: (u) => u.username.substr(0, Math.min(8, u.username.length)),
+  });
+  assertEquals(await set!.findIndex("username8", longString.substr(0, 8)), [{
+    "id": 3,
+    "username": longString,
   }]);
   assertEquals(await db.commit(), true);
 });

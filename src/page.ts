@@ -436,8 +436,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (this._newerCopy) throw new BugError("BUG: postChange() on old copy.");
     if (!this.dirty) throw new BugError("BUG: postChange() on non-dirty page.");
     if (this.freeBytes < 0) {
-      if (this.keys.length <= 1) {
-        // TODO: write large value into "ExtentPage"
+      if (this.keys.length <= 2) {
         throw new Error(
           "Not implemented. freeBytes=" + this.freeBytes +
             " keys=" + Deno.inspect(this.keys),
