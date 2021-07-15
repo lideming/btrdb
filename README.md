@@ -7,6 +7,8 @@ btrdb is a CoW NoSQL database engine inspired by btrfs.
 
 - [x] Deno runtime
 - [x] Node.js runtime
+  - [x] ES module bundle
+  - [ ] CommonJS bundle
   - [ ] Publish to NPM registry
 - [x] B-Tree
 - [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
@@ -29,9 +31,7 @@ btrdb is a CoW NoSQL database engine inspired by btrfs.
 - [ ] GC (?)
 - [ ] Auto-commit (?)
 
-## Usage
-
-### ⚠️ Warning! ⚠️
+## ⚠️ Warning ⚠️
 
 This project is just started. It's under heavy development!
 
@@ -39,11 +39,33 @@ The on-disk format structure and the API are NOT stable yet.
 
 Please do NOT use it in any serious production.
 
-### Create/open database file
+## Usage
+
+### Import the module
+
+**Deno:**
 
 ```ts
 import { Database } from "https://github.com/lideming/btrdb/raw/main/mod.ts";
+```
 
+**Node.js:**
+
+Install from NPM registry (TODO: not yet published!):
+
+```
+npm i @yuuza/btrdb
+```
+
+Then import from your code:
+
+```js
+import { Database } from "@yuuza/btrdb";
+```
+
+### Create/open database file
+
+```ts
 const db = new Database();
 await db.openFile("data.db");
 // Will create new database if the file doesn't exist.
