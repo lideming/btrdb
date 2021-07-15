@@ -1,5 +1,5 @@
 import { DatabaseEngine } from "./database.ts";
-import { KVNodeType, SetPage } from "./page.ts";
+import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
 import { KeyComparator, KValue, StringValue } from "./value.ts";
 
 export interface IDbSet {
@@ -70,6 +70,11 @@ export class DbSet implements IDbSet {
   async set(key: string, val: string | null) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
     const keyv = new StringValue(key);
+    if (keyv.byteLength > KEYSIZE_LIMIT) {
+      throw new Error(
+        `The key size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+      );
+    }
     const valv = val == null ? null : new KValue(keyv, new StringValue(val));
 
     await this._db.commitLock.enterWriter();

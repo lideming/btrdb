@@ -1,5 +1,7 @@
 export const PAGESIZE = getPageSize() || 4096;
 
+export const KEYSIZE_LIMIT = Math.floor(PAGESIZE / 4);
+
 function getPageSize() {
   try {
     const val = Deno.env.get("BTRDB_PAGESIZE");

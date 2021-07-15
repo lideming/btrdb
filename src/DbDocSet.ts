@@ -1,5 +1,11 @@
 import { DatabaseEngine, numberIdGenerator } from "./database.ts";
-import { DocNodeType, DocSetPage, IndexInfo, IndexTopPage } from "./page.ts";
+import {
+  DocNodeType,
+  DocSetPage,
+  IndexInfo,
+  IndexTopPage,
+  KEYSIZE_LIMIT,
+} from "./page.ts";
 import {
   DocumentValue,
   JSONValue,
@@ -119,10 +125,15 @@ export class DbDocSet implements IDbDocSet {
         if (key == null) key = doc["id"] = this.idGenerator(lockpage.lastId);
         lockpage.lastId = key;
       }
-      const keyv = new JSONValue(key);
       const dataPos = !doc
         ? null
         : await lockpage.storage.addData(new DocumentValue(doc));
+      const keyv = new JSONValue(key);
+      if (keyv.byteLength > KEYSIZE_LIMIT) {
+        throw new Error(
+          `The id size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+        );
+      }
       const valv = !doc ? null : new KValue(keyv, dataPos!);
       const { action, oldValue: oldDoc } = await lockpage.set(
         new KeyComparator(keyv),
@@ -162,6 +173,11 @@ export class DbDocSet implements IDbDocSet {
         }
         if (doc) {
           const kv = new KValue(new JSONValue(indexInfo.func(doc)), dataPos!);
+          if (kv.key.byteLength > KEYSIZE_LIMIT) {
+            throw new Error(
+              `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+            );
+          }
           const setResult = await index.set(
             indexInfo.unique ? new KeyComparator(kv.key) : kv,
             kv,
@@ -247,6 +263,11 @@ export class DbDocSet implements IDbDocSet {
           await lockpage.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k);
             const indexKV = new KValue(new JSONValue(func(doc.val)), k.value);
+            if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
+              throw new Error(
+                `The index key size is too large (${indexKV.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+              );
+            }
             await index.set(
               unique ? new KeyComparator(indexKV.key) : indexKV,
               indexKV,
