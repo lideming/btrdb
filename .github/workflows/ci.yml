@@ -84,17 +84,18 @@ jobs:
 
       - name: Build bundle for Node
         run: |
-          mkdir -p build
-          deno bundle nodeCompat/mod.ts > build/btrdb.mjs
-          deno bundle nodeCompat/nodeTest.js > build/test.mjs
+          mkdir -p dist
+          deno bundle nodeCompat/mod.ts > dist/btrdb.mjs
+          deno bundle nodeCompat/nodeTest.js > dist/test.mjs
 
       - name: Upload bundle to artifact
         uses: actions/upload-artifact@v2
         with:
           name: btrdb-node
-          path: build/btrdb.mjs
+          path: dist/btrdb.mjs
 
       - name: Run tests in Node
         run: |
           mkdir -p testdata
-          node build/test.mjs
+          node nodeCompat/example.mjs && \
+            node dist/test.mjs

@@ -4,6 +4,7 @@ if (!global["Deno"]) {
   global.Deno = Deno;
 
   const util: any = await import("util");
+  const fs: any = await import("fs");
   const fsPromises: any = await import("fs/promises");
 
   Deno.inspect = util.inspect;
@@ -24,6 +25,9 @@ if (!global["Deno"]) {
 
   class File {
     pos = 0;
+    get rid() {
+      return this.fh.fd;
+    }
     constructor(readonly fh: any) {
     }
     write(p: Uint8Array): Promise<number> {
@@ -58,6 +62,15 @@ if (!global["Deno"]) {
     options?: Deno.OpenOptions,
   ): Promise<File> {
     return new File((await fsPromises.open(path, "a+")));
+  };
+
+  Deno.fdatasync = function (fd: number) {
+    return new Promise<void>((resolve, reject) => {
+      fs.fdatasync(fd, (err: any) => {
+        if (!err) resolve();
+        else reject(err);
+      });
+    });
   };
 }
 

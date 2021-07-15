@@ -6,7 +6,8 @@ btrdb is a CoW NoSQL database engine inspired by btrfs.
 [![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
 
 - [x] Deno runtime
-- [ ] Node.js runtime
+- [x] Node.js runtime
+  - [ ] Publish to NPM registry
 - [x] B-Tree
 - [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
   [log-structured](https://en.wikipedia.org/wiki/Log-structured_file_system)

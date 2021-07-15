@@ -1,0 +1,24 @@
+{
+  "name": "@yuuza/btrdb",
+  "version": "1.0.0",
+  "description": "A CoW NoSQL database engine inspired by btrfs.",
+  "main": "dist/btrdb.js",
+  "module": "dist/btrdb.mjs",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lideming/btrdb.git"
+  },
+  "files": [
+    "dist/btrdb.mjs",
+    "dist/btrdb.js"
+  ],
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}
