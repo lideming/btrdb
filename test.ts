@@ -51,7 +51,7 @@ await runWithDatabase(async function getSetCount(db) {
 });
 
 await runWithDatabase(async function deleteSet(db) {
-  assertEquals(await db.deleteSet("testCount3"), true);
+  assertEquals(await db.deleteSet("testCount3", "kv"), true);
   assertEquals(await db.getSet("testCount3"), null);
   assertEquals(await db.getSetCount(), 3);
   assertEquals(await db.commit(), true);
@@ -61,7 +61,7 @@ await runWithDatabase(async function deleteSet_afterModify(db) {
   const set = await db.getSet("testCount1");
   assert(set);
   await set.set("somechange", "somevalue");
-  assertEquals(await db.deleteSet("testCount1"), true);
+  assertEquals(await db.deleteSet("testCount1", "kv"), true);
   assertEquals(await db.getSet("testCount1"), null);
   assertEquals(await db.getSetCount(), 2);
   assertEquals(await db.commit(), true);
@@ -70,8 +70,8 @@ await runWithDatabase(async function deleteSet_afterModify(db) {
 await runWithDatabase(async function deleteSet_check(db) {
   assertEquals(await db.getSet("testCount1"), null);
   assertEquals(await db.getSet("testCount3"), null);
-  assertEquals(await db.deleteSet("testCount1"), false);
-  assertEquals(await db.deleteSet("testCount3"), false);
+  assertEquals(await db.deleteSet("testCount1", "kv"), false);
+  assertEquals(await db.deleteSet("testCount3", "kv"), false);
   assertEquals(await db.getSetCount(), 2);
   assertEquals(await db.commit(), false);
 });
@@ -440,8 +440,8 @@ await runWithDatabase(async function createSetGetCommitConcurrent(db) {
   await Promise.all(tasks);
   assertEquals(await db.commit(), false);
   assertEquals(
-    (await db.getSetNames()).filter((x) => x[0] == "k"),
-    expectedConcurrentSetNames,
+    (await db.getSetInfo()).filter((x) => x.name[0] == "k"),
+    expectedConcurrentSetNames.map((x) => ({ type: "kv", name: x })),
   );
 });
 

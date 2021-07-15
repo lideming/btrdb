@@ -238,15 +238,18 @@ export abstract class PageStorage {
     if (this.dirtySets.length) {
       for (const set of this.dirtySets) {
         if (set._newerCopy) {
-          console.info(this.dirtySets.map((x) => [x.addr, x.name]));
+          console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
           console.info("dirtySets length", this.dirtySets.length);
           throw new Error("non-latest page in dirtySets");
         }
         set.getDirty(true);
         try {
           await this.superPage.set(
-            new KeyComparator(new StringValue(set.name)),
-            new KValue(new StringValue(set.name), new UIntValue(set.addr)),
+            new KeyComparator(new StringValue(set.prefixedName)),
+            new KValue(
+              new StringValue(set.prefixedName),
+              new UIntValue(set.addr),
+            ),
             "change-only",
           );
         } catch (error) {

@@ -25,7 +25,7 @@ const _setTypeInfo = {
   doc: { page: DocSetPage, dbset: DbDocSet },
 };
 
-export class DatabaseEngine implements EngineContext {
+export class DatabaseEngine implements EngineContext, Database {
   storage: PageStorage = undefined as any;
   private snapshot: SuperPage | null = null;
 
@@ -64,11 +64,12 @@ export class DatabaseEngine implements EngineContext {
       set = await this._getSet(name, type as any, false);
       if (set) return set;
 
+      const prefixedName = this._getPrefixedName(type, name);
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
       const setPage = new Ctorpage(this.storage).getDirty(true);
-      setPage.name = name;
+      setPage.prefixedName = prefixedName;
       await this.superPage!.insert(
-        new KValue(new StringValue(name), new UIntValue(setPage.addr)),
+        new KValue(new StringValue(prefixedName), new UIntValue(setPage.addr)),
       );
       this.superPage!.setCount++;
       return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
@@ -95,9 +96,10 @@ export class DatabaseEngine implements EngineContext {
     const lock = this.commitLock;
     if (useLock) await lock.enterReader();
     try {
+      const prefixedName = this._getPrefixedName(type, name);
       const superPage = this.superPage!;
       const r = await superPage.findKeyRecursive(
-        new KeyComparator(new StringValue(name)),
+        new KeyComparator(new StringValue(prefixedName)),
       );
       if (!r.found) return null;
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
@@ -105,19 +107,20 @@ export class DatabaseEngine implements EngineContext {
         r.val!.value.val,
         Ctorpage as any,
       ) as SetPage;
-      setPage.name = name;
+      setPage.prefixedName = prefixedName;
       return new Ctordbset(setPage as any, this, name, !!this.snapshot);
     } finally {
       if (useLock) lock.exitReader();
     }
   }
 
-  async deleteSet(name: string): Promise<boolean> {
+  async deleteSet(name: string, type: DbSetType): Promise<boolean> {
     const lock = this.commitLock;
     await lock.enterWriter();
     try {
+      const prefixedName = this._getPrefixedName(type, name);
       const { action } = await this.superPage!.set(
-        new KeyComparator(new StringValue(name)),
+        new KeyComparator(new StringValue(prefixedName)),
         null,
         "no-change",
       );
@@ -138,11 +141,13 @@ export class DatabaseEngine implements EngineContext {
     return this.superPage!.setCount;
   }
 
-  async getSetNames() {
+  async getSetInfo() {
     const lock = this.commitLock;
     await lock.enterReader();
     try {
-      return (await this.superPage!.getAllValues()).map((x) => x.key.str);
+      return (await this.superPage!.getAllValues()).map((x) => {
+        return this._parsePrefixedName(x.key.str) as any;
+      });
     } finally {
       lock.exitReader();
     }
@@ -169,6 +174,22 @@ export class DatabaseEngine implements EngineContext {
       SuperPage,
     );
     return prev;
+  }
+
+  _getPrefixedName(type: DbSetType, name: string) {
+    const prefix = type == "kv" ? "k" : type == "doc" ? "d" : null;
+    if (!prefix) throw new Error("Unknown type '" + type + "'");
+    return prefix + "_" + name;
+  }
+
+  _parsePrefixedName(prefixedName: string) {
+    const prefix = prefixedName[0];
+    if (prefixedName[1] != "_") {
+      throw new Error("Unexpected prefixedName '" + prefixedName + "'");
+    }
+    const type = prefix == "k" ? "kv" : prefix == "d" ? "doc" : null;
+    if (!type) throw new Error("Unknown prefix '" + prefix + "'");
+    return { type, name: prefixedName.substr(2) };
   }
 
   close() {
@@ -199,12 +220,12 @@ export interface Database {
     type: "doc",
   ): Promise<IDbDocSet<T> | null>;
 
-  deleteSet(name: string): Promise<boolean>;
+  deleteSet(name: string, type: "kv" | "doc"): Promise<boolean>;
 
   getSetCount(): Promise<number>;
-  getSetNames(): Promise<string[]>;
+  getSetInfo(): Promise<{ name: string; type: "kv" | "doc" }[]>;
 
-  commit(): Promise<void>;
+  commit(): Promise<boolean>;
   getPrevSnapshot(): Promise<Database | null>;
   close(): void;
 }

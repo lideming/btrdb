@@ -617,7 +617,7 @@ function buildSetPageClass<
   T extends ReturnType<typeof buildTreePageClasses>["top"],
 >(baseClass: T) {
   class SetPageBase extends baseClass {
-    name: string = "";
+    prefixedName: string = "";
     lock = new OneWriterLock();
 
     async enterCoWLock() {
@@ -633,7 +633,7 @@ function buildSetPageClass<
 
     override _copyTo(page: this) {
       super._copyTo(page as any);
-      page.name = this.name;
+      page.prefixedName = this.prefixedName;
     }
 
     override getDirty(addDirty: boolean) {
