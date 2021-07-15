@@ -1,5 +1,10 @@
 # btrdb - B-tree DataBase
 
+btrdb is a CoW NoSQL database engine inspired by btrfs.
+
+[![CI](https://github.com/lideming/btrdb/actions/workflows/ci.yml/badge.svg)](https://github.com/lideming/btrdb/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
+
 - [x] Deno runtime
 - [ ] Node.js runtime
 - [x] B-Tree
@@ -22,8 +27,6 @@
 - [ ] Replication (?)
 - [ ] GC (?)
 - [ ] Auto-commit (?)
-
-[![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
 
 ## Usage
 
