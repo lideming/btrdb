@@ -38,7 +38,6 @@ export interface IDbDocSet<
   getIds<T>(): Promise<IdType<T>[]>;
   delete(id: IdType<T>): Promise<boolean>;
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
-  getFromIndex(index: string, key: any): Promise<T | null>;
   findIndex(index: string, key: any): Promise<T[]>;
 }
 
@@ -70,7 +69,8 @@ export class DbDocSet implements IDbDocSet {
       new KeyComparator(new JSONValue(key)),
     );
     if (!found) return null;
-    return (val as DocNodeType)!.val;
+    const docVal = await this._readDocument(val as DocNodeType);
+    return docVal.val;
   }
 
   protected async _getAllRaw() {
@@ -83,8 +83,13 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
-  async getAll(): Promise<{ key: any; value: any }[]> {
-    return (await this._getAllRaw() as DocNodeType[]).map((x) => x.val);
+  async getAll(): Promise<any[]> {
+    return Promise.all(
+      (await this._getAllRaw() as DocNodeType[]).map(async (x) => {
+        const doc = await this._readDocument(x);
+        return doc.val;
+      }),
+    );
   }
 
   async getIds(): Promise<any[]> {
@@ -115,7 +120,10 @@ export class DbDocSet implements IDbDocSet {
         lockpage.lastId = key;
       }
       const keyv = new JSONValue(key);
-      const valv = !doc ? null : new DocumentValue(doc);
+      const dataPos = !doc
+        ? null
+        : await lockpage.storage.addData(new DocumentValue(doc));
+      const valv = !doc ? null : new KValue(keyv, dataPos!);
       const { action, oldValue: oldDoc } = await lockpage.set(
         new KeyComparator(keyv),
         valv,
@@ -136,10 +144,12 @@ export class DbDocSet implements IDbDocSet {
             .getDirty(false);
         if (oldDoc) {
           const oldKey = new JSONValue(
-            indexInfo.func((oldDoc as DocNodeType).val),
+            indexInfo.func(
+              (await this._readDocument(oldDoc as DocNodeType)).val,
+            ),
           );
           const setResult = await index.set(
-            new KValue(oldKey, oldDoc.key),
+            new KValue(oldKey, (oldDoc as DocNodeType).value),
             null,
             "no-change",
           );
@@ -151,7 +161,7 @@ export class DbDocSet implements IDbDocSet {
           }
         }
         if (doc) {
-          const kv = new KValue(new JSONValue(indexInfo.func(doc)), keyv);
+          const kv = new KValue(new JSONValue(indexInfo.func(doc)), dataPos!);
           const setResult = await index.set(
             indexInfo.unique ? new KeyComparator(kv.key) : kv,
             kv,
@@ -234,8 +244,9 @@ export class DbDocSet implements IDbDocSet {
             func,
           );
           const index = new IndexTopPage(lockpage.storage).getDirty(true);
-          await lockpage.traverseKeys(async (k: DocumentValue) => {
-            const indexKV = new KValue(new JSONValue(func(k.val)), k.key);
+          await lockpage.traverseKeys(async (k: DocNodeType) => {
+            const doc = await this._readDocument(k);
+            const indexKV = new KValue(new JSONValue(func(doc.val)), k.value);
             await index.set(
               unique ? new KeyComparator(indexKV.key) : indexKV,
               indexKV,
@@ -250,33 +261,6 @@ export class DbDocSet implements IDbDocSet {
         lockpage.lock.exitWriter();
         this._db.commitLock.exitWriter();
       }
-    }
-  }
-
-  async getFromIndex(index: string, key: any): Promise<any> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
-    try { // BEGIN READ LOCK
-      const info = lockpage.indexes[index];
-      if (!info) throw new Error("Specified index does not exist.");
-      const indexPage = await this.page.storage.readPage(
-        info.addr,
-        IndexTopPage,
-      );
-      const indexResult = await indexPage.findKeyRecursive(
-        new KeyComparator(new JSONValue(key)),
-      );
-      if (!indexResult.found) return null;
-      const docKey = indexResult.val.value;
-      const docResult = await lockpage.findKeyRecursive(
-        new KeyComparator(docKey),
-      );
-      if (!docResult.found) {
-        throw new BugError("BUG: found in index but document does not exist.");
-      }
-      return (docResult.val as DocNodeType).val;
-    } finally { // END READ LOCK
-      lockpage.lock.exitReader();
     }
   }
 
@@ -295,7 +279,7 @@ export class DbDocSet implements IDbDocSet {
         new KeyLeftmostComparator(keyv),
       );
 
-      const result: any[] = [];
+      const result: DocumentValue[] = [];
 
       let node = indexResult.node;
       let pos = indexResult.pos;
@@ -306,16 +290,8 @@ export class DbDocSet implements IDbDocSet {
           const comp = keyv.compareTo(val.key);
           if (comp === 0) {
             // Get one result and go right
-            const docKey = val.value;
-            const docResult = await lockpage.findKeyRecursive(
-              new KeyComparator(docKey),
-            );
-            if (!docResult.found) {
-              throw new BugError(
-                "BUG: found in index but document does not exist.",
-              );
-            }
-            result.push((docResult.val as DocNodeType).val);
+            const doc = await this._readDocument(val);
+            result.push(doc);
           } else {
             break;
           }
@@ -338,10 +314,15 @@ export class DbDocSet implements IDbDocSet {
           }
         }
       }
-      return result;
+      return result.sort((a, b) => a.key.compareTo(b.key))
+        .map((doc) => doc.val);
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
+  }
+
+  _readDocument(key: DocNodeType) {
+    return this.page.storage.readData(key.value, DocumentValue);
   }
 
   async _dump() {

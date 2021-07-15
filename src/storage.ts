@@ -1,5 +1,5 @@
 import { Buffer } from "./buffer.ts";
-import { NotExistError } from "./errors.ts";
+import { BugError, NotExistError } from "./errors.ts";
 import {
   DataPage,
   Page,
@@ -145,10 +145,10 @@ export abstract class PageStorage {
 
   addData(val: IValue) {
     if (!this.dataPage || this.dataPage.freeBytes == 0) {
-      this.createDataPage();
+      this.createDataPage(false);
     }
     const valLength = val.byteLength;
-    const headerLength = Buffer.calcEncodedUintSize(val.byteLength);
+    const headerLength = Buffer.calcEncodedUintSize(valLength);
     const totalLength = headerLength + valLength;
 
     let pageAddr: number;
@@ -165,12 +165,13 @@ export abstract class PageStorage {
       // We need to split it into pages.
       if (this.dataPage!.freeBytes < headerLength) {
         // If current page even cannot fit the header...
-        this.createDataPage();
+        this.createDataPage(false);
       }
       // Writing header
       pageAddr = this.dataPage!.addr;
       offset = this.dataPageBuffer!.pos;
       this.dataPageBuffer!.writeEncodedUint(valLength);
+      this.dataPage!.freeBytes -= headerLength;
       // Make a temporary buffer and write value into it.
       const valBuffer = new Buffer(new Uint8Array(valLength), 0);
       val.writeTo(valBuffer);
@@ -178,7 +179,7 @@ export abstract class PageStorage {
       let written = 0;
       while (written < valLength) {
         if (this.dataPage!.freeBytes == 0) {
-          this.createDataPage();
+          this.createDataPage(true);
         }
         const toWrite = Math.min(valLength - written, this.dataPage!.freeBytes);
         this.dataPageBuffer!.writeBuffer(
@@ -195,6 +196,9 @@ export abstract class PageStorage {
     pageOffset: PageOffsetValue,
     type: ValueType<T>,
   ) {
+    if (pageOffset.addr == 4489 && pageOffset.offset == 4080) {
+      console.info("i");
+    }
     let page = await this.readPage(pageOffset.addr, DataPage);
     let buffer = new Buffer(page.buffer!, pageOffset.offset);
     const valLength = buffer.readEncodedUint();
@@ -203,31 +207,33 @@ export abstract class PageStorage {
       return type.readFrom(buffer);
     } else {
       const valBuffer = new Buffer(new Uint8Array(valLength), 0);
-      let read = 0;
-      while (read < valLength) {
+      while (valBuffer.pos < valLength) {
         if (bufferLeft == 0) {
-          page = await this.readPage(page.addr + 1, DataPage);
+          if (!page.next) throw new BugError("BUG: expected next page.");
+          page = await this.readPage(page.next, DataPage);
           buffer = new Buffer(page.buffer!, 0);
           bufferLeft = buffer.buffer.length;
         }
-        const toRead = Math.min(bufferLeft, valLength - read);
+        const toRead = Math.min(bufferLeft, valLength - valBuffer.pos);
         valBuffer.writeBuffer(
           buffer.pos || buffer.buffer.length != toRead
             ? buffer.buffer.subarray(buffer.pos, buffer.pos + toRead)
             : buffer.buffer,
         );
-        read += toRead;
         bufferLeft -= toRead;
       }
+      valBuffer.pos = 0;
       return type.readFrom(valBuffer);
     }
   }
 
-  createDataPage() {
+  createDataPage(continued: boolean) {
+    const prev = this.dataPage;
     this.dataPage = new DataPage(this);
     this.dataPage.createBuffer();
     this.dataPageBuffer = new Buffer(this.dataPage.buffer!, 0);
     this.addDirty(this.dataPage);
+    if (continued) prev!.next = this.dataPage.addr;
   }
 
   async commit() {

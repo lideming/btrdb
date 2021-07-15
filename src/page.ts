@@ -29,6 +29,7 @@ import {
   KeyOf,
   KeyType,
   KValue,
+  PageOffsetValue,
   StringValue,
   UIntValue,
 } from "./value.ts";
@@ -661,12 +662,13 @@ export { RecordsPage };
 export const SetPage = buildSetPageClass(SetPageBase);
 export type SetPage = InstanceType<typeof SetPage>;
 
-export type DocNodeType = DocumentValue;
+export type DocNodeType = KValue<JSONValue, PageOffsetValue>;
 
 const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses<
   DocNodeType
 >({
-  valueReader: (buf: Buffer) => DocumentValue.readFrom(buf),
+  valueReader: (buf: Buffer) =>
+    KValue.readFrom(buf, JSONValue.readFrom, PageOffsetValue.readFrom),
   topPageType: PageType.DocSet,
   childPageType: PageType.DocRecords,
 });
@@ -770,10 +772,10 @@ function calcIndexInfoSize(indexes: Record<string, IndexInfo>) {
 }
 
 const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
-  KValue<JSONValue, JSONValue>
+  KValue<JSONValue, PageOffsetValue>
 >({
   valueReader: (buf: Buffer) =>
-    KValue.readFrom(buf, JSONValue.readFrom, JSONValue.readFrom),
+    KValue.readFrom(buf, JSONValue.readFrom, PageOffsetValue.readFrom),
   topPageType: PageType.IndexTop,
   childPageType: PageType.Index,
 });
@@ -786,14 +788,21 @@ export class DataPage extends Page {
     return PageType.Data;
   }
 
+  next: PageAddr = 0;
+
   buffer: Uint8Array | null = null;
 
+  override init() {
+    super.init();
+    this.freeBytes -= 4;
+  }
+
   createBuffer() {
-    this.buffer = new Uint8Array(PAGESIZE - 4);
+    this.buffer = new Uint8Array(PAGESIZE - 8);
   }
 
   get usedBytes() {
-    return PAGESIZE - this.freeBytes - 4;
+    return PAGESIZE - this.freeBytes - 8;
   }
 
   addUsage(len: number) {
@@ -802,11 +811,14 @@ export class DataPage extends Page {
 
   _writeContent(buf: Buffer) {
     super._writeContent(buf);
+    buf.writeU32(this.next);
     buf.writeBuffer(this.buffer!.subarray(0, this.usedBytes));
   }
   _readContent(buf: Buffer) {
     super._readContent(buf);
-    this.buffer = buf.buffer.subarray(buf.pos, PAGESIZE - 4);
+    this.next = buf.readU32();
+    this.buffer = buf.buffer.subarray(buf.pos, /* end: */ PAGESIZE);
+    buf.pos = PAGESIZE;
     this.freeBytes = 0;
   }
 }

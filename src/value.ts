@@ -49,7 +49,7 @@ export class StringValue implements Key<StringValue> {
     this.ensureBuf();
     buf.writeLenEncodedBuffer(this.buf!);
   }
-  compareTo(str: StringValue) {
+  compareTo(str: this) {
     return (this.str < str.str) ? -1 : (this.str === str.str) ? 0 : 1;
   }
   ensureBuf() {
@@ -100,6 +100,14 @@ export class UIntValue implements IKey<UIntValue> {
 export class JSONValue extends StringValue {
   constructor(public readonly val: any, stringified?: string) {
     super(stringified ?? JSON.stringify(val));
+  }
+
+  override compareTo(other: this) {
+    return this.val < other.val
+      ? -1
+      : this.val > other.val
+      ? 1
+      : super.compareTo(other);
   }
 
   static readFrom(buf: Buffer) {
@@ -159,7 +167,13 @@ export class DocumentValue extends JSONValue implements IKey<any> {
 
   static readFrom(buf: Buffer) {
     const str = buf.readString();
-    return new DocumentValue(JSON.parse(str), str);
+    try {
+      return new DocumentValue(JSON.parse(str), str);
+    } catch (error) {
+      throw new Error(
+        "Failed to parse document: " + Deno.inspect({ str, error }),
+      );
+    }
   }
 
   [Symbol.for("Deno.customInspect")]() {
@@ -193,5 +207,22 @@ export class PageOffsetValue implements IValue {
   }
   get byteLength() {
     return 4 + 2;
+  }
+  compareTo(other: PageOffsetValue) {
+    return (this.addr < other.addr)
+      ? -1
+      : (this.addr > other.addr)
+      ? 1
+      : (this.offset < other.offset)
+      ? -1
+      : (this.offset > other.offset)
+      ? 1
+      : 0;
+  }
+  static readFrom(buf: Buffer) {
+    return new PageOffsetValue(buf.readU32(), buf.readU16());
+  }
+  [Symbol.for("Deno.customInspect")]() {
+    return `Addr(${this.addr}, ${this.offset})`;
   }
 }
