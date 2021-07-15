@@ -339,7 +339,7 @@ await runWithDatabase(async function DocSet_indexes_demo(db) {
   }]);
 });
 
-// get snapshots
+// get prev commit
 
 await runWithDatabase(async function createSetSnap(db) {
   var set = await db.createSet("snap1");
@@ -350,7 +350,7 @@ await runWithDatabase(async function createSetSnap(db) {
 await runWithDatabase(async function checkSnap(db) {
   var set = await db.getSet("snap1");
   assertEquals(await set!.get("somekey"), "somevalue");
-  var snap = await db.getPrevSnapshot(); // before commit "a"
+  var snap = await db.getPrevCommit(); // before commit "a"
   assertEquals(await snap!.getSet("snap1"), null);
   assert(!!await snap!.getSet("test"));
   assertEquals(await db.commit(), false);
@@ -368,12 +368,54 @@ await runWithDatabase(async function checkSnap2(db) {
   assertEquals(await set!.count, 2);
   assertEquals(await set!.get("somekey"), "someothervalue");
   assertEquals(await set!.get("newkey"), "newvalue");
-  var snap = await db.getPrevSnapshot(); // commit "a"
+  var snap = await db.getPrevCommit(); // commit "a"
   var snapset = await snap!.getSet("snap1");
   assertEquals(await snapset!.count, 1);
   assertEquals(await snapset!.get("somekey"), "somevalue");
-  var snap2 = await snap!.getPrevSnapshot(); // before commit "a"
+  var snap2 = await snap!.getPrevCommit(); // before commit "a"
   assertEquals(await snap2!.getSet("snap1"), null);
+  assertEquals(await db.commit(), false);
+});
+
+// create/get named snapshot
+
+await runWithDatabase(async function namedSnap1(db) {
+  await db.createSnapshot("before_a");
+  var set = await db.createSet("namedsnap1");
+  await set.set("somekey", "somevalue");
+  await db.createSnapshot("a");
+  assertEquals(await db.commit(), true); // commit "a"
+});
+
+await runWithDatabase(async function namedSnap2(db) {
+  var set = await db.getSet("namedsnap1");
+  assertEquals(await set!.get("somekey"), "somevalue");
+  var snap = await db.getSnapshot("before_a");
+  assert(snap);
+  assertEquals(await snap!.getSet("namedsnap1"), null);
+  assert(!!await snap!.getSet("test"));
+  assertEquals(await db.commit(), false);
+});
+
+await runWithDatabase(async function namedSnap3(db) {
+  var set = await db.getSet("namedsnap1");
+  await set!.set("somekey", "someothervalue");
+  await set!.set("newkey", "newvalue");
+  await db.createSnapshot("b");
+  assertEquals(await db.commit(), true);
+});
+
+await runWithDatabase(async function namedSnap4(db) {
+  var set = await db.getSet("namedsnap1");
+  assertEquals(await set!.count, 2);
+  assertEquals(await set!.get("somekey"), "someothervalue");
+  assertEquals(await set!.get("newkey"), "newvalue");
+  var snap = await db.getSnapshot("a");
+  var snapset = await snap!.getSet("namedsnap1");
+  assertEquals(await snapset!.count, 1);
+  assertEquals(await snapset!.get("somekey"), "somevalue");
+  var snap2 = await snap!.getSnapshot("before_a");
+  assertEquals(await snap2!.getSet("namedsnap1"), null);
   assertEquals(await db.commit(), false);
 });
 
@@ -440,7 +482,7 @@ await runWithDatabase(async function createSetGetCommitConcurrent(db) {
   await Promise.all(tasks);
   assertEquals(await db.commit(), false);
   assertEquals(
-    (await db.getSetInfo()).filter((x) => x.name[0] == "k"),
+    (await db.getObjects()).filter((x) => x.name[0] == "k"),
     expectedConcurrentSetNames.map((x) => ({ type: "kv", name: x })),
   );
 });

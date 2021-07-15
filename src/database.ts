@@ -20,6 +20,8 @@ export interface EngineContext {
 
 export type DbSetType = keyof typeof _setTypeInfo;
 
+export type DbObjectType = DbSetType | "snapshot";
+
 const _setTypeInfo = {
   kv: { page: SetPage, dbset: DbSet },
   doc: { page: DocSetPage, dbset: DbDocSet },
@@ -85,6 +87,9 @@ export class DatabaseEngine implements EngineContext, Database {
     name: string,
     type: DbSetType = "kv",
   ): Promise<DbSet | DbDocSet | null> {
+    if (type as DbObjectType == "snapshot") {
+      throw new Error("Cannot call getSet() with type 'snapshot'");
+    }
     return this._getSet(name, type, true);
   }
 
@@ -115,6 +120,10 @@ export class DatabaseEngine implements EngineContext, Database {
   }
 
   async deleteSet(name: string, type: DbSetType): Promise<boolean> {
+    return await this.deleteObject(name, type);
+  }
+
+  async deleteObject(name: string, type: DbObjectType): Promise<boolean> {
     const lock = this.commitLock;
     await lock.enterWriter();
     try {
@@ -124,7 +133,7 @@ export class DatabaseEngine implements EngineContext, Database {
         null,
         "no-change",
       );
-      if (action == "removed") {
+      if (action == "removed" && type != "snapshot") {
         this.superPage!.setCount--;
         return true;
       } else if (action == "noop") {
@@ -141,13 +150,49 @@ export class DatabaseEngine implements EngineContext, Database {
     return this.superPage!.setCount;
   }
 
-  async getSetInfo() {
+  async getObjects() {
     const lock = this.commitLock;
     await lock.enterReader();
     try {
       return (await this.superPage!.getAllValues()).map((x) => {
         return this._parsePrefixedName(x.key.str) as any;
       });
+    } finally {
+      lock.exitReader();
+    }
+  }
+
+  async createSnapshot(name: string, overwrite = false) {
+    const lock = this.commitLock;
+    await lock.enterWriter();
+    try {
+      await this.storage.commit();
+
+      const prefixedName = "s_" + name;
+      const kv = new KValue(
+        new StringValue(prefixedName),
+        new UIntValue(this.storage.cleanSuperPage!.addr),
+      );
+      await this.superPage!.set(
+        new KeyComparator(kv.key),
+        kv,
+        overwrite ? "can-change" : "no-change",
+      );
+    } finally {
+      lock.exitWriter();
+    }
+  }
+
+  async getSnapshot(name: string) {
+    const lock = this.commitLock;
+    await lock.enterReader();
+    try {
+      const prefixedName = "s_" + name;
+      const result = await this.superPage!.findKeyRecursive(
+        new KeyComparator(new StringValue(prefixedName)),
+      );
+      if (!result.found) return null;
+      return await this._getSnapshotByAddr(result.val.value.val);
     } finally {
       lock.exitReader();
     }
@@ -165,19 +210,26 @@ export class DatabaseEngine implements EngineContext, Database {
     }
   }
 
-  async getPrevSnapshot() {
+  async getPrevCommit() {
     if (!this.superPage?.prevSuperPageAddr) return null;
-    var prev = new DatabaseEngine();
-    prev.storage = this.storage;
-    prev.snapshot = await this.storage.readPage(
-      this.superPage.prevSuperPageAddr,
-      SuperPage,
-    );
-    return prev;
+    return await this._getSnapshotByAddr(this.superPage.prevSuperPageAddr);
   }
 
-  _getPrefixedName(type: DbSetType, name: string) {
-    const prefix = type == "kv" ? "k" : type == "doc" ? "d" : null;
+  async _getSnapshotByAddr(addr: number) {
+    var snapshot = new DatabaseEngine();
+    snapshot.storage = this.storage;
+    snapshot.snapshot = await this.storage.readPage(addr, SuperPage);
+    return snapshot;
+  }
+
+  _getPrefixedName(type: DbObjectType, name: string) {
+    const prefix = type == "kv"
+      ? "k"
+      : type == "doc"
+      ? "d"
+      : type == "snapshot"
+      ? "s"
+      : null;
     if (!prefix) throw new Error("Unknown type '" + type + "'");
     return prefix + "_" + name;
   }
@@ -187,7 +239,13 @@ export class DatabaseEngine implements EngineContext, Database {
     if (prefixedName[1] != "_") {
       throw new Error("Unexpected prefixedName '" + prefixedName + "'");
     }
-    const type = prefix == "k" ? "kv" : prefix == "d" ? "doc" : null;
+    const type = prefix == "k"
+      ? "kv"
+      : prefix == "d"
+      ? "doc"
+      : prefix == "s"
+      ? "snapshot"
+      : null;
     if (!type) throw new Error("Unknown prefix '" + prefix + "'");
     return { type, name: prefixedName.substr(2) };
   }
@@ -220,13 +278,16 @@ export interface Database {
     type: "doc",
   ): Promise<IDbDocSet<T> | null>;
 
-  deleteSet(name: string, type: "kv" | "doc"): Promise<boolean>;
+  deleteSet(name: string, type: DbSetType): Promise<boolean>;
 
   getSetCount(): Promise<number>;
-  getSetInfo(): Promise<{ name: string; type: "kv" | "doc" }[]>;
+  getObjects(): Promise<{ name: string; type: DbObjectType }[]>;
+
+  createSnapshot(name: string, overwrite?: boolean): Promise<void>;
+  getSnapshot(name: string): Promise<Database | null>;
+  getPrevCommit(): Promise<Database | null>;
 
   commit(): Promise<boolean>;
-  getPrevSnapshot(): Promise<Database | null>;
   close(): void;
 }
 

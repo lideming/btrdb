@@ -13,8 +13,8 @@ btrdb is a CoW NoSQL database engine inspired by btrfs.
 - [x] Performance
   ([set 10k records in 150ms (single
   commit)](https://github.com/lideming/btrdb/runs/2995614665#step:4:261))
-- [x] Snapshots
-  - [ ] Named snapshots
+- [x] [Snapshots](#Use-snapshots)
+  - [x] Named snapshots
 - [x] [Key-Value sets](#Use-key-value-set)
 - [x] [Document sets](#Use-document-set)
   - [x] Auto-id
@@ -85,9 +85,6 @@ await userSet.insert({ username: "yuuza", status: "offline" });
 console.info(await userSet.get(1));
 // { id: 1, username: "yuuza", status: "offline" }
 
-await userSet.insert({ username: "yuuza", status: "offline" });
-// Insert a new document, auto id when it's not specified.
-
 await db.commit();
 // Commit to persist the changes.
 ```
@@ -157,9 +154,39 @@ console.info(await userSet.findIndex("onlineAdmin", true));
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
-See also `test.ts`.
+### Use snapshots
+
+Since btrdb uses CoW and never overwrites data on-disk, creating "snapshot" have
+almost no cost.
+
+```ts
+const dataSet = await db.createSet("data");
+await dataSet.set("foo", "bar");
+
+// Commit then create a "named snapshot"
+await db.createSnapshot("backup");
+
+await dataSet.set("someone", "messed up your data!");
+await dataSet.set("foo", "no bar!");
+await db.commit();
+
+// Get a "named snapshot".
+const snap = await db.getSnapshot("backup");
+
+// Read data from the snapshot
+console.info(await snap.getSet("data").get("foo"));
+```
+
+Also, `db.getPrevCommit()` can be used to get previous commit as a snapshot.
+
+### More example in the test code
+
+See [test.ts](./test.ts).
 
 ## Design
+
+(Outdated. To be added: documents tree, indexes tree, data pages, named
+snapshots)
 
 ![design.svg](./docs/design.svg)
 
