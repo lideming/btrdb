@@ -4,7 +4,7 @@ export const KEYSIZE_LIMIT = Math.floor(PAGESIZE / 4);
 
 function getPageSize() {
   try {
-    const val = Deno.env.get("BTRDB_PAGESIZE");
+    const val = Runtime.env.get("BTRDB_PAGESIZE");
     if (!val) return null;
     const num = parseInt(val);
     if (isNaN(num)) {
@@ -19,6 +19,7 @@ function getPageSize() {
 
 import { Buffer } from "./buffer.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
+import { Runtime } from "./runtime.ts";
 import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
@@ -157,8 +158,8 @@ export abstract class Page {
     };
   }
 
-  [Symbol.for("Deno.customInspect")]() {
-    return "Page(" + Deno.inspect(this._debugView()) + ")";
+  [Runtime.customInspect]() {
+    return "Page(" + Runtime.inspect(this._debugView()) + ")";
   }
 
   protected _copyTo(page: this) {
@@ -439,7 +440,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       if (this.keys.length <= 2) {
         throw new Error(
           "Not implemented. freeBytes=" + this.freeBytes +
-            " keys=" + Deno.inspect(this.keys),
+            " keys=" + Runtime.inspect(this.keys),
         );
       }
       // console.log('spliting node with key count:', this.keys.length);

@@ -10,6 +10,7 @@ import {
   SetPage,
   SuperPage,
 } from "./page.ts";
+import { Runtime, RuntimeFile } from "./runtime.ts";
 import { OneWriterLock } from "./util.ts";
 import {
   IValue,
@@ -305,7 +306,7 @@ export abstract class PageStorage {
 }
 
 export class InFileStorage extends PageStorage {
-  file: Deno.File | undefined = undefined;
+  file: RuntimeFile | undefined = undefined;
   lock = new OneWriterLock();
 
   /**
@@ -331,7 +332,7 @@ export class InFileStorage extends PageStorage {
 
   async openPath(path: string) {
     if (this.file) throw new Error("Already opened a file.");
-    this.file = await Deno.open(path, {
+    this.file = await Runtime.open(path, {
       read: true,
       write: true,
       create: true,
@@ -342,7 +343,7 @@ export class InFileStorage extends PageStorage {
     buffer: Uint8Array,
   ): Promise<void> {
     await this.lock.enterWriter();
-    await this.file!.seek(addr * PAGESIZE, Deno.SeekMode.Start);
+    await this.file!.seek(addr * PAGESIZE, Runtime.SeekMode.Start);
     for (let i = 0; i < PAGESIZE;) {
       const nread = await this.file!.read(buffer.subarray(i));
       if (nread === null) throw new Error("Unexpected EOF");
@@ -365,7 +366,7 @@ export class InFileStorage extends PageStorage {
       page.writeTo(buffer);
       this.written += PAGESIZE;
       this.writtenFreebytes += page.freeBytes;
-      await this.file!.seek(page.addr * PAGESIZE, Deno.SeekMode.Start);
+      await this.file!.seek(page.addr * PAGESIZE, Runtime.SeekMode.Start);
       for (let i = 0; i < buffer.pos;) {
         const nwrite = await this.file!.write(buffer.buffer.subarray(i));
         if (nwrite <= 0) {
@@ -380,17 +381,19 @@ export class InFileStorage extends PageStorage {
       // Assuming the last item in `pages` is the SuperPage.
       if (i === pages.length - 2 && this.fsync && this.fsync !== "final-only") {
         // Call fsync() before the SuperPage
-        await Deno.fdatasync(this.file!.rid);
+        await Runtime.fdatasync(this.file!.rid);
       }
     }
     if (this.fsync) {
       // Call the fsync() second time to finish the commit.
-      await Deno.fdatasync(this.file!.rid);
+      await Runtime.fdatasync(this.file!.rid);
     }
     this.lock.exitWriter();
   }
   protected async _getLastAddr() {
-    return Math.floor(await this.file!.seek(0, Deno.SeekMode.End) / PAGESIZE);
+    return Math.floor(
+      await this.file!.seek(0, Runtime.SeekMode.End) / PAGESIZE,
+    );
   }
   protected _close() {
     this.file!.close();

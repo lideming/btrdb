@@ -4,6 +4,7 @@ import {
   assertEquals,
 } from "https://deno.land/std@0.100.0/testing/asserts.ts";
 import { PAGESIZE } from "./src/page.ts";
+import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
 
 const databaseTests: {
   func: (db: Database) => Promise<void>;
@@ -674,28 +675,28 @@ await runWithDatabase(async function DocSet_deleteMassive(db) {
 // });
 
 async function recreateDatabase() {
-  await Deno.mkdir("testdata", { recursive: true });
+  await Runtime.mkdir("testdata", { recursive: true });
   try {
-    await Deno.remove(testFile);
+    await Runtime.remove(testFile);
   } catch {}
 }
 
 function dumpObjectToFile(file: string, obj: any) {
-  const inspectOptions: Deno.InspectOptions = {
+  const inspectOptions: RuntimeInspectOptions = {
     colors: false,
     iterableLimit: 100000,
     depth: 10,
     compact: false,
     trailingComma: true,
   };
-  return Deno.writeTextFile(file, Deno.inspect(obj, inspectOptions));
+  return Runtime.writeTextFile(file, Runtime.inspect(obj, inspectOptions));
 }
 
 async function runWithDatabase(
   func: (db: Database) => Promise<void>,
   only?: boolean,
 ) {
-  Deno.test({
+  Runtime.test({
     name: func.name,
     fn: () => runDbTest(func),
     only,
@@ -715,7 +716,7 @@ async function runDbTest(func: (db: Database) => Promise<void>) {
   console.timeEnd("run");
   db.close();
 
-  const file = await Deno.open(testFile);
+  const file = await Runtime.open(testFile);
   const size = (await file.stat()).size;
   console.info("file size:", size, `(${size / PAGESIZE} pages)`);
   const storage = (db as any).storage;

@@ -1,13 +1,20 @@
+import {
+  Runtime as orignalRuntime,
+  RuntimeFile,
+  setRuntimeImplementaion,
+} from "../src/runtime.ts";
+export * from "../mod.ts";
+
 const global = globalThis as any;
 if (!global["Deno"]) {
-  const Deno: any = {};
-  global.Deno = Deno;
+  const Runtime: typeof orignalRuntime = {} as any;
+  setRuntimeImplementaion(Runtime);
 
   const util: any = await import("util");
   const fs: any = await import("fs");
   const fsPromises: any = await import("fs/promises");
 
-  Deno.inspect = util.inspect;
+  Runtime.inspect = util.inspect;
 
   enum SeekMode {
     Start = 0,
@@ -15,13 +22,13 @@ if (!global["Deno"]) {
     End = 2,
   }
 
-  Deno.SeekMode = SeekMode;
+  Runtime.SeekMode = SeekMode;
 
-  Object.assign(Deno, fsPromises);
+  Runtime.mkdir = fsPromises.mkdir;
 
-  Deno.test = function () {};
+  Runtime.test = function () {};
 
-  Deno.remove = (path: string) => fsPromises.rm(path);
+  Runtime.remove = (path: string | URL) => fsPromises.rm(path);
 
   class File {
     pos = 0;
@@ -57,14 +64,14 @@ if (!global["Deno"]) {
     }
   }
 
-  Deno.open = async function (
+  Runtime.open = async function (
     path: string | URL,
     options?: Deno.OpenOptions,
-  ): Promise<File> {
-    return new File((await fsPromises.open(path, "a+")));
+  ): Promise<RuntimeFile> {
+    return new File((await fsPromises.open(path, "a+"))) as any;
   };
 
-  Deno.fdatasync = function (fd: number) {
+  Runtime.fdatasync = function (fd: number) {
     return new Promise<void>((resolve, reject) => {
       fs.fdatasync(fd, (err: any) => {
         if (!err) resolve();
@@ -73,5 +80,3 @@ if (!global["Deno"]) {
     });
   };
 }
-
-export * from "../mod.ts";

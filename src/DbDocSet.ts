@@ -15,6 +15,7 @@ import {
 } from "./value.ts";
 import { DbSet } from "./DbSet.ts";
 import { BugError } from "./errors.ts";
+import { Runtime } from "./runtime.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
@@ -167,7 +168,7 @@ export class DbDocSet implements IDbDocSet {
           if (setResult.action != "removed") {
             throw new BugError(
               "BUG: can not remove index key: " +
-                Deno.inspect({ oldDoc, indexInfo, oldKey, setResult }),
+                Runtime.inspect({ oldDoc, indexInfo, oldKey, setResult }),
             );
           }
         }
@@ -186,7 +187,7 @@ export class DbDocSet implements IDbDocSet {
           if (setResult.action != "added") {
             throw new BugError(
               "BUG: can not add index key: " +
-                Deno.inspect({ kv, indexInfo, setResult }),
+                Runtime.inspect({ kv, indexInfo, setResult }),
             );
           }
         }

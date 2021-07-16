@@ -1,4 +1,5 @@
 import { Buffer, encoder } from "./buffer.ts";
+import { Runtime } from "./runtime.ts";
 
 export interface ISerializable {
   writeTo(buf: Buffer): void;
@@ -62,7 +63,7 @@ export class StringValue implements Key<StringValue> {
     return new StringValue(buf.readString());
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Runtime.customInspect]() {
     return "Str(" + this.str + ")";
   }
 }
@@ -92,7 +93,7 @@ export class UIntValue implements IKey<UIntValue> {
     return new UIntValue(buf.readU32());
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Runtime.customInspect]() {
     return "UInt(" + this.val + ")";
   }
 }
@@ -115,8 +116,8 @@ export class JSONValue extends StringValue {
     return new JSONValue(JSON.parse(str), str);
   }
 
-  [Symbol.for("Deno.customInspect")]() {
-    return "JSON(" + Deno.inspect(this.val) + ")";
+  [Runtime.customInspect]() {
+    return "JSON(" + Runtime.inspect(this.val) + ")";
   }
 }
 
@@ -148,8 +149,9 @@ export class KValue<K extends Key<K>, V extends IValue>
       (this.value as any).compareTo(other.value);
   }
 
-  [Symbol.for("Deno.customInspect")]() {
-    return "KV(" + Deno.inspect(this.key) + ", " + Deno.inspect(this.value) +
+  [Runtime.customInspect]() {
+    return "KV(" + Runtime.inspect(this.key) + ", " +
+      Runtime.inspect(this.value) +
       ")";
   }
 }
@@ -171,13 +173,13 @@ export class DocumentValue extends JSONValue implements IKey<any> {
       return new DocumentValue(JSON.parse(str), str);
     } catch (error) {
       throw new Error(
-        "Failed to parse document: " + Deno.inspect({ str, error }),
+        "Failed to parse document: " + Runtime.inspect({ str, error }),
       );
     }
   }
 
-  [Symbol.for("Deno.customInspect")]() {
-    return "Doc(" + Deno.inspect(this.val) + ")";
+  [Runtime.customInspect]() {
+    return "Doc(" + Runtime.inspect(this.val) + ")";
   }
 }
 
@@ -222,7 +224,7 @@ export class PageOffsetValue implements IValue {
   static readFrom(buf: Buffer) {
     return new PageOffsetValue(buf.readU32(), buf.readU16());
   }
-  [Symbol.for("Deno.customInspect")]() {
+  [Runtime.customInspect]() {
     return `Addr(${this.addr}, ${this.offset})`;
   }
 }
