@@ -102,8 +102,7 @@ jobs:
       - name: Run test.ts without "deno test"
         run: |
           mkdir -p testdata
-          deno eval \
-            "import {run} from './test.ts'; var r = await run(); Deno.exit(!!(r.total != r.passed));"
+          deno run --allow-read=testdata --allow-write=testdata test.ts run
 
   test-pagesize:
     runs-on: ubuntu-latest

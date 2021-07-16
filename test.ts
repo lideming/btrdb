@@ -754,3 +754,9 @@ export async function run() {
   console.info("Tests completed", stat);
   return stat;
 }
+
+if (globalThis.Deno) {
+  if (globalThis.Deno.args[0] == "run") {
+    await run();
+  }
+}
