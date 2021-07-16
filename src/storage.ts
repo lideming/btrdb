@@ -6,7 +6,6 @@ import {
   PageAddr,
   PageClass,
   PAGESIZE,
-  PageType,
   SetPage,
   SuperPage,
 } from "./page.ts";

@@ -13,7 +13,6 @@ import {
   KeyLeftmostComparator,
   KValue,
 } from "./value.ts";
-import { DbSet } from "./DbSet.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 

@@ -2,16 +2,10 @@ import { DbDocSet, IDocument } from "./DbDocSet.ts";
 import type { IDbDocSet } from "./DbDocSet.ts";
 import { DbSet } from "./DbSet.ts";
 import type { IDbSet } from "./DbSet.ts";
-import { DocSetPage, RecordsPage, SetPage, SuperPage } from "./page.ts";
+import { DocSetPage, SetPage, SuperPage } from "./page.ts";
 import { InFileStorage, PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
-import {
-  JSONValue,
-  KeyComparator,
-  KValue,
-  StringValue,
-  UIntValue,
-} from "./value.ts";
+import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 import { BugError } from "./errors.ts";
 
 export interface EngineContext {

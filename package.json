@@ -1,6 +1,6 @@
 {
   "name": "@yuuza/btrdb",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "description": "A CoW NoSQL database engine inspired by btrfs.",
   "main": "dist/btrdb.mjs",
   "module": "dist/btrdb.mjs",
@@ -9,7 +9,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "mkdir -p dist && deno bundle nodeCompat/mod.ts > dist/btrdb.mjs"
   },
   "repository": {
     "type": "git",

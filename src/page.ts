@@ -23,14 +23,11 @@ import { Runtime } from "./runtime.ts";
 import { PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import {
-  DocumentValue,
   IComparable,
   IKey,
-  IValue,
   JSONValue,
   KeyComparator,
   KeyOf,
-  KeyType,
   KValue,
   PageOffsetValue,
   StringValue,
