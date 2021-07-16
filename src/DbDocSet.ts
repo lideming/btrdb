@@ -200,7 +200,9 @@ export class DbDocSet implements IDbDocSet {
       //   await lockpage.set(keyv, oldDoc, true);
       //   throw error;
       // }
-
+      if (action !== "noop") {
+        if (this._db.autoCommit) await this._db._commitNoLock();
+      }
       return { action, key: keyv };
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
@@ -278,6 +280,7 @@ export class DbDocSet implements IDbDocSet {
           newIndexes[key] = info;
         }
         lockpage.setIndexes(newIndexes);
+        if (this._db.autoCommit) await this._db._commitNoLock();
       } finally { // END WRITE LOCK
         lockpage.lock.exitWriter();
         this._db.commitLock.exitWriter();

@@ -93,6 +93,7 @@ export class DbSet implements IDbSet {
       if (action == "noop") {
         return false;
       } else {
+        if (this._db.autoCommit) await this._db._commitNoLock();
         return true;
       }
     } finally { // END WRITE LOCK

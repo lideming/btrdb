@@ -24,6 +24,7 @@ const _setTypeInfo = {
 export class DatabaseEngine implements EngineContext, Database {
   storage: PageStorage = undefined as any;
   private snapshot: SuperPage | null = null;
+  autoCommit = false;
 
   commitLock = new OneWriterLock();
 
@@ -68,6 +69,7 @@ export class DatabaseEngine implements EngineContext, Database {
         new KValue(new StringValue(prefixedName), new UIntValue(setPage.addr)),
       );
       this.superPage!.setCount++;
+      if (this.autoCommit) await this._commitNoLock();
       return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
     } finally {
       if (lockWriter) lock.exitWriter();
@@ -129,6 +131,7 @@ export class DatabaseEngine implements EngineContext, Database {
       );
       if (action == "removed" && type != "snapshot") {
         this.superPage!.setCount--;
+        if (this.autoCommit) await this._commitNoLock();
         return true;
       } else if (action == "noop") {
         return false;
@@ -172,6 +175,7 @@ export class DatabaseEngine implements EngineContext, Database {
         kv,
         overwrite ? "can-change" : "no-change",
       );
+      if (this.autoCommit) await this._commitNoLock();
     } finally {
       lock.exitWriter();
     }
@@ -195,13 +199,17 @@ export class DatabaseEngine implements EngineContext, Database {
   async commit() {
     await this.commitLock.enterWriter();
     try {
-      // console.log('==========COMMIT==========');
-      const r = await this.storage.commit();
-      // console.log('========END COMMIT========');
-      return r;
+      return await this._commitNoLock();
     } finally {
       this.commitLock.exitWriter();
     }
+  }
+
+  async _commitNoLock() {
+    // console.log('==========COMMIT==========');
+    const r = await this.storage.commit();
+    // console.log('========END COMMIT========');
+    return r;
   }
 
   async getPrevCommit() {
@@ -255,6 +263,8 @@ export function numberIdGenerator(lastId: number | null) {
 }
 
 export interface Database {
+  autoCommit: boolean;
+
   openFile(
     path: string,
     options?: { fsync?: InFileStorage["fsync"] },
