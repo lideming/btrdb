@@ -276,6 +276,7 @@ export interface Database {
 
   getSetCount(): Promise<number>;
   getObjects(): Promise<{ name: string; type: DbObjectType }[]>;
+  deleteObject(name: string, type: DbObjectType): Promise<boolean>;
 
   createSnapshot(name: string, overwrite?: boolean): Promise<void>;
   getSnapshot(name: string): Promise<Database | null>;
