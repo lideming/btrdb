@@ -688,31 +688,55 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= this._lastIdLen;
   }
 
-  indexes: Record<string, IndexInfo> = {};
+  indexes: IndexInfoMap | null = null;
+  indexesInfoAddr = new PageOffsetValue(0, 0);
+  indexesAddrs: PageAddr[] = [];
+  indexesAddrMap: Record<string, PageAddr> = {};
 
-  setIndexes(newIndexes: this["indexes"]) {
-    this.freeBytes += calcIndexInfoSize(this.indexes);
-    this.freeBytes -= calcIndexInfoSize(newIndexes);
+  setIndexes(newIndexes: IndexInfoMap, map: Record<string, PageAddr>) {
+    const addrs = Object.values(map);
+    this.freeBytes += this.indexesAddrs.length * 4;
+    this.freeBytes -= addrs.length * 4;
     this.indexes = newIndexes;
+    this.indexesAddrs = addrs;
+    this.indexesInfoAddr = this.storage.addData(
+      new IndexesInfoValue(newIndexes),
+    );
+    this.indexesAddrMap = map;
+  }
+
+  async ensureIndexes() {
+    if (!this.indexes) {
+      if (this.indexesInfoAddr.addr == 0 && this.indexesInfoAddr.offset == 0) {
+        this.indexes = {};
+      } else {
+        const value = await this.storage.readData(
+          this.indexesInfoAddr,
+          IndexesInfoValue,
+        );
+        this.indexes = value.indexes;
+        this.indexesAddrMap = Object.fromEntries(
+          Object.keys(this.indexes).map((x, i) => [x, this.indexesAddrs[i]]),
+        );
+      }
+    }
+    return this.indexes;
   }
 
   override init() {
     super.init();
-    this.freeBytes -= 5 + 1;
+    this.freeBytes -= 5 + 1 + 6;
   }
 
   override _writeContent(buf: Buffer) {
     super._writeContent(buf);
     buf.writeString(JSON.stringify(this.lastId));
 
-    const indexKeys = Object.keys(this.indexes);
-    buf.writeU8(indexKeys.length);
-    for (const k of indexKeys) {
-      buf.writeString(k);
-      buf.writeString(this.indexes[k].funcStr);
-      buf.writeU32(this.indexes[k].addr);
-      buf.writeU8(+this.indexes[k].unique);
+    buf.writeU8(this.indexesAddrs.length);
+    for (const indexAddr of this.indexesAddrs) {
+      buf.writeU32(indexAddr);
     }
+    this.indexesInfoAddr.writeTo(buf);
   }
 
   override _readContent(buf: Buffer) {
@@ -720,31 +744,65 @@ export class DocSetPage extends DocSetPageBase2 {
     this.lastId = JSON.parse(buf.readString());
 
     const indexCount = buf.readU8();
-    const indexBegin = buf.pos;
     for (let i = 0; i < indexCount; i++) {
-      const k = buf.readString();
-      this.indexes[k] = new IndexInfo(
-        buf.readString(),
-        buf.readU32(),
-        !!buf.readU8(),
-        null,
-      );
+      this.indexesAddrs.push(buf.readU32());
     }
-    this.freeBytes -= buf.pos - indexBegin;
+    this.indexesInfoAddr = PageOffsetValue.readFrom(buf);
+    this.freeBytes -= 4 * indexCount;
   }
 
   override _copyTo(other: this) {
     super._copyTo(other);
     other._lastId = this._lastId;
     other._lastIdLen = this._lastIdLen;
-    other.indexes = { ...this.indexes };
+    other.indexes = this.indexes; // cow on change
+    other.indexesInfoAddr = this.indexesInfoAddr; // cow on change
+    other.indexesAddrs = [...this.indexesAddrs];
+    other.indexesAddrMap = { ...this.indexesAddrMap };
+  }
+}
+
+class IndexesInfoValue {
+  constructor(readonly indexes: IndexInfoMap) {
+    let size = 1;
+    for (const key in indexes) {
+      if (Object.prototype.hasOwnProperty.call(indexes, key)) {
+        const info = indexes[key];
+        size += Buffer.calcStringSize(key) +
+          Buffer.calcStringSize(info.funcStr) +
+          1;
+      }
+    }
+    this.byteLength = size;
+  }
+  byteLength: number;
+  writeTo(buf: Buffer) {
+    const indexes = Object.entries(this.indexes);
+    buf.writeU8(indexes.length);
+    for (const [name, info] of indexes) {
+      buf.writeString(name);
+      buf.writeString(info.funcStr);
+      buf.writeU8(+info.unique);
+    }
+  }
+  static readFrom(buf: Buffer) {
+    const indexCount = buf.readU8();
+    const indexes: any = {};
+    for (let i = 0; i < indexCount; i++) {
+      const k = buf.readString();
+      indexes[k] = new IndexInfo(
+        buf.readString(),
+        !!buf.readU8(),
+        null,
+      );
+    }
+    return new IndexesInfoValue(indexes);
   }
 }
 
 export class IndexInfo {
   constructor(
     public funcStr: string,
-    public addr: PageAddr,
     public unique: boolean,
     public cachedFunc: null | ((doc: any) => any),
   ) {
@@ -758,17 +816,7 @@ export class IndexInfo {
   }
 }
 
-function calcIndexInfoSize(indexes: Record<string, IndexInfo>) {
-  let size = 0;
-  for (const key in indexes) {
-    if (Object.prototype.hasOwnProperty.call(indexes, key)) {
-      const info = indexes[key];
-      size += Buffer.calcStringSize(key) + Buffer.calcStringSize(info.funcStr) +
-        4 + 1;
-    }
-  }
-  return size;
-}
+export type IndexInfoMap = Record<string, IndexInfo>;
 
 const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
   KValue<JSONValue, PageOffsetValue>

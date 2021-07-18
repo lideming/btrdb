@@ -149,10 +149,18 @@ export class DbDocSet implements IDbDocSet {
       // TODO: rollback changes on (unique) index failed?
       // The following try-catch won't work well because some indexes may have changed.
       // try {
-      for (const [indexName, indexInfo] of Object.entries(lockpage.indexes)) {
-        const index =
-          (await lockpage.storage.readPage(indexInfo.addr, IndexTopPage))
-            .getDirty(false);
+      let nextSeq = 0;
+      for (
+        const [indexName, indexInfo] of Object.entries(
+          await lockpage.ensureIndexes(),
+        )
+      ) {
+        const seq = nextSeq++;
+        const index = (await lockpage.storage.readPage(
+          lockpage.indexesAddrs[seq],
+          IndexTopPage,
+        ))
+          .getDirty(false);
         if (oldDoc) {
           const oldKey = new JSONValue(
             indexInfo.func(
@@ -190,9 +198,10 @@ export class DbDocSet implements IDbDocSet {
             );
           }
         }
-        // The indexesInfo size should not change, skip setIndexes() here.
-        lockpage.indexes[indexName].addr =
-          index.getLatestCopy().getDirty(true).addr;
+
+        const newIndexAddr = index.getLatestCopy().getDirty(true).addr;
+        lockpage.indexesAddrs[seq] = newIndexAddr;
+        lockpage.indexesAddrMap[indexName] = newIndexAddr;
       }
       // } catch (error) {
       //   // Failed in index updating (duplicated key in unique index?)
@@ -218,7 +227,7 @@ export class DbDocSet implements IDbDocSet {
   async useIndexes(indexDefs: IndexDef<any>): Promise<void> {
     const toBuild: string[] = [];
     const toRemove: string[] = [];
-    const currentIndex = this.page.indexes;
+    const currentIndex = await this.page.ensureIndexes();
 
     for (const key in indexDefs) {
       if (Object.prototype.hasOwnProperty.call(indexDefs, key)) {
@@ -246,8 +255,10 @@ export class DbDocSet implements IDbDocSet {
       const lockpage = await this.page.enterCoWLock();
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };
+        const newAddrs = { ...lockpage.indexesAddrMap! };
         for (const key of toRemove) {
           delete newIndexes[key];
+          delete newAddrs[key];
         }
         for (const key of toBuild) {
           const obj = indexDefs[key];
@@ -257,7 +268,6 @@ export class DbDocSet implements IDbDocSet {
             : (obj.unique ?? false);
           const info: IndexInfo = new IndexInfo(
             func.toString(),
-            -1,
             unique,
             func,
           );
@@ -276,10 +286,10 @@ export class DbDocSet implements IDbDocSet {
               "no-change",
             );
           });
-          info.addr = index.addr;
+          newAddrs[key] = index.addr;
           newIndexes[key] = info;
         }
-        lockpage.setIndexes(newIndexes);
+        lockpage.setIndexes(newIndexes, newAddrs);
         if (this._db.autoCommit) await this._db._commitNoLock();
       } finally { // END WRITE LOCK
         lockpage.lock.exitWriter();
@@ -292,10 +302,10 @@ export class DbDocSet implements IDbDocSet {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      const info = lockpage.indexes[index];
+      const info = (await lockpage.ensureIndexes())[index];
       if (!info) throw new Error("Specified index does not exist.");
       const indexPage = await this.page.storage.readPage(
-        info.addr,
+        lockpage.indexesAddrMap![index],
         IndexTopPage,
       );
       const keyv = new JSONValue(key);
@@ -354,13 +364,15 @@ export class DbDocSet implements IDbDocSet {
       docTree: await this.page._dumpTree(),
       indexes: Object.fromEntries(
         await Promise.all(
-          Object.entries(this.page.indexes).map(async ([name, info]) => {
-            const indexPage = await this.page.storage.readPage(
-              info.addr,
-              IndexTopPage,
-            );
-            return [name, await indexPage._dumpTree()];
-          }),
+          Object.entries(await this.page.ensureIndexes()).map(
+            async ([name, info]) => {
+              const indexPage = await this.page.storage.readPage(
+                this.page.indexesAddrMap[name],
+                IndexTopPage,
+              );
+              return [name, await indexPage._dumpTree()];
+            },
+          ),
         ),
       ),
     };
