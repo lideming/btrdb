@@ -25,6 +25,8 @@ export class DatabaseEngine implements EngineContext, Database {
   storage: PageStorage = undefined as any;
   private snapshot: SuperPage | null = null;
   autoCommit = false;
+  autoCommitWaitWriting = true;
+  defaultWaitWriting = true;
 
   commitLock = new OneWriterLock();
 
@@ -69,7 +71,7 @@ export class DatabaseEngine implements EngineContext, Database {
         new KValue(new StringValue(prefixedName), new UIntValue(setPage.addr)),
       );
       this.superPage!.setCount++;
-      if (this.autoCommit) await this._commitNoLock();
+      if (this.autoCommit) await this._autoCommit();
       return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
     } finally {
       if (lockWriter) lock.exitWriter();
@@ -131,7 +133,7 @@ export class DatabaseEngine implements EngineContext, Database {
       );
       if (action == "removed" && type != "snapshot") {
         this.superPage!.setCount--;
-        if (this.autoCommit) await this._commitNoLock();
+        if (this.autoCommit) await this._autoCommit();
         return true;
       } else if (action == "noop") {
         return false;
@@ -163,7 +165,7 @@ export class DatabaseEngine implements EngineContext, Database {
     const lock = this.commitLock;
     await lock.enterWriter();
     try {
-      await this.storage.commit();
+      await this._autoCommit();
 
       const prefixedName = "s_" + name;
       const kv = new KValue(
@@ -175,7 +177,7 @@ export class DatabaseEngine implements EngineContext, Database {
         kv,
         overwrite ? "can-change" : "no-change",
       );
-      if (this.autoCommit) await this._commitNoLock();
+      if (this.autoCommit) await this._autoCommit();
     } finally {
       lock.exitWriter();
     }
@@ -196,20 +198,24 @@ export class DatabaseEngine implements EngineContext, Database {
     }
   }
 
-  async commit() {
+  async commit(waitWriting?: boolean) {
     await this.commitLock.enterWriter();
     try {
-      return await this._commitNoLock();
+      return await this._commitNoLock(waitWriting ?? this.defaultWaitWriting);
     } finally {
       this.commitLock.exitWriter();
     }
   }
 
-  async _commitNoLock() {
+  async _commitNoLock(waitWriting: boolean) {
     // console.log('==========COMMIT==========');
-    const r = await this.storage.commit();
+    const r = await this.storage.commit(waitWriting);
     // console.log('========END COMMIT========');
     return r;
+  }
+
+  _autoCommit() {
+    return this._commitNoLock(this.autoCommitWaitWriting);
   }
 
   async getPrevCommit() {
@@ -252,6 +258,10 @@ export class DatabaseEngine implements EngineContext, Database {
     return { type, name: prefixedName.substr(2) };
   }
 
+  waitWriting() {
+    return this.storage.waitDeferWriting();
+  }
+
   close() {
     this.storage.close();
   }
@@ -264,6 +274,8 @@ export function numberIdGenerator(lastId: number | null) {
 
 export interface Database {
   autoCommit: boolean;
+  autoCommitWaitWriting: boolean;
+  defaultWaitWriting: boolean;
 
   openFile(
     path: string,
@@ -293,6 +305,7 @@ export interface Database {
   getPrevCommit(): Promise<Database | null>;
 
   commit(): Promise<boolean>;
+  waitWriting(): Promise<void>;
   close(): void;
 }
 

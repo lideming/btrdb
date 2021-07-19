@@ -92,3 +92,42 @@ export class OneWriterLock {
     }
   }
 }
+
+export interface Task {
+  run(): Promise<void>;
+}
+
+export class TaskQueue<T extends Task> {
+  tasks: T[] = [];
+  running: Promise<void> | null = null;
+
+  enqueue(task: T) {
+    this.tasks.push(task);
+    if (this.tasks.length == 1) {
+      this._run();
+    }
+  }
+
+  waitCurrentLastTask() {
+    if (!this.tasks.length) return Promise.resolve();
+    const toWait = this.tasks[this.tasks.length - 1];
+    return this.waitTask(toWait);
+  }
+
+  async waitTask(toWait: T) {
+    do {
+      await this.running;
+    } while (this.tasks.indexOf(toWait) > 0);
+    return await this.running!;
+  }
+
+  private async _run() {
+    while (this.tasks.length) {
+      this.running = this.tasks[0]!.run();
+      // Assuming no errors
+      await this.running;
+      this.tasks.shift();
+    }
+    this.running = null;
+  }
+}

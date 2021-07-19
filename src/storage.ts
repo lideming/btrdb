@@ -10,7 +10,7 @@ import {
   SuperPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
-import { OneWriterLock } from "./util.ts";
+import { OneWriterLock, TaskQueue } from "./util.ts";
 import {
   IValue,
   KeyComparator,
@@ -41,6 +41,9 @@ export abstract class PageStorage {
   /** When a SetPage is dirty, it will be added into here. */
   dirtySets: SetPage[] = [];
 
+  /** Queue for committed pages being written to disk. */
+  deferWritingQueue = new TaskQueue();
+
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
@@ -52,7 +55,7 @@ export abstract class PageStorage {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
       this.superPage = new SuperPage(this).getDirty(true);
-      await this.commit();
+      await this.commit(true);
     } else {
       this.nextAddr = lastAddr;
       // try read the last page as super page
@@ -233,7 +236,7 @@ export abstract class PageStorage {
     if (continued) prev!.next = this.dataPage.addr;
   }
 
-  async commit() {
+  async commitMark() {
     if (!this.superPage) throw new Error("superPage does not exist.");
     if (this.dirtySets.length) {
       for (const set of this.dirtySets) {
@@ -266,7 +269,7 @@ export abstract class PageStorage {
     if (!this.superPage.dirty) {
       if (this.dirtyPages.length == 0) {
         // console.log("Nothing to commit");
-        return false;
+        return [];
       } else {
         throw new Error("super page is not dirty");
       }
@@ -282,13 +285,30 @@ export abstract class PageStorage {
     //   // .map(x => x._debugView())
     //   // .map(x => [x.addr, x.type])
     // );
-    await this._commit(this.dirtyPages);
     for (const page of this.dirtyPages) {
       page.dirty = false;
     }
-    while (this.dirtyPages.pop()) {}
+    const currentDirtyPages = this.dirtyPages;
+    this.dirtyPages = [];
     this.cleanSuperPage = this.superPage;
-    return true;
+    return currentDirtyPages;
+  }
+
+  async commit(waitWriting: boolean) {
+    const pages = await this.commitMark();
+    this.deferWritingQueue.enqueue({
+      run: () => {
+        return this._commit(pages);
+      },
+    });
+    if (waitWriting) {
+      await this.waitDeferWriting();
+    }
+    return pages.length > 0;
+  }
+
+  waitDeferWriting() {
+    return this.deferWritingQueue.waitCurrentLastTask();
   }
 
   close() {
@@ -384,7 +404,7 @@ export class InFileStorage extends PageStorage {
       }
     }
     if (this.fsync) {
-      // Call the fsync() second time to finish the commit.
+      // Call the final fsync() to finish the commit.
       await Runtime.fdatasync(this.file!.rid);
     }
     this.lock.exitWriter();
