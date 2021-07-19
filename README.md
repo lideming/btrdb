@@ -24,14 +24,15 @@ btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
 - [x] [Document sets](#Use-document-set)
   - [x] Auto-id
   - [x] [Indexes](#Indexes)
+  - [ ] Querying with `AND`, `OR`, `<`, `=`, `>` (?)
   - [ ] BSON instead of JSON on disk (?)
 - [x] ACID
   - [x] Readers/writer lock
   - [x] Isolation with concurrent reader on snapshots
+- [x] Auto-commit
 - [ ] Client / Server (?)
 - [ ] Replication (?)
 - [ ] GC (?)
-- [ ] Auto-commit (?)
 
 ## ⚠️ Warning ⚠️
 
