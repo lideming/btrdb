@@ -327,6 +327,8 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
     status: (user) => user.status,
     // define "status" index, which indexing the value of user.status for each user in the set
 
+    role: (user) => user.role,
+
     username: { unique: true, key: (user) => user.username },
     // define "username" unique index, which does not allow duplicated username.
 
@@ -359,6 +361,28 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
     role: "admin",
     id: 3,
   }]);
+
+  // Get all offline admins
+  assertEquals(
+    await userSet.query(
+      AND(
+        EQ("status", "offline"),
+        EQ("role", "admin"),
+      ),
+    ),
+    [{ username: "foo", status: "offline", role: "admin", id: 2 }],
+  );
+
+  // Get all online users, but exclude id 1.
+  assertEquals(
+    await userSet.query(
+      AND(
+        EQ("status", "online"),
+        NOT(EQ("id", 1)), // "id" is a special "index" name
+      ),
+    ),
+    [{ username: "bar", status: "online", role: "admin", id: 3 }],
+  );
 });
 
 runWithDatabase(async function DocSet_query(db) {

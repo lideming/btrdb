@@ -24,7 +24,7 @@ btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
 - [x] [Document sets](#Use-document-set)
   - [x] Auto-id
   - [x] [Indexes](#Indexes)
-  - [ ] Querying with `AND`, `OR`, `<`, `=`, `>` (?)
+  - [x] Query expressions
   - [ ] BSON instead of JSON on disk (?)
 - [x] ACID
   - [x] Readers/writer lock
@@ -158,6 +158,8 @@ userSet.useIndexes({
   status: (u) => u.status,
   // define "status" index, which indexing the value of user.status for each user in the set
 
+  role: (user) => user.role,
+
   username: { unique: true, key: (u) => u.username },
   // define "username" unique index, which does not allow duplicated username.
 
@@ -165,8 +167,8 @@ userSet.useIndexes({
   // define "onlineAdmin" index, the value is a computed boolean.
 });
 
-await userSet.insert({ username: "yuuza", status: "online", role: "admin" });
-await userSet.insert({ username: "foo", status: "offline", role: "user" });
+await userSet.insert({ username: "yuuza", status: "online", role: "user" });
+await userSet.insert({ username: "foo", status: "offline", role: "admin" });
 await userSet.insert({ username: "bar", status: "online", role: "admin" });
 await db.commit();
 
@@ -183,6 +185,35 @@ console.info(await userSet.findIndex("username", "yuuza"));
 
 // Get all online admins
 console.info(await userSet.findIndex("onlineAdmin", true));
+// [ { username: "bar", status: "online", role: "admin", id: 3 } ]
+```
+
+#### Query
+
+You can also query on indexes with `EQ` (==), `LT` (<), `GT` (>), `LE` (<=),
+`GE` (>=), `AND`, `OR`, `NOT`.
+
+```ts
+// Get all offline admins
+console.info(
+  await userSet.query(
+    AND(
+      EQ("status", "offline"),
+      EQ("role", "admin"),
+    ),
+  ),
+);
+// [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
+
+// Get all online users, but exclude id 1.
+console.info(
+  await userSet.query(
+    AND(
+      EQ("status", "online"),
+      NOT(EQ("id", 1)), // "id" is a special "index" name
+    ),
+  ),
+);
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
