@@ -49,7 +49,7 @@ Please do NOT use it in any serious production.
 **Deno:**
 
 ```ts
-import { Database } from "https://deno.land/x/btrdb@v0.1.2/mod.ts";
+import { Database } from "https://deno.land/x/btrdb/mod.ts";
 ```
 
 **Node.js:**
