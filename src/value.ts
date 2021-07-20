@@ -200,6 +200,15 @@ export class KeyLeftmostComparator<T extends IKey<any>>
   }
 }
 
+export class KeyRightmostComparator<T extends IKey<any>>
+  implements IComparable<T> {
+  constructor(readonly key: KeyOf<T>) {
+  }
+  compareTo(other: T): 0 | 1 | -1 {
+    return this.key.compareTo(other.key) || 1; // always return 1 if the key equals
+  }
+}
+
 export class PageOffsetValue implements IValue {
   constructor(readonly addr: number, readonly offset: number) {
   }

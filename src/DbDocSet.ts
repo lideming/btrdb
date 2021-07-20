@@ -15,7 +15,7 @@ import {
 } from "./value.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
-import { IndexEQ, Query } from "./query.ts";
+import { EQ, Query } from "./query.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
@@ -233,6 +233,7 @@ export class DbDocSet implements IDbDocSet {
 
     for (const key in indexDefs) {
       if (Object.prototype.hasOwnProperty.call(indexDefs, key)) {
+        if (key == "id") throw new Error("Cannot use 'id' as index name");
         const func = indexDefs[key];
         if (
           !Object.prototype.hasOwnProperty.call(currentIndex, key) ||
@@ -316,7 +317,7 @@ export class DbDocSet implements IDbDocSet {
   }
 
   findIndex(index: string, val: any): Promise<any[]> {
-    return this.query(IndexEQ(index, val));
+    return this.query(EQ(index, val));
   }
 
   _readDocument(dataAddr: PageOffsetValue) {

@@ -1,4 +1,16 @@
-import { AND, Database, IDbDocSet, IndexEQ, NOT, OR } from "./mod.ts";
+import {
+  AND,
+  BETWEEN,
+  Database,
+  EQ,
+  GE,
+  GT,
+  IDbDocSet,
+  LE,
+  LT,
+  NOT,
+  OR,
+} from "./mod.ts";
 import {
   assert,
   assertEquals,
@@ -6,7 +18,7 @@ import {
 import { PAGESIZE } from "./src/page.ts";
 import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
 
-const ignoreMassiveTests: boolean | "ignore" = false as any;
+const ignoreMassiveTests: boolean | "ignore" = "ignore" as any;
 
 const databaseTests: {
   func: (db: Database) => Promise<void>;
@@ -389,29 +401,94 @@ runWithDatabase(async function DocSet_query(db) {
 
   assertEquals(
     await userSet.query(AND(
-      IndexEQ("status", "online"),
-      IndexEQ("role", "admin"),
+      EQ("status", "online"),
+      EQ("role", "admin"),
     )),
     documents.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
   assertEquals(
     await userSet.query(OR(
-      IndexEQ("status", "offline"),
-      IndexEQ("role", "user"),
+      EQ("status", "offline"),
+      EQ("role", "user"),
     )),
     documents.filter((x) => x.status == "offline" || x.role == "user"),
   );
 
   assertEquals(
     await userSet.query(NOT(OR(
-      IndexEQ("status", "offline"),
-      IndexEQ("role", "user"),
+      EQ("status", "offline"),
+      EQ("role", "user"),
     ))),
     await userSet.query(AND(
-      IndexEQ("status", "online"),
-      IndexEQ("role", "admin"),
+      EQ("status", "online"),
+      EQ("role", "admin"),
     )),
+  );
+
+  assertEquals(
+    await userSet.query(
+      BETWEEN("id", 2, 5, false, false),
+    ),
+    documents.filter((x) => x.id > 2 && x.id < 5),
+  );
+
+  assertEquals(
+    await userSet.query(
+      BETWEEN("id", 2, 5, true, true),
+    ),
+    documents.filter((x) => x.id >= 2 && x.id <= 5),
+  );
+
+  assertEquals(
+    await userSet.query(
+      AND(
+        GE("id", 2),
+        LE("id", 5),
+      ),
+    ),
+    documents.filter((x) => x.id >= 2 && x.id <= 5),
+  );
+
+  assertEquals(
+    await userSet.query(
+      NOT(AND(
+        GE("id", 2),
+        LE("id", 5),
+      )),
+    ),
+    documents.filter((x) => !(x.id >= 2 && x.id <= 5)),
+  );
+
+  assertEquals(
+    await userSet.query(
+      OR(
+        LT("id", 2),
+        GT("id", 5),
+      ),
+    ),
+    documents.filter((x) => !(x.id >= 2 && x.id <= 5)),
+  );
+
+  assertEquals(
+    await userSet.query(
+      GT("id", 2),
+    ),
+    documents.filter((x) => x.id > 2),
+  );
+
+  assertEquals(
+    await userSet.query(
+      LT("id", 5),
+    ),
+    documents.filter((x) => x.id < 5),
+  );
+
+  assertEquals(
+    await userSet.query(
+      LE("id", 5),
+    ),
+    documents.filter((x) => x.id <= 5),
   );
 });
 
