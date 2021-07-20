@@ -228,7 +228,7 @@ export class PageOffsetValue implements IValue {
     return (this.addr << 16) | this.offset;
   }
   static fromEncoded(num: number) {
-    return new PageOffsetValue(num >> 16, num && 0xffff);
+    return new PageOffsetValue(num >> 16, num & 0xffff);
   }
   [Runtime.customInspect]() {
     return `Addr(${this.addr}, ${this.offset})`;

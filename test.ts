@@ -1,4 +1,4 @@
-import { Database, IDbDocSet } from "./mod.ts";
+import { AND, Database, IDbDocSet, IndexEQ, NOT, OR } from "./mod.ts";
 import {
   assert,
   assertEquals,
@@ -6,9 +6,11 @@ import {
 import { PAGESIZE } from "./src/page.ts";
 import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
 
+const ignoreMassiveTests: boolean | "ignore" = false as any;
+
 const databaseTests: {
   func: (db: Database) => Promise<void>;
-  only?: boolean;
+  only?: boolean | "ignore";
 }[] = [];
 
 const testFile = "testdata/testdb.db";
@@ -347,6 +349,72 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
   }]);
 });
 
+runWithDatabase(async function DocSet_query(db) {
+  interface User {
+    id: number;
+    username: string;
+    status: "online" | "offline";
+    role: "admin" | "user";
+  }
+
+  const userSet = await db.createSet<User>("users", "doc");
+
+  // Define indexes on the set and update indexes if needed.
+  userSet.useIndexes({
+    status: (user) => user.status,
+    // define "status" index, which indexing the value of user.status for each user in the set
+
+    role: (user) => user.role,
+
+    username: { unique: true, key: (user) => user.username },
+    // define "username" unique index, which does not allow duplicated username.
+
+    onlineAdmin: (user) => user.status == "online" && user.role == "admin",
+    // define "onlineAdmin" index, the value is a computed boolean.
+  });
+
+  const documents: User[] = [
+    { username: "yuuza0", status: "online", role: "admin" },
+    { username: "yuuza3", status: "online", role: "user" },
+    { username: "foo", status: "offline", role: "admin" },
+    { username: "foo2", status: "online", role: "user" },
+    { username: "foo3", status: "offline", role: "user" },
+    { username: "bar", status: "offline", role: "admin" },
+    { username: "bar2", status: "online", role: "admin" },
+  ] as any;
+
+  for (const doc of documents) {
+    await userSet.insert(doc);
+  }
+
+  assertEquals(
+    await userSet.query(AND(
+      IndexEQ("status", "online"),
+      IndexEQ("role", "admin"),
+    )),
+    documents.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  assertEquals(
+    await userSet.query(OR(
+      IndexEQ("status", "offline"),
+      IndexEQ("role", "user"),
+    )),
+    documents.filter((x) => x.status == "offline" || x.role == "user"),
+  );
+
+  assertEquals(
+    await userSet.query(NOT(OR(
+      IndexEQ("status", "offline"),
+      IndexEQ("role", "user"),
+    ))),
+    await userSet.query(AND(
+      IndexEQ("status", "online"),
+      IndexEQ("role", "admin"),
+    )),
+  );
+});
+
 // get prev commit
 
 runWithDatabase(async function createSetSnap(db) {
@@ -497,9 +565,11 @@ runWithDatabase(async function createSetGetCommitConcurrent(db) {
 
 // set/get() lots of key-value records
 
-const keys = new Array(100000).fill(0).map((x, i) =>
-  Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString()
-);
+const keys = (ignoreMassiveTests == "ignore")
+  ? []
+  : new Array(100000).fill(0).map((x, i) =>
+    Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString()
+  );
 const expectedKeys = [...new Set(keys)].sort();
 
 runWithDatabase(async function setMassive(db) {
@@ -509,7 +579,7 @@ runWithDatabase(async function setMassive(db) {
   }
   assertEquals(set.count, expectedKeys.length);
   assertEquals(await db.commit(), true);
-});
+}, ignoreMassiveTests);
 
 runWithDatabase(async function getMassive(db) {
   var set = (await db.getSet("testMassive"))!;
@@ -523,7 +593,7 @@ runWithDatabase(async function getMassive(db) {
   }
   assertEquals(errors, []);
   assertEquals(await db.commit(), false);
-});
+}, ignoreMassiveTests);
 
 runWithDatabase(async function getKeys(db) {
   var set = await db.getSet("testMassive");
@@ -535,14 +605,16 @@ runWithDatabase(async function getKeys(db) {
     }
   }
   // await db.commit();
-});
+}, ignoreMassiveTests);
 
 interface TestDoc {
   id: string;
 }
 
-const lastThreeSet = [...new Set(keys.map((x) => x.substr(x.length - 3)))]
-  .sort();
+const lastThreeSet = (ignoreMassiveTests == "ignore")
+  ? []
+  : [...new Set(keys.map((x) => x.substr(x.length - 3)))]
+    .sort();
 const lastThreeMap = lastThreeSet.map((
   three,
 ) => [three, keys.filter((x) => x.endsWith(three)).sort()]);
@@ -571,7 +643,7 @@ runWithDatabase(async function DocSet_upsertMassive(db) {
     );
   }
   assertEquals(set.count, expectedKeys.length);
-});
+}, ignoreMassiveTests);
 
 const fives = keys.map((x) => x.substring(0, 5));
 const fivesSet = [...new Set(fives)].sort();
@@ -610,7 +682,7 @@ runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
     );
   }
   assertEquals(set.count, fivesSet.length);
-});
+}, ignoreMassiveTests);
 
 runWithDatabase(async function DocSet_deleteMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive2", "doc");
@@ -653,7 +725,7 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
       "test failed, dump is created under 'testdata' folder: " + error,
     );
   }
-});
+}, ignoreMassiveTests);
 
 // runWithDatabase(async function lotsOfCommits (db) {
 //     var set = await db.getSet("test"); // commit "b"
@@ -694,12 +766,13 @@ function dumpObjectToFile(file: string, obj: any) {
 
 function runWithDatabase(
   func: (db: Database) => Promise<void>,
-  only?: boolean,
+  only?: boolean | "ignore",
 ) {
   Runtime.test({
     name: func.name,
     fn: () => runDbTest(func),
-    only,
+    only: only === true,
+    ignore: only === "ignore",
   });
 
   databaseTests.push({ func, only });
@@ -731,10 +804,10 @@ async function runDbTest(func: (db: Database) => Promise<void>) {
 
 export async function run() {
   await recreateDatabase();
-  const useOnly = databaseTests.filter((x) => x.only).length > 0;
+  const useOnly = databaseTests.filter((x) => x.only === true).length > 0;
   let total = databaseTests.length, passed = 0, failed = 0, ignored = 0;
   for (const { func, only } of databaseTests) {
-    if (!useOnly || only) {
+    if (only != "ignore" && (!useOnly || only)) {
       console.info("");
       console.info("=============================");
       console.info("==> test " + func.name);

@@ -46,6 +46,7 @@ export interface IDbDocSet<
   delete(id: IdType<T>): Promise<boolean>;
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
   findIndex(index: string, key: any): Promise<T[]>;
+  query(query: Query): Promise<T[]>;
 }
 
 export class DbDocSet implements IDbDocSet {

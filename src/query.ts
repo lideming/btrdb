@@ -1,4 +1,10 @@
-import { DocSetPage, IndexNodeType, IndexTopPage, NodePage } from "./page.ts";
+import {
+  DocNodeType,
+  DocSetPage,
+  IndexNodeType,
+  IndexTopPage,
+  NodePage,
+} from "./page.ts";
 import { JSONValue, KeyLeftmostComparator, PageOffsetValue } from "./value.ts";
 
 export interface Query {
@@ -10,7 +16,7 @@ export function IndexEQ(index: string, val: any): Query {
     async *run(page) {
       const keyv = new JSONValue(val);
       const result = await findIndexKey(page, index, keyv);
-      for await (const key of iterateIndex(result.node, result.pos)) {
+      for await (const key of iterateNode(result.node, result.pos)) {
         if (keyv.compareTo(key.key) === 0) {
           yield key.value;
         } else {
@@ -67,6 +73,24 @@ export function OR(...queries: Query[]): Query {
   };
 }
 
+export function NOT(query: Query): Query {
+  return {
+    async *run(page) {
+      let set = new Set<number>();
+      const subResult = query.run(page);
+      for await (const val of subResult) {
+        const valEncoded = val.encode();
+        set.add(valEncoded);
+      }
+      for await (const key of page.iterateKeys()) {
+        if (!set.has((key as DocNodeType).value.encode())) {
+          yield (key as DocNodeType).value;
+        }
+      }
+    },
+  };
+}
+
 export async function findIndexKey(
   page: DocSetPage,
   index: string,
@@ -84,7 +108,7 @@ export async function findIndexKey(
   return indexResult;
 }
 
-export async function* iterateIndex(
+export async function* iterateNode(
   node: NodePage<IndexNodeType>,
   pos: number,
 ): AsyncIterable<IndexNodeType> {
