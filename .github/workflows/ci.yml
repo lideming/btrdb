@@ -20,8 +20,8 @@ jobs:
           mkdir -p testdata
           deno test \
             --allow-read=testdata --allow-write=testdata \
-            --coverage=testdata/coverage \
             --allow-env \
+            --coverage=testdata/coverage \
             test.ts
 
       - name: Analyze coverage
@@ -131,4 +131,15 @@ jobs:
             deno test \
             --allow-read=testdata --allow-write=testdata \
             --allow-env \
+            --coverage=testdata/coverage \
             test.ts
+
+      - name: Analyze coverage
+        run: |
+          deno coverage testdata/coverage --lcov > testdata/coverage.lcov
+
+      - name: Codecov
+        uses: codecov/codecov-action@v1.5.2
+        with:
+          file: ./testdata/coverage.lcov
+          fail_ci_if_error: true
