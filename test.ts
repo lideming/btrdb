@@ -18,7 +18,7 @@ import {
 import { PAGESIZE } from "./src/page.ts";
 import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
 
-const ignoreMassiveTests: boolean | "ignore" = "ignore" as any;
+const ignoreMassiveTests: boolean | "ignore" = false as any;
 
 const databaseTests: {
   func: (db: Database) => Promise<void>;
