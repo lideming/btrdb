@@ -103,7 +103,17 @@ export abstract class PageStorage {
     // If cache not hitted, start a reading task and set the promise to `cache`.
     // This method ensures that no duplicated reading will happen.
     const cached = this.cache.get(addr);
-    if (cached) return Promise.resolve(cached as T);
+    if (cached) {
+      return Promise.resolve(cached as T).then((cached) => {
+        if (Object.getPrototypeOf(cached) !== type.prototype) {
+          throw new BugError(
+            "BUG: page type from cached mismatched: " +
+              Runtime.inspect({ cached, type }),
+          );
+        }
+        return cached;
+      });
+    }
     if (addr < 0 || addr >= this.nextAddr) {
       throw new Error("Invalid page addr " + addr);
     }
