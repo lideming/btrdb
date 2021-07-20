@@ -9,7 +9,7 @@ btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
 - [x] Node.js runtime
   - [x] Compatibility layer
   - [x] ES module bundle
-  - [ ] CommonJS bundle
+  - [x] CommonJS bundle
   - [x] Publish to NPM registry
 - [x] B-Tree
 - [x] Single file
@@ -66,12 +66,10 @@ Import from ES module:
 import { Database } from "@yuuza/btrdb";
 ```
 
-Import from CommonJS module:
+Require from CommonJS module:
 
 ```js
-import("@yuuza/btrdb").then(({ Database }) => {
-  // Use Database here...
-});
+const { Database } = require("@yuuza/btrdb");
 ```
 
 ### Create/open database file
