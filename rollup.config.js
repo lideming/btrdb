@@ -28,7 +28,7 @@ function options(input, output, outputName) {
       {
         /** @param code {string} */
         transform(code, id) {
-          return code.replaceAll('.ts"', '"');
+          return code.replace(/.ts"/g, '"');
         },
       },
       typescript(),
