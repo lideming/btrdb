@@ -1,4 +1,4 @@
-import { terser } from "rollup-plugin-terser";
+// import { terser } from "rollup-plugin-terser";
 import typescript from "@rollup/plugin-typescript";
 
 function options(input, output, outputName) {
@@ -15,13 +15,13 @@ function options(input, output, outputName) {
         format: "es",
         name: outputName,
       },
-      {
-        file: output + ".min.js",
-        format: "umd",
-        name: outputName,
-        sourcemap: true,
-        plugins: [terser()],
-      },
+      //   {
+      //     file: output + ".min.js",
+      //     format: "umd",
+      //     name: outputName,
+      //     sourcemap: true,
+      //     plugins: [terser()],
+      //   },
     ],
     external: ["fs", "process", "fs/promises", "util"],
     plugins: [
