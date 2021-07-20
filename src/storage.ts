@@ -322,6 +322,12 @@ export abstract class PageStorage {
   }
 
   close() {
+    if (this.deferWritingQueue.running) {
+      throw new Error(
+        "Some deferred writing tasks are still running. " +
+          "Please `await waitDeferWriting()` before closing.",
+      );
+    }
     this._close();
   }
 

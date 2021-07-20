@@ -1,4 +1,4 @@
-import { DatabaseEngine, numberIdGenerator } from "./database.ts";
+import { DatabaseEngine } from "./database.ts";
 import {
   DocNodeType,
   DocSetPage,
@@ -36,17 +36,50 @@ export type IndexDef<T> = Record<
 export interface IDbDocSet<
   T extends IDocument = any,
 > {
+  /** Documents count of this set. */
   readonly count: number;
+
+  /**
+   * Get/set a function used to generate next id when inserting document.
+   * `numberIdGenerator` is used by default.
+   */
   idGenerator: (lastId: IdType<T> | null) => IdType<T>;
+
+  /** Get a document by id */
   get(id: IdType<T>): Promise<T>;
+
+  /** Insert a document with auto-id. */
   insert(doc: OptionalId<T>): Promise<void>;
+
+  /** Update the document if the id exists, or insert the docuemnt if the id not exists. */
   upsert(doc: T): Promise<void>;
+
+  /** Get all documents from this set. */
   getAll(): Promise<T[]>;
+
+  /** Get all ids from this set. */
   getIds<T>(): Promise<IdType<T>[]>;
+
+  /** Delete a document by id. */
   delete(id: IdType<T>): Promise<boolean>;
+
+  /**
+   * Define indexes on this set.
+   * The new set of index definitions will overwrite the old one.
+   * If some definition is added/changed/removed, the index will be added/changed/removed accrodingly.
+   */
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
+
+  /** Find values from the index. Returns matched documents. It equals to `query(EQ(index, key))`. */
   findIndex(index: string, key: any): Promise<T[]>;
+
+  /** Do a query on this set. Returns matched documents. */
   query(query: Query): Promise<T[]>;
+}
+
+export function numberIdGenerator(lastId: number | null) {
+  if (lastId == null) return 1;
+  return lastId + 1;
 }
 
 export class DbDocSet implements IDbDocSet {

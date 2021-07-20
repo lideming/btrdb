@@ -267,16 +267,17 @@ export class DatabaseEngine implements EngineContext, Database {
   }
 }
 
-export function numberIdGenerator(lastId: number | null) {
-  if (lastId == null) return 1;
-  return lastId + 1;
-}
-
 export interface Database {
+  /** (default: false) Whether to auto-commit on changes (i.e. on every call on `set`/`insert`/`upsert` methods) */
   autoCommit: boolean;
+
+  /** (default: true) Whether to wait page writing in auto-commit. */
   autoCommitWaitWriting: boolean;
+
+  /** (default: true) Whether to wait page writing in manual commit. */
   defaultWaitWriting: boolean;
 
+  /** Open a database file. Create a new file if not exists. */
   openFile(
     path: string,
     options?: { fsync?: InFileStorage["fsync"] },
@@ -294,18 +295,40 @@ export interface Database {
     type: "doc",
   ): Promise<IDbDocSet<T> | null>;
 
+  /** Delete a key-value set or a document set. */
   deleteSet(name: string, type: DbSetType): Promise<boolean>;
 
+  /** Get count of key-value sets and document sets */
   getSetCount(): Promise<number>;
+
+  /** Get info of key-value sets, document sets and named snapshots. */
   getObjects(): Promise<{ name: string; type: DbObjectType }[]>;
+
+  /** Delete a key-value set, a document set or a named snapshot. */
   deleteObject(name: string, type: DbObjectType): Promise<boolean>;
 
+  /** Create a named snapshot. */
   createSnapshot(name: string, overwrite?: boolean): Promise<void>;
+
+  /** Get a named snapshot. */
   getSnapshot(name: string): Promise<Database | null>;
+
+  /** Get the previous commit as a snapshot. */
   getPrevCommit(): Promise<Database | null>;
 
-  commit(): Promise<boolean>;
+  /**
+   * Commit and write the changes to the disk.
+   * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resoving. If false, "deferred writing" is used.
+   */
+  commit(waitWriting?: boolean): Promise<boolean>;
+
+  /** Wait for previous deferred writing tasks. */
   waitWriting(): Promise<void>;
+
+  /**
+   * Close the opened database file.
+   * If deferred writing is used, ensure to await `waitWriting()` before closing.
+   */
   close(): void;
 }
 
