@@ -5,14 +5,14 @@ import {
 } from "../src/runtime.ts";
 export * from "../mod.ts";
 
+import * as util from "util";
+import * as fs from "fs";
+import * as fsPromises from "fs/promises";
+
 const global = globalThis as any;
 if (!global["Deno"]) {
   const Runtime: typeof orignalRuntime = {} as any;
   setRuntimeImplementaion(Runtime);
-
-  const util: any = await import("util");
-  const fs: any = await import("fs");
-  const fsPromises: any = await import("fs/promises");
 
   Runtime.inspect = util.inspect;
 

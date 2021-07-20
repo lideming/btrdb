@@ -1,6 +1,5 @@
 import "./mod.ts";
 import { run } from "../test.ts";
-const { exit } = await import("process");
+import { exit } from "process";
 
-const stat = await run();
-exit(stat.total == stat.passed ? 0 : 1);
+run().then((stat) => exit(stat.total == stat.passed ? 0 : 1));

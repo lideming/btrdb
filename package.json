@@ -2,14 +2,14 @@
   "name": "@yuuza/btrdb",
   "version": "0.1.2",
   "description": "A CoW NoSQL database engine inspired by btrfs.",
-  "main": "dist/btrdb.mjs",
+  "main": "dist/btrdb.js",
   "module": "dist/btrdb.mjs",
-  "type": "module",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "build": "mkdir -p dist && deno bundle nodeCompat/mod.ts > dist/btrdb.mjs"
+    "build": "mkdir -p dist && deno bundle https://deno.land/std@0.100.0/testing/asserts.ts > dist/asserts.mjs && rollup -c",
+    "nodetest": "node dist/nodeTest.js"
   },
   "repository": {
     "type": "git",
@@ -21,5 +21,12 @@
   ],
   "keywords": [],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@rollup/plugin-typescript": "^8.2.3",
+    "rollup": "^2.53.2",
+    "rollup-plugin-terser": "^7.0.2",
+    "tslib": "^2.3.0",
+    "typescript": "^4.3.5"
+  }
 }

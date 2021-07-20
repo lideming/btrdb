@@ -13,15 +13,15 @@ const databaseTests: {
 
 const testFile = "testdata/testdb.db";
 
-await new Promise((r) => setTimeout(r, 300));
+// await new Promise((r) => setTimeout(r, 300));
 
 console.info("preparing test data...");
 
-await recreateDatabase();
+Runtime.test({ fn: recreateDatabase, name: "recreate database" });
 
 // create/get() sets
 
-await runWithDatabase(async function createSet(db) {
+runWithDatabase(async function createSet(db) {
   var set = await db.createSet("test");
   await set.set("testkey", "testval");
   await set.set("testkey2", "testval2");
@@ -30,14 +30,14 @@ await runWithDatabase(async function createSet(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function Set_get(db) {
+runWithDatabase(async function Set_get(db) {
   var set = await db.getSet("test");
   assertEquals(await set!.get("testkey"), "testval");
   assertEquals(await set!.get("testkey2"), "testval2");
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function Set_delete(db) {
+runWithDatabase(async function Set_delete(db) {
   var set = await db.getSet("test");
   await set!.delete("testkey");
   assertEquals(await set!.get("testkey"), null);
@@ -45,7 +45,7 @@ await runWithDatabase(async function Set_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function getSetCount(db) {
+runWithDatabase(async function getSetCount(db) {
   assertEquals(await db.getSetCount(), 1);
   assert(await db.createSet("testCount1"));
   assertEquals(await db.getSetCount(), 2);
@@ -58,14 +58,14 @@ await runWithDatabase(async function getSetCount(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function deleteSet(db) {
+runWithDatabase(async function deleteSet(db) {
   assertEquals(await db.deleteSet("testCount3", "kv"), true);
   assertEquals(await db.getSet("testCount3"), null);
   assertEquals(await db.getSetCount(), 3);
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function deleteSet_afterModify(db) {
+runWithDatabase(async function deleteSet_afterModify(db) {
   const set = await db.getSet("testCount1");
   assert(set);
   await set.set("somechange", "somevalue");
@@ -75,7 +75,7 @@ await runWithDatabase(async function deleteSet_afterModify(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function deleteSet_check(db) {
+runWithDatabase(async function deleteSet_check(db) {
   assertEquals(await db.getSet("testCount1"), null);
   assertEquals(await db.getSet("testCount3"), null);
   assertEquals(await db.deleteSet("testCount1", "kv"), false);
@@ -92,7 +92,7 @@ interface TestUser {
   gender?: "m" | "f";
 }
 
-await runWithDatabase(async function DocSet_insert(db) {
+runWithDatabase(async function DocSet_insert(db) {
   var set = await db.createSet<TestUser>("testdoc", "doc");
   await set.insert({ "username": "btrdb" });
   await set.insert({ "username": "test" });
@@ -101,7 +101,7 @@ await runWithDatabase(async function DocSet_insert(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_upsert(db) {
+runWithDatabase(async function DocSet_upsert(db) {
   var set = await db.createSet<TestUser>("testdoc", "doc");
   await set.upsert({ "id": 1, "username": "whatdb" });
   await set.upsert({ "id": 2, "username": "nobody" });
@@ -110,14 +110,14 @@ await runWithDatabase(async function DocSet_upsert(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_get(db) {
+runWithDatabase(async function DocSet_get(db) {
   var set = await db.getSet("testdoc", "doc");
   assertEquals(await set!.get(1), { "id": 1, "username": "whatdb" });
   assertEquals(await set!.get(2), { "id": 2, "username": "nobody" });
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function DocSet_getAll(db) {
+runWithDatabase(async function DocSet_getAll(db) {
   var set = await db.getSet("testdoc", "doc");
   assertEquals(await set!.getAll(), [
     { "id": 1, "username": "whatdb" },
@@ -126,13 +126,13 @@ await runWithDatabase(async function DocSet_getAll(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function DocSet_getIds(db) {
+runWithDatabase(async function DocSet_getIds(db) {
   var set = await db.getSet("testdoc", "doc");
   assertEquals(await set!.getIds(), [1, 2]);
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function DocSet_delete(db) {
+runWithDatabase(async function DocSet_delete(db) {
   var set = await db.getSet("testdoc", "doc");
   await set!.delete(1);
   assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }]);
@@ -144,7 +144,7 @@ for (let i = 0; i < 10000; i++) {
   longString += Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString();
 }
 
-await runWithDatabase(async function DocSet_largeDocument(db) {
+runWithDatabase(async function DocSet_largeDocument(db) {
   var set = await db.getSet<TestUser>("testdoc", "doc");
   await set!.insert({ "username": longString });
   assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }, {
@@ -154,7 +154,7 @@ await runWithDatabase(async function DocSet_largeDocument(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_largeDocument_after_index(db) {
+runWithDatabase(async function DocSet_largeDocument_after_index(db) {
   var set = await db.getSet<TestUser>("testdoc", "doc");
   assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }, {
     "id": 3,
@@ -170,7 +170,7 @@ await runWithDatabase(async function DocSet_largeDocument_after_index(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_largeDocument_before_index(db) {
+runWithDatabase(async function DocSet_largeDocument_before_index(db) {
   var set = await db.getSet<TestUser>("testdoc", "doc");
   await set!.useIndexes({
     username10: (u) => u.username.substr(0, Math.min(10, u.username.length)),
@@ -185,7 +185,7 @@ await runWithDatabase(async function DocSet_largeDocument_before_index(db) {
 
 // use indexes
 
-await runWithDatabase(async function DocSet_indexes_before_insert(db) {
+runWithDatabase(async function DocSet_indexes_before_insert(db) {
   var set = await db.createSet<TestUser>("testindexes", "doc");
   await set.useIndexes({
     username: { unique: true, key: (u) => u.username },
@@ -216,7 +216,7 @@ await runWithDatabase(async function DocSet_indexes_before_insert(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_after_insert(db) {
+runWithDatabase(async function DocSet_indexes_after_insert(db) {
   var set = await db.createSet<TestUser>("testindexes2", "doc");
   await set.insert({ "username": "btrdb", "gender": "m" });
   await set.insert({ "username": "test", "gender": "m" });
@@ -247,7 +247,7 @@ await runWithDatabase(async function DocSet_indexes_after_insert(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_after_upsert(db) {
+runWithDatabase(async function DocSet_indexes_after_upsert(db) {
   var set = await db.getSet<TestUser>("testindexes2", "doc");
   assert(set);
   await set.upsert({ "id": 2, "username": "nobody", "gender": "f" });
@@ -276,7 +276,7 @@ await runWithDatabase(async function DocSet_indexes_after_upsert(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_after_delete(db) {
+runWithDatabase(async function DocSet_indexes_after_delete(db) {
   var set = await db.getSet("testindexes2", "doc");
   assert(set);
   await set.delete(1);
@@ -298,7 +298,7 @@ await runWithDatabase(async function DocSet_indexes_after_delete(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function DocSet_indexes_demo(db) {
+runWithDatabase(async function DocSet_indexes_demo(db) {
   interface User {
     id: number;
     username: string;
@@ -349,13 +349,13 @@ await runWithDatabase(async function DocSet_indexes_demo(db) {
 
 // get prev commit
 
-await runWithDatabase(async function createSetSnap(db) {
+runWithDatabase(async function createSetSnap(db) {
   var set = await db.createSet("snap1");
   await set.set("somekey", "somevalue");
   assertEquals(await db.commit(), true); // commit "a"
 });
 
-await runWithDatabase(async function checkSnap(db) {
+runWithDatabase(async function checkSnap(db) {
   var set = await db.getSet("snap1");
   assertEquals(await set!.get("somekey"), "somevalue");
   var snap = await db.getPrevCommit(); // before commit "a"
@@ -364,14 +364,14 @@ await runWithDatabase(async function checkSnap(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function changeSnap(db) {
+runWithDatabase(async function changeSnap(db) {
   var set = await db.getSet("snap1");
   await set!.set("somekey", "someothervalue");
   await set!.set("newkey", "newvalue");
   assertEquals(await db.commit(), true); // commit "b"
 });
 
-await runWithDatabase(async function checkSnap2(db) {
+runWithDatabase(async function checkSnap2(db) {
   var set = await db.getSet("snap1"); // commit "b"
   assertEquals(await set!.count, 2);
   assertEquals(await set!.get("somekey"), "someothervalue");
@@ -387,7 +387,7 @@ await runWithDatabase(async function checkSnap2(db) {
 
 // create/get named snapshot
 
-await runWithDatabase(async function namedSnap1(db) {
+runWithDatabase(async function namedSnap1(db) {
   await db.createSnapshot("before_a");
   var set = await db.createSet("namedsnap1");
   await set.set("somekey", "somevalue");
@@ -395,7 +395,7 @@ await runWithDatabase(async function namedSnap1(db) {
   assertEquals(await db.commit(), true); // commit "a"
 });
 
-await runWithDatabase(async function namedSnap2(db) {
+runWithDatabase(async function namedSnap2(db) {
   var set = await db.getSet("namedsnap1");
   assertEquals(await set!.get("somekey"), "somevalue");
   var snap = await db.getSnapshot("before_a");
@@ -405,7 +405,7 @@ await runWithDatabase(async function namedSnap2(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function namedSnap3(db) {
+runWithDatabase(async function namedSnap3(db) {
   var set = await db.getSet("namedsnap1");
   await set!.set("somekey", "someothervalue");
   await set!.set("newkey", "newvalue");
@@ -413,7 +413,7 @@ await runWithDatabase(async function namedSnap3(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function namedSnap4(db) {
+runWithDatabase(async function namedSnap4(db) {
   var set = await db.getSet("namedsnap1");
   assertEquals(await set!.count, 2);
   assertEquals(await set!.get("somekey"), "someothervalue");
@@ -437,7 +437,7 @@ const expectedConcurrentSetNames = [
   ...new Set(concurrentKeys.map((k) => "k" + k[0])),
 ].sort();
 
-await runWithDatabase(async function setGetCommitConcurrent(db) {
+runWithDatabase(async function setGetCommitConcurrent(db) {
   var set = (await db.createSet("testConcurrent"))!;
   var tasks: Promise<void>[] = [];
   for (const k of concurrentKeys) {
@@ -453,7 +453,7 @@ await runWithDatabase(async function setGetCommitConcurrent(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function getAfterConcurrent(db) {
+runWithDatabase(async function getAfterConcurrent(db) {
   var set = (await db.getSet("testConcurrent"))!;
   assertEquals(set.count, expectedConcurrentKeys.length);
   let errors = [];
@@ -471,7 +471,7 @@ await runWithDatabase(async function getAfterConcurrent(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function createSetGetCommitConcurrent(db) {
+runWithDatabase(async function createSetGetCommitConcurrent(db) {
   var tasks: Promise<void>[] = [];
   for (const k of concurrentKeys) {
     tasks.push((async () => {
@@ -502,7 +502,7 @@ const keys = new Array(100000).fill(0).map((x, i) =>
 );
 const expectedKeys = [...new Set(keys)].sort();
 
-await runWithDatabase(async function setMassive(db) {
+runWithDatabase(async function setMassive(db) {
   var set = (await db.createSet("testMassive"))!;
   for (const k of keys) {
     await set.set("key" + k, "val" + k);
@@ -511,7 +511,7 @@ await runWithDatabase(async function setMassive(db) {
   assertEquals(await db.commit(), true);
 });
 
-await runWithDatabase(async function getMassive(db) {
+runWithDatabase(async function getMassive(db) {
   var set = (await db.getSet("testMassive"))!;
   const errors = [];
   assertEquals(set.count, expectedKeys.length);
@@ -525,7 +525,7 @@ await runWithDatabase(async function getMassive(db) {
   assertEquals(await db.commit(), false);
 });
 
-await runWithDatabase(async function getKeys(db) {
+runWithDatabase(async function getKeys(db) {
   var set = await db.getSet("testMassive");
   var r = await set!.getKeys();
   var uniqueKeys = [...new Set(keys)].map((x) => "key" + x).sort();
@@ -547,7 +547,7 @@ const lastThreeMap = lastThreeSet.map((
   three,
 ) => [three, keys.filter((x) => x.endsWith(three)).sort()]);
 
-await runWithDatabase(async function DocSet_upsertMassive(db) {
+runWithDatabase(async function DocSet_upsertMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive", "doc");
   await set.useIndexes({
     lastThree: (d) => d.id.substr(d.id.length - 3),
@@ -582,7 +582,7 @@ const fiveLastThreeMap = fiveLastThreeSet.map(
   (three) => [three, fivesSet.filter((x) => x.endsWith(three)).sort()] as const,
 );
 
-await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
+runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive2", "doc");
   await set.useIndexes({
     lastThree: (d) => d.id.substr(d.id.length - 3),
@@ -612,7 +612,7 @@ await runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
   assertEquals(set.count, fivesSet.length);
 });
 
-await runWithDatabase(async function DocSet_deleteMassive(db) {
+runWithDatabase(async function DocSet_deleteMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive2", "doc");
   // await dumpObjectToFile(
   //   "testdata/five_before_delete_tree.txt",
@@ -655,7 +655,7 @@ await runWithDatabase(async function DocSet_deleteMassive(db) {
   }
 });
 
-// await runWithDatabase(async function lotsOfCommits (db) {
+// runWithDatabase(async function lotsOfCommits (db) {
 //     var set = await db.getSet("test"); // commit "b"
 //     for (let i = 0; i < 10000000; i++) {
 //         await set!.set('somevar', 'val' + i);
@@ -663,11 +663,11 @@ await runWithDatabase(async function DocSet_deleteMassive(db) {
 //     }
 // });
 
-// await runWithDatabase(async db => {
+// runWithDatabase(async db => {
 //     console.info(await db.getSetCount());
 // });
 
-// await runWithDatabase(async db => {
+// runWithDatabase(async db => {
 //     for (let i = 3000; i < 3100; i++) {
 //         await db.createSet('test ' + i);
 //     }
@@ -692,7 +692,7 @@ function dumpObjectToFile(file: string, obj: any) {
   return Runtime.writeTextFile(file, Runtime.inspect(obj, inspectOptions));
 }
 
-async function runWithDatabase(
+function runWithDatabase(
   func: (db: Database) => Promise<void>,
   only?: boolean,
 ) {
@@ -730,6 +730,7 @@ async function runDbTest(func: (db: Database) => Promise<void>) {
 }
 
 export async function run() {
+  await recreateDatabase();
   const useOnly = databaseTests.filter((x) => x.only).length > 0;
   let total = databaseTests.length, passed = 0, failed = 0, ignored = 0;
   for (const { func, only } of databaseTests) {
@@ -745,7 +746,6 @@ export async function run() {
         console.error("error in test", error);
         failed++;
       }
-      console.info("");
     } else {
       ignored++;
     }
@@ -757,6 +757,6 @@ export async function run() {
 
 if (globalThis.Deno) {
   if (globalThis.Deno.args[0] == "run") {
-    await run();
+    run();
   }
 }

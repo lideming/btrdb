@@ -1,18 +1,20 @@
 // Wraps all non-Web Runtime API used by btrdb
 
+const _Deno = globalThis["Deno"];
+
 // Just use Deno Runtime API when it's running on Deno
 export let Runtime = !globalThis["Deno"] ? null! : {
-  mkdir: Deno.mkdir,
-  remove: Deno.remove,
-  writeTextFile: Deno.writeTextFile,
-  test: Deno.test,
-  open: Deno.open,
-  inspect: Deno.inspect,
-  fdatasync: Deno.fdatasync,
+  mkdir: _Deno.mkdir,
+  remove: _Deno.remove,
+  writeTextFile: _Deno.writeTextFile,
+  test: _Deno.test,
+  open: _Deno.open,
+  inspect: _Deno.inspect,
+  fdatasync: _Deno.fdatasync,
   customInspect: Symbol.for("Deno.customInspect"),
-  env: Deno.env,
-  SeekMode: Deno.SeekMode,
-  File: Deno.File,
+  env: _Deno.env,
+  SeekMode: _Deno.SeekMode,
+  File: _Deno.File,
 };
 
 if (!Runtime) {
