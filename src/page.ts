@@ -423,11 +423,12 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     } else {
       dirtyNode.spliceKeys(pos, 1);
       if (dirtyNode.keys.length == 0 && dirtyNode.parent) {
-        dirtyNode.parent.setChild(
+        const dirtyParent = dirtyNode.parent.getDirty(false);
+        dirtyParent.setChild(
           dirtyNode.posInParent!,
           dirtyNode.children[0],
         );
-        dirtyNode.parent!.postChange();
+        dirtyParent!.postChange();
         dirtyNode.parent = undefined;
         dirtyNode.removeDirty();
       } else {
@@ -719,6 +720,7 @@ export class DocSetPage extends DocSetPageBase2 {
         new IndexesInfoValue(newIndexes),
       );
     this.indexesAddrMap = map;
+    this.postChange();
   }
 
   async ensureIndexes() {
