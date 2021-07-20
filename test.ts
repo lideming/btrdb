@@ -20,6 +20,8 @@ import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
 
 const ignoreMassiveTests: boolean | "ignore" = false as any;
 
+const recreate: boolean = true;
+
 const databaseTests: {
   func: (db: Database) => Promise<void>;
   only?: boolean | "ignore";
@@ -31,7 +33,9 @@ const testFile = "testdata/testdb.db";
 
 console.info("preparing test data...");
 
-Runtime.test({ fn: recreateDatabase, name: "recreate database" });
+if (recreate) {
+  Runtime.test({ fn: recreateDatabase, name: "recreate database" });
+}
 
 // create/get() sets
 
@@ -886,7 +890,7 @@ runWithDatabase(async function check_after_rebuild(db) {
       "test failed, dump is created under 'testdata' folder: " + error,
     );
   }
-});
+}, ignoreMassiveTests);
 
 runWithDatabase(async function delete_massive_then_rebuild(db) {
   await db.deleteSet("docMassive", "doc");
@@ -969,7 +973,9 @@ async function runDbTest(func: (db: Database) => Promise<void>) {
 }
 
 export async function run() {
-  await recreateDatabase();
+  if (recreate) {
+    await recreateDatabase();
+  }
   const useOnly = databaseTests.filter((x) => x.only === true).length > 0;
   let total = databaseTests.length, passed = 0, failed = 0, ignored = 0;
   for (const { func, only } of databaseTests) {

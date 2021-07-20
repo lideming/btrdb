@@ -128,6 +128,7 @@ export abstract class PageStorage {
       if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
         let deleteCount = CACHE_LIMIT / 2;
         for (const [addr, page] of this.cache) {
+          // TODO: should not remove deferred writing pages
           if (page instanceof Page && !page.dirty) {
             // It's safe to delete on iterating.
             this.cache.delete(addr);

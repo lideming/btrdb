@@ -6,6 +6,7 @@ export class Buffer {
     public buffer: Uint8Array,
     public pos: number,
   ) {}
+  // TODO: actually not U32 but I32
   writeU32(num: number) {
     this.buffer[this.pos++] = (num >> 24) & 0xff;
     this.buffer[this.pos++] = (num >> 16) & 0xff;

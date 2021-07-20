@@ -8,14 +8,17 @@
       "name": "Launch Test",
       "request": "launch",
       "type": "pwa-node",
-      "program": "test.ts",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "deno",
       "runtimeArgs": [
-        "test",
+        "run",
         // "--no-check",
-        "--inspect",
+        "--inspect-brk",
         "--allow-all"
+      ],
+      "program": "test.ts",
+      "args": [
+        "run"
       ],
       "attachSimplePort": 9229,
       "outputCapture": "std"

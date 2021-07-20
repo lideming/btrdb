@@ -209,6 +209,8 @@ export class KeyRightmostComparator<T extends IKey<any>>
   }
 }
 
+const pow16 = 2 ** 16;
+
 export class PageOffsetValue implements IValue {
   constructor(readonly addr: number, readonly offset: number) {
   }
@@ -234,10 +236,11 @@ export class PageOffsetValue implements IValue {
     return new PageOffsetValue(buf.readU32(), buf.readU16());
   }
   encode() {
-    return (this.addr << 16) | this.offset;
+    return this.addr * pow16 + this.offset;
   }
   static fromEncoded(num: number) {
-    return new PageOffsetValue(num >> 16, num & 0xffff);
+    const offset = num % pow16;
+    return new PageOffsetValue((num - offset) / pow16, offset);
   }
   [Runtime.customInspect]() {
     return `Addr(${this.addr}, ${this.offset})`;
