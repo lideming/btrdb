@@ -1,6 +1,7 @@
 # btrdb - B-tree DataBase
 
-btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
+btrdb is a NoSQL database engine with B-tree Copy-on-Write mechanism inspired by
+btrfs.
 
 [![CI](https://github.com/lideming/btrdb/actions/workflows/ci.yml/badge.svg)](https://github.com/lideming/btrdb/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
@@ -8,13 +9,12 @@ btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
 - [x] Deno runtime
 - [x] Node.js runtime
   - [x] Compatibility layer
-  - [x] ES module bundle
-  - [x] CommonJS bundle
+  - [x] ES module and CommonJS bundle
   - [x] Publish to NPM registry
-- [x] B-Tree
 - [x] Single file
-- [x] Fully [Copy-on-Write](https://en.wikipedia.org/wiki/Copy-on-write) and
-  [log-structured](https://en.wikipedia.org/wiki/Log-structured_file_system)
+- [x] B-tree Copy-on-Write
+  ([paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
+  [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
 - [x] Good performance even written in pure TypeScript
   - [x] [Set 100k key-value pairs under 1.2s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:296)
   - [x] [Insert 100k documents under 3.3s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:320)
@@ -22,9 +22,8 @@ btrdb is a NoSQL database engine with Copy-on-Write inspired by btrfs.
   - [x] Named snapshots
 - [x] [Key-Value sets](#Use-key-value-set)
 - [x] [Document sets](#Use-document-set)
-  - [x] Auto-id
   - [x] [Indexes](#Indexes)
-  - [x] Query expressions
+  - [x] [Query expressions](#Query)
   - [ ] BSON instead of JSON on disk (?)
 - [x] ACID
   - [x] Readers/writer lock
@@ -190,8 +189,8 @@ console.info(await userSet.findIndex("onlineAdmin", true));
 
 #### Query
 
-You can also query on indexes with `EQ` (==), `LT` (<), `GT` (>), `LE` (<=),
-`GE` (>=), `AND`, `OR`, `NOT`.
+Querying on indexes is supported. Currently supported operators: `EQ` (==), `LT`
+(<), `GT` (>), `LE` (<=), `GE` (>=), `AND`, `OR`, `NOT`.
 
 ```ts
 // Get all offline admins
@@ -219,8 +218,8 @@ console.info(
 
 ### Use snapshots
 
-Since btrdb uses CoW and never overwrites data on-disk, creating "snapshot" have
-almost no cost.
+Since btrdb uses CoW mechanism and never overwrites data on-disk, creating
+"snapshot" have almost no cost.
 
 ```ts
 const dataSet = await db.createSet("data");
