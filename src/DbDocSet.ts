@@ -10,11 +10,12 @@ import {
   DocumentValue,
   JSONValue,
   KeyComparator,
-  KeyLeftmostComparator,
   KValue,
+  PageOffsetValue,
 } from "./value.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
+import { IndexEQ, Query } from "./query.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
@@ -75,7 +76,7 @@ export class DbDocSet implements IDbDocSet {
       new KeyComparator(new JSONValue(key)),
     );
     if (!found) return null;
-    const docVal = await this._readDocument(val as DocNodeType);
+    const docVal = await this._readDocument((val as DocNodeType).value);
     return docVal.val;
   }
 
@@ -92,7 +93,7 @@ export class DbDocSet implements IDbDocSet {
   async getAll(): Promise<any[]> {
     return Promise.all(
       (await this._getAllRaw() as DocNodeType[]).map(async (x) => {
-        const doc = await this._readDocument(x);
+        const doc = await this._readDocument(x.value);
         return doc.val;
       }),
     );
@@ -164,7 +165,7 @@ export class DbDocSet implements IDbDocSet {
         if (oldDoc) {
           const oldKey = new JSONValue(
             indexInfo.func(
-              (await this._readDocument(oldDoc as DocNodeType)).val,
+              (await this._readDocument((oldDoc as DocNodeType).value)).val,
             ),
           );
           const setResult = await index.set(
@@ -273,7 +274,7 @@ export class DbDocSet implements IDbDocSet {
           );
           const index = new IndexTopPage(lockpage.storage).getDirty(true);
           await lockpage.traverseKeys(async (k: DocNodeType) => {
-            const doc = await this._readDocument(k);
+            const doc = await this._readDocument(k.value);
             const indexKV = new KValue(new JSONValue(func(doc.val)), k.value);
             if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
               throw new Error(
@@ -298,55 +299,13 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
-  async findIndex(index: string, key: any): Promise<any[]> {
+  async query(query: Query): Promise<any[]> {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      const info = (await lockpage.ensureIndexes())[index];
-      if (!info) throw new Error("Specified index does not exist.");
-      const indexPage = await this.page.storage.readPage(
-        lockpage.indexesAddrMap![index],
-        IndexTopPage,
-      );
-      const keyv = new JSONValue(key);
-      const indexResult = await indexPage.findKeyRecursive(
-        new KeyLeftmostComparator(keyv),
-      );
-
-      const result: DocumentValue[] = [];
-
-      let node = indexResult.node;
-      let pos = indexResult.pos;
-
-      while (true) {
-        const val = node.keys[pos];
-        if (val) {
-          const comp = keyv.compareTo(val.key);
-          if (comp === 0) {
-            // Get one result and go right
-            const doc = await this._readDocument(val);
-            result.push(doc);
-          } else {
-            break;
-          }
-        }
-        pos++;
-        if (node.children[pos]) {
-          // Go left down to child
-          do {
-            node = await node.readChildPage(pos);
-            pos = 0;
-          } while (node.children[0]);
-        }
-        if (node.children.length == pos) {
-          // The end of this node, try go up
-          if (node.parent) {
-            pos = node.posInParent!;
-            node = node.parent;
-          } else {
-            break;
-          }
-        }
+      const result = [];
+      for await (const docAddr of query.run(lockpage)) {
+        result.push(await this._readDocument(docAddr));
       }
       return result.sort((a, b) => a.key.compareTo(b.key))
         .map((doc) => doc.val);
@@ -355,8 +314,12 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
-  _readDocument(key: DocNodeType) {
-    return this.page.storage.readData(key.value, DocumentValue);
+  findIndex(index: string, val: any): Promise<any[]> {
+    return this.query(IndexEQ(index, val));
+  }
+
+  _readDocument(dataAddr: PageOffsetValue) {
+    return this.page.storage.readData(dataAddr, DocumentValue);
   }
 
   async _dump() {

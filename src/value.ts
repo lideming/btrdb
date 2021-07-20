@@ -224,6 +224,12 @@ export class PageOffsetValue implements IValue {
   static readFrom(buf: Buffer) {
     return new PageOffsetValue(buf.readU32(), buf.readU16());
   }
+  encode() {
+    return (this.addr << 16) | this.offset;
+  }
+  static fromEncoded(num: number) {
+    return new PageOffsetValue(num >> 16, num && 0xffff);
+  }
   [Runtime.customInspect]() {
     return `Addr(${this.addr}, ${this.offset})`;
   }

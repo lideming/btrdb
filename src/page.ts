@@ -318,6 +318,20 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     }
   }
 
+  async *iterateKeys(): AsyncIterable<T> {
+    for (let pos = 0; pos < this.children.length; pos++) {
+      const leftAddr = this.children[pos];
+      if (leftAddr) {
+        const leftPage = await this.readChildPage(pos);
+        yield* await leftPage.iterateKeys();
+      }
+      if (pos < this.keys.length) {
+        yield this.keys[pos];
+      }
+    }
+    return;
+  }
+
   async findKeyRecursive(key: IComparable<T>): Promise<
     | { found: true; node: NodePage<T>; pos: number; val: T }
     | { found: false; node: NodePage<T>; pos: number; val: undefined }
@@ -818,8 +832,10 @@ export class IndexInfo {
 
 export type IndexInfoMap = Record<string, IndexInfo>;
 
+export type IndexNodeType = KValue<JSONValue, PageOffsetValue>;
+
 const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
-  KValue<JSONValue, PageOffsetValue>
+  IndexNodeType
 >({
   valueReader: (buf: Buffer) =>
     KValue.readFrom(buf, JSONValue.readFrom, PageOffsetValue.readFrom),
