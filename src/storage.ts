@@ -21,7 +21,7 @@ import {
   ValueType,
 } from "./value.ts";
 
-const CACHE_LIMIT = 16 * 1024;
+const CACHE_LIMIT = Math.round(64 * 1024 * 1024 / PAGESIZE);
 
 export abstract class PageStorage {
   cache = new Map<PageAddr, Page | Promise<Page>>();
