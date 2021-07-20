@@ -208,13 +208,23 @@ export abstract class PageStorage {
   async readData<T extends IValue>(
     pageOffset: PageOffsetValue,
     type: ValueType<T>,
+  ): Promise<T>;
+  async readData<T extends IValue>(
+    pageOffset: PageOffsetValue,
+    type: null,
+  ): Promise<Uint8Array>;
+  async readData<T extends IValue>(
+    pageOffset: PageOffsetValue,
+    type: ValueType<T> | null,
   ) {
     let page = await this.readPage(pageOffset.addr, DataPage);
     let buffer = new Buffer(page.buffer!, pageOffset.offset);
     const valLength = buffer.readEncodedUint();
     let bufferLeft = buffer.buffer.length - buffer.pos;
     if (valLength <= bufferLeft) {
-      return type.readFrom(buffer);
+      return type
+        ? type.readFrom(buffer)
+        : buffer.buffer.subarray(buffer.pos, valLength);
     } else {
       const valBuffer = new Buffer(new Uint8Array(valLength), 0);
       while (valBuffer.pos < valLength) {
@@ -233,7 +243,7 @@ export abstract class PageStorage {
         bufferLeft -= toRead;
       }
       valBuffer.pos = 0;
-      return type.readFrom(valBuffer);
+      return type ? type.readFrom(valBuffer) : valBuffer.buffer;
     }
   }
 
@@ -342,6 +352,7 @@ export abstract class PageStorage {
 
 export class InFileStorage extends PageStorage {
   file: RuntimeFile | undefined = undefined;
+  filePath: string | undefined = undefined;
   lock = new OneWriterLock();
 
   /**
@@ -372,6 +383,7 @@ export class InFileStorage extends PageStorage {
       write: true,
       create: true,
     });
+    this.filePath = path;
   }
   protected async _readPageBuffer(
     addr: number,

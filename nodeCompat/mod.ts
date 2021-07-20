@@ -30,6 +30,9 @@ if (!global["Deno"]) {
 
   Runtime.remove = (path: string | URL) => fsPromises.rm(path);
 
+  Runtime.rename = (oldPath: string | URL, newPath: string | URL) =>
+    fsPromises.rename(oldPath, newPath);
+
   class File {
     pos = 0;
     get rid() {

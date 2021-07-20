@@ -713,9 +713,11 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= addrs.length * 4;
     this.indexes = newIndexes;
     this.indexesAddrs = addrs;
-    this.indexesInfoAddr = this.storage.addData(
-      new IndexesInfoValue(newIndexes),
-    );
+    this.indexesInfoAddr = addrs.length == 0
+      ? new PageOffsetValue(0, 0)
+      : this.storage.addData(
+        new IndexesInfoValue(newIndexes),
+      );
     this.indexesAddrMap = map;
   }
 

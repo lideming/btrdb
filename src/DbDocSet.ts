@@ -5,6 +5,7 @@ import {
   IndexInfo,
   IndexTopPage,
   KEYSIZE_LIMIT,
+  PageAddr,
 } from "./page.ts";
 import {
   DocumentValue,
@@ -355,6 +356,42 @@ export class DbDocSet implements IDbDocSet {
 
   _readDocument(dataAddr: PageOffsetValue) {
     return this.page.storage.readData(dataAddr, DocumentValue);
+  }
+
+  async _cloneTo(other: DbDocSet) {
+    const dataAddrMap = new Map<number, number>();
+    for await (
+      const key of this.page.iterateKeys() as AsyncIterable<DocNodeType>
+    ) {
+      const doc = await this.page.storage.readData(key.value, DocumentValue);
+      const newAddr = await other.page.storage.addData(doc);
+      dataAddrMap.set(key.value.encode(), newAddr.encode());
+      const newKey = new KValue(key.key, newAddr);
+      await other.page.set(newKey, newKey, "no-change");
+    }
+    const indexes = await this.page.ensureIndexes();
+    const newIndexes: Record<string, IndexInfo> = {};
+    const newAddrs: Record<string, PageAddr> = {};
+    for (const [name, info] of Object.entries(indexes)) {
+      const indexPage = await this.page.storage.readPage(
+        this.page.indexesAddrMap[name],
+        IndexTopPage,
+      );
+      const otherIndex = new IndexTopPage(other.page.storage).getDirty(true);
+      for await (const key of indexPage.iterateKeys()) {
+        const newKey = new KValue(
+          key.key,
+          PageOffsetValue.fromEncoded(
+            dataAddrMap.get(key.value.encode())!,
+          ),
+        );
+        await otherIndex.set(newKey, newKey, "no-change");
+      }
+      newIndexes[name] = info;
+      newAddrs[name] = otherIndex.addr;
+    }
+    other.page.setIndexes(newIndexes, newAddrs);
+    other.page.count = this.page.count;
   }
 
   async _dump() {

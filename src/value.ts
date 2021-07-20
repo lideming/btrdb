@@ -243,3 +243,13 @@ export class PageOffsetValue implements IValue {
     return `Addr(${this.addr}, ${this.offset})`;
   }
 }
+
+export class RawBufferValue implements IValue {
+  constructor(readonly buffer: Uint8Array) {}
+  writeTo(buf: Buffer): void {
+    buf.writeBuffer(this.buffer);
+  }
+  get byteLength() {
+    return this.buffer.byteLength;
+  }
+}

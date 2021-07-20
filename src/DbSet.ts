@@ -106,6 +106,15 @@ export class DbSet implements IDbSet {
     return this.set(key, null);
   }
 
+  async _cloneTo(other: DbSet) {
+    for await (
+      const kv of this.page.iterateKeys() as AsyncIterable<KVNodeType>
+    ) {
+      await other.page.set(new KeyComparator(kv.key), kv, "no-change");
+    }
+    other.page.count = this.page.count;
+  }
+
   async _dump() {
     return { kvTree: await this.page._dumpTree() };
   }

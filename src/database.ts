@@ -7,6 +7,7 @@ import { InFileStorage, PageStorage } from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 import { BugError } from "./errors.ts";
+import { Runtime } from "./runtime.ts";
 
 export interface EngineContext {
   storage: PageStorage;
@@ -153,12 +154,16 @@ export class DatabaseEngine implements EngineContext, Database {
     const lock = this.commitLock;
     await lock.enterReader();
     try {
-      return (await this.superPage!.getAllValues()).map((x) => {
-        return this._parsePrefixedName(x.key.str) as any;
-      });
+      return await this._getObjectsNoLock();
     } finally {
       lock.exitReader();
     }
+  }
+
+  async _getObjectsNoLock() {
+    return (await this.superPage!.getAllValues()).map((x) => {
+      return this._parsePrefixedName(x.key.str) as any;
+    });
   }
 
   async createSnapshot(name: string, overwrite = false) {
@@ -265,6 +270,37 @@ export class DatabaseEngine implements EngineContext, Database {
   close() {
     this.storage.close();
   }
+
+  async _cloneToNoLock(other: DatabaseEngine) {
+    const sets = (await this._getObjectsNoLock())
+      .filter((x) => x.type != "snapshot");
+    for (const { name, type } of sets) {
+      const oldSet = await this._getSet(name, type as any, false);
+      const newSet = await other.createSet(name, type as any);
+      await oldSet!._cloneTo(newSet as any);
+    }
+  }
+
+  async rebuild() {
+    await this.commitLock.enterWriter();
+    try {
+      const dbPath = (this.storage as InFileStorage).filePath!;
+      const tempPath = dbPath + ".tmp";
+      try {
+        await Runtime.remove(tempPath);
+      } catch {}
+      const tempdb = new DatabaseEngine();
+      await tempdb.openFile(tempPath);
+      await this._cloneToNoLock(tempdb);
+      await tempdb.commit(true);
+      await this.waitWriting();
+      this.storage.close();
+      await Runtime.rename(tempPath, dbPath);
+      this.storage = tempdb.storage;
+    } finally {
+      this.commitLock.exitWriter();
+    }
+  }
 }
 
 export interface Database {
@@ -330,6 +366,8 @@ export interface Database {
    * If deferred writing is used, ensure to await `waitWriting()` before closing.
    */
   close(): void;
+
+  rebuild(): Promise<void>;
 }
 
 export const Database: { new (): Database } = DatabaseEngine as any;

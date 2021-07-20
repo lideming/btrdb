@@ -6,6 +6,7 @@ const _Deno = globalThis["Deno"];
 export let Runtime = !globalThis["Deno"] ? null! : {
   mkdir: _Deno.mkdir,
   remove: _Deno.remove,
+  rename: _Deno.rename,
   writeTextFile: _Deno.writeTextFile,
   test: _Deno.test,
   open: _Deno.open,

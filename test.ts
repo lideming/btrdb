@@ -339,6 +339,7 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
   await userSet.insert({ username: "yuuza", status: "online", role: "user" });
   await userSet.insert({ username: "foo", status: "offline", role: "admin" });
   await userSet.insert({ username: "bar", status: "online", role: "admin" });
+  assertEquals(await db.commit(), true);
 
   // Get all online users
   assertEquals(await userSet.findIndex("status", "online"), [
@@ -385,15 +386,25 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
   );
 });
 
-runWithDatabase(async function DocSet_query(db) {
-  interface User {
-    id: number;
-    username: string;
-    status: "online" | "offline";
-    role: "admin" | "user";
-  }
+interface User {
+  id: number;
+  username: string;
+  status: "online" | "offline";
+  role: "admin" | "user";
+}
 
-  const userSet = await db.createSet<User>("users", "doc");
+const users: User[] = [
+  { username: "yuuza0", status: "online", role: "admin" },
+  { username: "yuuza3", status: "online", role: "user" },
+  { username: "foo", status: "offline", role: "admin" },
+  { username: "foo2", status: "online", role: "user" },
+  { username: "foo3", status: "offline", role: "user" },
+  { username: "bar", status: "offline", role: "admin" },
+  { username: "bar2", status: "online", role: "admin" },
+] as any;
+
+runWithDatabase(async function DocSet_query(db) {
+  const userSet = await db.createSet<User>("users2", "doc");
 
   // Define indexes on the set and update indexes if needed.
   userSet.useIndexes({
@@ -409,26 +420,21 @@ runWithDatabase(async function DocSet_query(db) {
     // define "onlineAdmin" index, the value is a computed boolean.
   });
 
-  const documents: User[] = [
-    { username: "yuuza0", status: "online", role: "admin" },
-    { username: "yuuza3", status: "online", role: "user" },
-    { username: "foo", status: "offline", role: "admin" },
-    { username: "foo2", status: "online", role: "user" },
-    { username: "foo3", status: "offline", role: "user" },
-    { username: "bar", status: "offline", role: "admin" },
-    { username: "bar2", status: "online", role: "admin" },
-  ] as any;
-
-  for (const doc of documents) {
+  for (const doc of users) {
     await userSet.insert(doc);
   }
+  assertEquals(await db.commit(), true);
 
+  checkQuery(userSet);
+});
+
+async function checkQuery(userSet: IDbDocSet<User>) {
   assertEquals(
     await userSet.query(AND(
       EQ("status", "online"),
       EQ("role", "admin"),
     )),
-    documents.filter((x) => x.status == "online" && x.role == "admin"),
+    users.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
   assertEquals(
@@ -436,7 +442,7 @@ runWithDatabase(async function DocSet_query(db) {
       EQ("status", "offline"),
       EQ("role", "user"),
     )),
-    documents.filter((x) => x.status == "offline" || x.role == "user"),
+    users.filter((x) => x.status == "offline" || x.role == "user"),
   );
 
   assertEquals(
@@ -454,14 +460,14 @@ runWithDatabase(async function DocSet_query(db) {
     await userSet.query(
       BETWEEN("id", 2, 5, false, false),
     ),
-    documents.filter((x) => x.id > 2 && x.id < 5),
+    users.filter((x) => x.id > 2 && x.id < 5),
   );
 
   assertEquals(
     await userSet.query(
       BETWEEN("id", 2, 5, true, true),
     ),
-    documents.filter((x) => x.id >= 2 && x.id <= 5),
+    users.filter((x) => x.id >= 2 && x.id <= 5),
   );
 
   assertEquals(
@@ -471,7 +477,7 @@ runWithDatabase(async function DocSet_query(db) {
         LE("id", 5),
       ),
     ),
-    documents.filter((x) => x.id >= 2 && x.id <= 5),
+    users.filter((x) => x.id >= 2 && x.id <= 5),
   );
 
   assertEquals(
@@ -481,7 +487,7 @@ runWithDatabase(async function DocSet_query(db) {
         LE("id", 5),
       )),
     ),
-    documents.filter((x) => !(x.id >= 2 && x.id <= 5)),
+    users.filter((x) => !(x.id >= 2 && x.id <= 5)),
   );
 
   assertEquals(
@@ -491,30 +497,30 @@ runWithDatabase(async function DocSet_query(db) {
         GT("id", 5),
       ),
     ),
-    documents.filter((x) => !(x.id >= 2 && x.id <= 5)),
+    users.filter((x) => !(x.id >= 2 && x.id <= 5)),
   );
 
   assertEquals(
     await userSet.query(
       GT("id", 2),
     ),
-    documents.filter((x) => x.id > 2),
+    users.filter((x) => x.id > 2),
   );
 
   assertEquals(
     await userSet.query(
       LT("id", 5),
     ),
-    documents.filter((x) => x.id < 5),
+    users.filter((x) => x.id < 5),
   );
 
   assertEquals(
     await userSet.query(
       LE("id", 5),
     ),
-    documents.filter((x) => x.id <= 5),
+    users.filter((x) => x.id <= 5),
   );
-});
+}
 
 // get prev commit
 
@@ -594,6 +600,17 @@ runWithDatabase(async function namedSnap4(db) {
   var snap2 = await snap!.getSnapshot("before_a");
   assertEquals(await snap2!.getSet("namedsnap1"), null);
   assertEquals(await db.commit(), false);
+});
+
+runWithDatabase(async function rebuild(db) {
+  await db.rebuild();
+  assertEquals(await db.commit(), false);
+});
+
+runWithDatabase(async function check_after_rebuild(db) {
+  var set = await db.getSet("test");
+  assertEquals(await set!.get("testkey2"), "testval2");
+  await checkQuery((await db.getSet<User>("users2", "doc"))!);
 });
 
 // set/get() lots of records (concurrently)
@@ -785,19 +802,20 @@ runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
   assertEquals(set.count, fivesSet.length);
 }, ignoreMassiveTests);
 
+const AD_toDelete = fivesSet.filter((x) => x[1] == "0");
+const AD_expectedIndexResults = fiveLastThreeMap.map((x) =>
+  x[1].filter((x) => x[1] != "0")
+);
+
 runWithDatabase(async function DocSet_deleteMassive(db) {
   var set = await db.createSet<TestDoc>("docMassive2", "doc");
   // await dumpObjectToFile(
   //   "testdata/five_before_delete_tree.txt",
   //   await (set as any)._dump(),
   // );
-  const toDelete = fivesSet.filter((x) => x[1] == "0");
   let actualIndexResults = null;
-  const expectedIndexResults = fiveLastThreeMap.map((x) =>
-    x[1].filter((x) => x[1] != "0")
-  );
   try {
-    for (const k of toDelete) {
+    for (const k of AD_toDelete) {
       // console.info('delete', k);
       await set.delete(k);
     }
@@ -805,8 +823,8 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
     actualIndexResults = (await Promise.all(
       fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
     )).map((x) => x.map((x) => x.id).sort());
-    assertEquals(actualIndexResults, expectedIndexResults);
-    assertEquals(set.count, fivesSet.length - toDelete.length);
+    assertEquals(actualIndexResults, AD_expectedIndexResults);
+    assertEquals(set.count, fivesSet.length - AD_toDelete.length);
   } catch (error) {
     console.info(error);
     console.info("generating dump...");
@@ -820,12 +838,59 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
     );
     await dumpObjectToFile(
       "testdata/five_delete_expected.txt",
+      AD_expectedIndexResults,
+    );
+    throw new Error(
+      "test failed, dump is created under 'testdata' folder: " + error,
+    );
+  }
+}, ignoreMassiveTests);
+
+runWithDatabase(async function rebuild_after_massive(db) {
+  await db.rebuild();
+  assertEquals(await db.commit(), false);
+}, ignoreMassiveTests);
+
+runWithDatabase(async function check_after_rebuild(db) {
+  var kv = await db.getSet("test");
+  assertEquals(await kv!.get("testkey2"), "testval2");
+  await checkQuery((await db.getSet<User>("users2", "doc"))!);
+
+  let actualIndexResults = null;
+  const expectedIndexResults = fiveLastThreeMap.map((x) =>
+    x[1].filter((x) => x[1] != "0")
+  );
+  var set = (await db.getSet<TestDoc>("docMassive2", "doc"))!;
+  try {
+    actualIndexResults = (await Promise.all(
+      fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+    )).map((x) => x.map((x) => x.id).sort());
+    assertEquals(actualIndexResults, expectedIndexResults);
+    assertEquals(set.count, fivesSet.length - AD_toDelete.length);
+  } catch (error) {
+    console.info(error);
+    console.info("generating dump...");
+    await dumpObjectToFile(
+      "testdata/after_rebuild_tree.txt",
+      await (set as any)._dump(),
+    );
+    await dumpObjectToFile(
+      "testdata/after_rebuild_actual.txt",
+      actualIndexResults,
+    );
+    await dumpObjectToFile(
+      "testdata/after_rebuild_expected.txt",
       expectedIndexResults,
     );
     throw new Error(
       "test failed, dump is created under 'testdata' folder: " + error,
     );
   }
+});
+
+runWithDatabase(async function delete_massive_then_rebuild(db) {
+  await db.deleteSet("docMassive", "doc");
+  await db.rebuild();
 }, ignoreMassiveTests);
 
 // runWithDatabase(async function lotsOfCommits (db) {
