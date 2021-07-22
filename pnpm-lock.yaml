@@ -2,19 +2,19 @@ lockfileVersion: 5.3
 
 specifiers:
   '@rollup/plugin-typescript': ^8.2.3
-  rollup: ^2.53.2
+  rollup: ^2.53.3
   tslib: ^2.3.0
   typescript: ^4.3.5
 
 dependencies:
-  '@rollup/plugin-typescript': 8.2.3_06f44e6befb87053f33051ea50470ab3
-  rollup: 2.53.2
+  '@rollup/plugin-typescript': 8.2.3_3f094f9f97de35eb8823668832f9fdfa
+  rollup: 2.53.3
   tslib: 2.3.0
   typescript: 4.3.5
 
 packages:
 
-  /@rollup/plugin-typescript/8.2.3_06f44e6befb87053f33051ea50470ab3:
+  /@rollup/plugin-typescript/8.2.3_3f094f9f97de35eb8823668832f9fdfa:
     resolution: {integrity: sha512-bSkd+DD3wP9OLU6lPet59B6jJF29/RlxHkbwvOVOcf1nk8eQYWw24HpldEdrPo/WG0QAPD7TqI7+2y5jtdqjww==}
     engines: {node: '>=8.0.0'}
     peerDependencies:
@@ -22,14 +22,14 @@ packages:
       tslib: '*'
       typescript: '>=3.7.0'
     dependencies:
-      '@rollup/pluginutils': 3.1.0_rollup@2.53.2
+      '@rollup/pluginutils': 3.1.0_rollup@2.53.3
       resolve: 1.20.0
-      rollup: 2.53.2
+      rollup: 2.53.3
       tslib: 2.3.0
       typescript: 4.3.5
     dev: false
 
-  /@rollup/pluginutils/3.1.0_rollup@2.53.2:
+  /@rollup/pluginutils/3.1.0_rollup@2.53.3:
     resolution: {integrity: sha512-GksZ6pr6TpIjHm8h9lSQ8pi8BE9VeubNT0OMJ3B5uZJ8pz73NPiqOtCog/x2/QzM1ENChPKxMDhiQuRHsqc+lg==}
     engines: {node: '>= 8.0.0'}
     peerDependencies:
@@ -38,7 +38,7 @@ packages:
       '@types/estree': 0.0.39
       estree-walker: 1.0.1
       picomatch: 2.3.0
-      rollup: 2.53.2
+      rollup: 2.53.3
     dev: false
 
   /@types/estree/0.0.39:
@@ -89,8 +89,8 @@ packages:
       path-parse: 1.0.7
     dev: false
 
-  /rollup/2.53.2:
-    resolution: {integrity: sha512-1CtEYuS5CRCzFZ7SNW5528SlDlk4VDXIRGwbm/2POQxA/G4+7/crIqJwkmnj8Q/74hGx4oVlNvh4E1CJQ5hZ6w==}
+  /rollup/2.53.3:
+    resolution: {integrity: sha512-79QIGP5DXz5ZHYnCPi3tLz+elOQi6gudp9YINdaJdjG0Yddubo6JRFUM//qCZ0Bap/GJrsUoEBVdSOc4AkMlRA==}
     engines: {node: '>=10.0.0'}
     hasBin: true
     optionalDependencies:
