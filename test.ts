@@ -1002,6 +1002,9 @@ export async function run() {
 
 if (globalThis.Deno) {
   if (globalThis.Deno.args[0] == "run") {
-    run();
+    (async () => {
+      const result = await run();
+      globalThis.Deno.exit(result.total == result.passed ? 0 : 1);
+    })();
   }
 }
