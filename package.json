@@ -22,7 +22,7 @@
   "keywords": [],
   "author": "",
   "license": "MIT",
-  "dependencies": {
+  "devDependencies": {
     "@rollup/plugin-typescript": "^8.2.3",
     "rollup": "^2.53.3",
     "tslib": "^2.3.0",
