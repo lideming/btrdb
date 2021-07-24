@@ -14,10 +14,12 @@ import {
 
 export interface Query {
   run(page: DocSetPage): AsyncIterable<PageOffsetValue>;
+  [additional: string]: any;
 }
 
 export function EQ(index: string, val: any): Query {
   return {
+    eq: [index, val],
     async *run(page) {
       const keyv = new JSONValue(val);
       const result = await findIndexKey(page, index, keyv, false);
@@ -30,6 +32,10 @@ export function EQ(index: string, val: any): Query {
       }
     },
   };
+}
+
+export function NE(index: string, val: any): Query {
+  return NOT(EQ(index, val));
 }
 
 export function GT(index: string, val: any) {
@@ -56,6 +62,7 @@ export function BETWEEN(
   maxInclusive: boolean,
 ): Query {
   return {
+    between: [index, min, max, minInclusive, maxInclusive],
     async *run(page) {
       const vMin = min == null ? null : new JSONValue(min);
       const vMax = max == null ? null : new JSONValue(max);
@@ -84,6 +91,7 @@ export function BETWEEN(
 export function AND(...queries: Query[]): Query {
   if (queries.length == 0) throw new Error("No queries");
   return {
+    and: queries,
     async *run(page) {
       let set = new Set<number>();
       let nextSet = new Set<number>();
@@ -111,6 +119,7 @@ export function AND(...queries: Query[]): Query {
 export function OR(...queries: Query[]): Query {
   if (queries.length == 0) throw new Error("No queries");
   return {
+    or: queries,
     async *run(page) {
       let set = new Set<number>();
       for (const sub of queries) {
@@ -129,6 +138,7 @@ export function OR(...queries: Query[]): Query {
 
 export function NOT(query: Query): Query {
   return {
+    not: query,
     async *run(page) {
       let set = new Set<number>();
       const subResult = query.run(page);

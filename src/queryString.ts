@@ -1,25 +1,49 @@
-import { AND, EQ, GT, LT } from "./query.ts";
+import { AND, EQ, GE, GT, LE, LT, NE, NOT, OR, Query } from "./query.ts";
+
+const cache = globalThis.WeakMap
+  ? new WeakMap<TemplateStringsArray, AST>()
+  : null;
 
 export function query(plainText: TemplateStringsArray, ...args: any[]) {
-  // for (const token of lexer(plainText, args)) {
-  //     console.info(token);
-  // }
+  // console.info({ plainText, args });
+  let ast = cache?.get(plainText);
+  if (!ast) {
+    // console.info('no cache');
+    ast = new Parser(plainText)
+      .parseExpr()
+      .optimize();
+    cache?.set(plainText, ast);
+  }
+  // console.info(ast);
+  // console.info(ast.compute(args));
+  return ast.compute(args);
 }
 
 type Token =
-  | { type: "word"; value: string }
-  | { type: "binop"; str: string; op: any }
-  | { type: "value"; value: number }
+  | { type: "name"; value: string }
+  | { type: "op"; str: string; op: OpInfo }
+  | { type: "arg"; value: number }
+  | { type: "(" }
+  | { type: ")" }
   | { type: "end" };
 
-type OpInfo = { func: (left: any, right: any) => any; prec: number };
+type TokenType<T> = Extract<Token, { type: T }>;
 
-const BinOps: Record<string, OpInfo> = {
-  "==": { func: EQ, prec: 1 },
-  "<": { func: LT, prec: 1 },
-  ">": { func: GT, prec: 1 },
-  "AND": { func: AND, prec: 1 },
+type OpInfo = { func: (...args: any) => any; prec: number; bin: boolean };
+
+const Operators: Record<string, OpInfo> = {
+  "==": { func: EQ, bin: true, prec: 2 },
+  "!=": { func: NE, bin: true, prec: 2 },
+  "<": { func: LT, bin: true, prec: 2 },
+  ">": { func: GT, bin: true, prec: 2 },
+  "<=": { func: LE, bin: true, prec: 2 },
+  ">=": { func: GE, bin: true, prec: 2 },
+  "NOT": { func: NOT, bin: false, prec: 1 },
+  "AND": { func: AND, bin: true, prec: 0 },
+  "OR": { func: OR, bin: true, prec: 0 },
 };
+
+const hasOwnProperty = Object.prototype.hasOwnProperty;
 
 class Parser {
   constructor(plainText: ReadonlyArray<string>) {
@@ -36,14 +60,35 @@ class Parser {
     return this.buffer[0];
   }
 
-  consume() {
+  consume<T extends Token["type"]>(type?: T): TokenType<T> {
     this.ensure(0);
-    this.buffer.shift();
+    return this.buffer.shift() as any;
+  }
+
+  expect(type: Token["type"]) {
+    if (!this.tryExpect(type)) throw new Error("Expected token type " + type);
+  }
+
+  expectAndConsume<T extends Token["type"]>(type: T): TokenType<T> {
+    if (!this.tryExpect(type)) throw new Error("Expected token type " + type);
+    else return this.consume();
+  }
+
+  tryExpect(type: Token["type"]) {
+    return this.peek().type === type;
+  }
+
+  tryExpectAndConsume<T extends Token["type"]>(type: T): TokenType<T> | null {
+    if (this.tryExpect(type)) {
+      return this.consume();
+    }
+    return null;
   }
 
   ensure(pos: number) {
     while (pos >= this.buffer.length) {
       const result = this.gen.next();
+      // console.info("token", result.value)
       if (result.done) {
         this.buffer.push({ type: "end" });
       } else {
@@ -53,49 +98,136 @@ class Parser {
   }
 
   *generator(plainText: ReadonlyArray<string>): Generator<Token> {
-    const re = /\s*(\w+)(\s|$)*/ym;
+    const re = /\s*(\w+|\(\)|[!<>=]+|[()])(\s*|$)/ym;
     for (let i = 0; i < plainText.length; i++) {
       const str = plainText[i];
       while (true) {
         const match = re.exec(str);
         if (!match) break;
-        yield { type: "word", value: match[1] };
+        const word = match[1];
+        if (hasOwnProperty.call(Operators, word)) {
+          yield { type: "op", str: word, op: Operators[word] };
+        } else if (word === "(" || word === ")") {
+          yield { type: word };
+        } else {
+          yield { type: "name", value: word };
+        }
       }
+      // Yield a "arg" token between every plain string
       if (i < plainText.length - 1) {
-        yield { type: "value", value: i };
+        yield { type: "arg", value: i };
       }
     }
   }
 
   // Parser part
 
-  parseBinOp(left, minPrec) {
-    var op;
-    while (op = this.peek(), op.type === "binop" && op.val.prec >= minPrec) {
+  // https://github.com/lideming/lideming.github.io/blob/ee31c3865/toolbox/calc.html#L308
+  parseExpr(): AST {
+    return this.parseBinOp(this.parseValue(), 0);
+  }
+
+  parseValue(): AST {
+    if (this.tryExpect("name")) {
+      return new NameAST(this.consume("name").value);
+    } else if (this.tryExpect("arg")) {
+      return new ArgAST(this.consume("arg").value);
+    } else if (this.tryExpectAndConsume("(")) {
+      const ast = this.parseExpr();
+      this.expectAndConsume(")");
+      return ast;
+    } else if (this.tryExpect("op")) {
+      const op = this.consume("op");
+      const value = this.parseBinOp(this.parseValue(), op.op.prec);
+      return new OpAST(op.op, [value]);
+    } else {
+      throw new Error("Expected a value");
+    }
+  }
+
+  parseBinOp(left: AST, minPrec: number): AST {
+    while (true) {
+      const t = this.peek();
+      if (t.type !== "op" || !t.op.bin || t.op.prec < minPrec) break;
       this.consume();
-      var right = parseValue();
-      var nextop;
-      while (
-        nextop = this.peek(),
-          nextop.type === "binop" && nextop.val.prec > op.val.prec
-      ) {
-        right = this.parseBinOp(right, nextop.val.prec);
+      let right = this.parseValue();
+      while (true) {
+        const nextop = this.peek();
+        if (nextop.type !== "op" || !t.op.bin || nextop.op.prec <= t.op.prec) {
+          break;
+        }
+        right = this.parseBinOp(right, nextop.op.prec);
       }
-      left = new BinOpAST(op, left, right);
+      left = new OpAST(t.op, [left, right]);
     }
     return left;
   }
 }
 
 abstract class AST {
+  abstract compute(args: any[]): any;
+  abstract optimize(): AST;
 }
 
-class BinOpAST extends AST {
+class ArgAST extends AST {
   constructor(
-    public op: any,
-    public left: any,
-    public right: any,
+    readonly argPos: number,
   ) {
     super();
+  }
+
+  compute(args: any[]) {
+    return args[this.argPos];
+  }
+  optimize() {
+    return this;
+  }
+}
+
+class NameAST extends AST {
+  constructor(
+    readonly name: string,
+  ) {
+    super();
+  }
+
+  compute(args: any[]) {
+    return this.name;
+  }
+  optimize() {
+    return this;
+  }
+}
+
+class OpAST extends AST {
+  constructor(
+    readonly op: OpInfo,
+    readonly children: AST[],
+  ) {
+    super();
+  }
+  compute(args: any[]) {
+    return this.op.func(...this.children.map((x) => x.compute(args)));
+  }
+  optimize() {
+    let optimizedChildren = this.children.map((x) => x.optimize());
+
+    // AND(AND(a, b), c) => AND(a, b, c)
+    if (this.op.func === AND || this.op.func === OR) {
+      const first = optimizedChildren[0];
+      if (first instanceof OpAST && first.op.func === this.op.func) {
+        optimizedChildren.splice(0, 1);
+        optimizedChildren = [...first.children, ...optimizedChildren];
+      }
+    }
+
+    // TODO: more transforms
+    //
+    // name > min AND name < max
+    //    => BETWEEN(name, min, max, false, false)
+    // value == name
+    //    => name == value
+
+    return new OpAST(this.op, optimizedChildren);
   }
 }
