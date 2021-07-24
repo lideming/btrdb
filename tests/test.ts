@@ -1014,6 +1014,9 @@ runWithDatabase(async function delete_massive_then_rebuild(db) {
 
 if (globalThis.Deno) {
   if (globalThis.Deno.args[0] == "run") {
-    run();
+    (async () => {
+      const result = await run();
+      globalThis.Deno.exit(result.total == result.passed ? 0 : 1);
+    })();
   }
 }

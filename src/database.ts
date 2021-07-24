@@ -282,8 +282,11 @@ export class DatabaseEngine implements EngineContext, Database {
   }
 
   async rebuild() {
-    await this.commitLock.enterWriter();
+    // TODO: DbSet instances will still hold the old page.
+    let lockWriter = false;
+    await this.commitLock.enterReader();
     try {
+      // Create temp database file
       const dbPath = (this.storage as InFileStorage).filePath!;
       const tempPath = dbPath + ".tmp";
       try {
@@ -291,14 +294,24 @@ export class DatabaseEngine implements EngineContext, Database {
       } catch {}
       const tempdb = new DatabaseEngine();
       await tempdb.openFile(tempPath);
+
+      // Clone to temp database
       await this._cloneToNoLock(tempdb);
       await tempdb.commit(true);
+
+      // Close current storage
+      // Acquire the writer lock to ensure no one reading from the closed storage.
       await this.waitWriting();
+      await this.commitLock.enterWriterFromReader();
+      lockWriter = true;
       this.storage.close();
+
+      // Replace the file and the storage instance.
       await Runtime.rename(tempPath, dbPath);
       this.storage = tempdb.storage;
     } finally {
-      this.commitLock.exitWriter();
+      if (lockWriter) this.commitLock.exitWriter();
+      else this.commitLock.exitReader();
     }
   }
 }

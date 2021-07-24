@@ -29,9 +29,9 @@ btrfs.
   - [x] Readers/writer lock
   - [x] Isolation with concurrent reader on snapshots
 - [x] Auto-commit
+- [x] GC (Rebuilding database file)
 - [ ] Client / Server (?)
 - [ ] Replication (?)
-- [ ] GC (?)
 
 ## ⚠️ Warning ⚠️
 
@@ -240,6 +240,10 @@ console.info(await snap.getSet("data").get("foo"));
 ```
 
 Also, `db.getPrevCommit()` can be used to get previous commit as a snapshot.
+
+### Use rebuild
+
+Call `db.rebuild()` to lose all snapshots and reclaim some space.
 
 ### More example in the test code
 
