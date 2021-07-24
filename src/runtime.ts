@@ -2,8 +2,8 @@
 
 const _Deno = globalThis["Deno"];
 
-const encoder = globalThis.TextEncoder ? new globalThis.TextEncoder() : null;
-const decoder = globalThis.TextDecoder ? new globalThis.TextDecoder() : null;
+const encoder = (globalThis as any)["TextEncoder"] ? new TextEncoder() : null;
+const decoder = (globalThis as any)["TextDecoder"] ? new TextDecoder() : null;
 
 // Just use Deno Runtime API when it's running on Deno
 export let Runtime = !globalThis["Deno"] ? null! : {
@@ -19,8 +19,8 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,
   File: _Deno.File,
-  encode: (str: string) => encoder.encode(str),
-  decode: (buffer: any) => decoder.decode(buffer),
+  encode: (str: string) => encoder!.encode(str),
+  decode: (buffer: any) => decoder!.decode(buffer),
 };
 
 if (!Runtime) {
