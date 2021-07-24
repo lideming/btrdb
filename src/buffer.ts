@@ -1,5 +1,4 @@
-export const encoder = new TextEncoder();
-export const decoder = new TextDecoder();
+import { Runtime } from "./runtime.ts";
 
 export class Buffer {
   constructor(
@@ -43,7 +42,7 @@ export class Buffer {
     return buf;
   }
   writeString(str: string) {
-    var buf = encoder.encode(str);
+    var buf = Runtime.encode(str);
     this.writeLenEncodedBuffer(buf);
   }
   writeLenEncodedBuffer(buf: Uint8Array) {
@@ -73,12 +72,12 @@ export class Buffer {
   }
   readString() {
     const len = this.readEncodedUint();
-    const str = decoder.decode(this.buffer.subarray(this.pos, this.pos + len));
+    const str = Runtime.decode(this.buffer.subarray(this.pos, this.pos + len));
     this.pos += len;
     return str;
   }
   static calcStringSize(str: string) {
-    return Buffer.calcLenEncodedBufferSize(encoder.encode(str));
+    return Buffer.calcLenEncodedBufferSize(Runtime.encode(str));
   }
   static calcLenEncodedBufferSize(buf: Uint8Array) {
     return Buffer.calcEncodedUintSize(buf.length) + buf.length;

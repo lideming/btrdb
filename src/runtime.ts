@@ -2,6 +2,9 @@
 
 const _Deno = globalThis["Deno"];
 
+const encoder = globalThis.TextEncoder ? new globalThis.TextEncoder() : null;
+const decoder = globalThis.TextDecoder ? new globalThis.TextDecoder() : null;
+
 // Just use Deno Runtime API when it's running on Deno
 export let Runtime = !globalThis["Deno"] ? null! : {
   mkdir: _Deno.mkdir,
@@ -16,6 +19,8 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,
   File: _Deno.File,
+  encode: (str: string) => encoder.encode(str),
+  decode: (buffer: any) => decoder.decode(buffer),
 };
 
 if (!Runtime) {

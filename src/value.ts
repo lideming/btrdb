@@ -1,4 +1,4 @@
-import { Buffer, encoder } from "./buffer.ts";
+import { Buffer } from "./buffer.ts";
 import { Runtime } from "./runtime.ts";
 
 export interface ISerializable {
@@ -55,7 +55,7 @@ export class StringValue implements Key<StringValue> {
   }
   ensureBuf() {
     if (this.buf === undefined) {
-      this.buf = encoder.encode(this.str);
+      this.buf = Runtime.encode(this.str);
     }
   }
 

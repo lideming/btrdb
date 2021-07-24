@@ -689,7 +689,7 @@ runWithDatabase(async function createSetGetCommitConcurrent(db) {
 
 const keys = (ignoreMassiveTests == "ignore")
   ? []
-  : new Array(100000).fill(0).map((x, i) =>
+  : new Array(1000).fill(0).map((x, i) =>
     Math.floor(Math.abs(Math.sin(i + 1)) * 100000000000).toString()
   );
 const expectedKeys = [...new Set(keys)].sort();
@@ -988,7 +988,7 @@ export async function run() {
         await runDbTest(func);
         passed++;
       } catch (error) {
-        console.error("error in test", error);
+        console.error("error in test", error, error.stack);
         failed++;
       }
     } else {

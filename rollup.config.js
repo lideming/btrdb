@@ -7,7 +7,7 @@ function options(input, output, outputName) {
     output: [
       {
         file: output + ".js",
-        format: "umd",
+        format: "cjs",
         name: outputName,
       },
       {
@@ -24,6 +24,7 @@ function options(input, output, outputName) {
       //   },
     ],
     external: ["fs", "process", "fs/promises", "util"],
+    context: "this",
     plugins: [
       {
         /** @param code {string} */
@@ -45,6 +46,8 @@ function options(input, output, outputName) {
 
 /** @type {import('rollup').RollupOptions} */
 export default [
-  options("nodeCompat/mod.ts", "dist/btrdb", "btrdb"),
-  options("nodeCompat/nodeTest.js", "dist/nodeTest", "nodeTest"),
+  // options("nodeCompat/mod.ts", "dist/btrdb", "btrdb"),
+  // options("nodeCompat/nodeTest.js", "dist/nodeTest", "nodeTest"),
+  options("qjsCompat/mod.ts", "dist/qjs", "btrdb"),
+  options("qjsCompat/test.js", "dist/qjsTest", "qjsTest"),
 ];
