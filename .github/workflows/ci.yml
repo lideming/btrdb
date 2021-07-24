@@ -22,7 +22,7 @@ jobs:
             --allow-read=testdata --allow-write=testdata \
             --allow-env \
             --coverage=testdata/coverage \
-            test.ts
+            tests/test.ts
 
       - name: Analyze coverage
         run: |
@@ -108,7 +108,7 @@ jobs:
       - name: Run test.ts without "deno test"
         run: |
           mkdir -p testdata
-          deno run --allow-read=testdata --allow-write=testdata test.ts run
+          deno run --allow-read=testdata --allow-write=testdata tests/test.ts run
 
   test-pagesize:
     runs-on: ubuntu-latest
@@ -132,7 +132,7 @@ jobs:
             --allow-read=testdata --allow-write=testdata \
             --allow-env \
             --coverage=testdata/coverage \
-            test.ts
+            tests/test.ts
 
       - name: Analyze coverage
         run: |

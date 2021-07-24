@@ -1,7 +1,6 @@
 import {
   AND,
   BETWEEN,
-  Database,
   EQ,
   GE,
   GT,
@@ -10,32 +9,22 @@ import {
   LT,
   NOT,
   OR,
-} from "./mod.ts";
+  query,
+} from "../mod.ts";
+import { assert, assertEquals } from "./test.dep.ts";
 import {
-  assert,
-  assertEquals,
-} from "https://deno.land/std@0.100.0/testing/asserts.ts";
-import { PAGESIZE } from "./src/page.ts";
-import { Runtime, RuntimeInspectOptions } from "./src/runtime.ts";
+  assertQueryEquals,
+  dumpObjectToFile,
+  ignoreMassiveTests,
+  run,
+  runWithDatabase,
+} from "./test_util.ts";
 
-const ignoreMassiveTests: boolean | "ignore" = false as any;
-
-const recreate: boolean = true;
-
-const databaseTests: {
-  func: (db: Database) => Promise<void>;
-  only?: boolean | "ignore";
-}[] = [];
-
-const testFile = "testdata/testdb.db";
+export { run };
 
 // await new Promise((r) => setTimeout(r, 300));
 
 console.info("preparing test data...");
-
-if (recreate) {
-  Runtime.test({ fn: recreateDatabase, name: "recreate database" });
-}
 
 // create/get() sets
 
@@ -429,8 +418,80 @@ runWithDatabase(async function DocSet_query(db) {
   }
   assertEquals(await db.commit(), true);
 
-  checkQuery(userSet);
+  checkQueryString();
+
+  await checkQuery(userSet);
 });
+
+function checkQueryString() {
+  assertQueryEquals(
+    query`
+      status == ${"online"}
+      AND role == ${"admin"}
+    `,
+    AND(
+      EQ("status", "online"),
+      EQ("role", "admin"),
+    ),
+  );
+  assertQueryEquals(
+    query`
+      NOT(
+        status == ${"offline"}
+        OR role == ${"user"}
+      )
+    `,
+    NOT(OR(
+      EQ("status", "offline"),
+      EQ("role", "user"),
+    )),
+  );
+  assertQueryEquals(
+    query`name == ${"foo"} AND age == ${123}`,
+    AND(
+      EQ("name", "foo"),
+      EQ("age", 123),
+    ),
+  );
+  assertQueryEquals(
+    query`(name >= ${"foo"}) AND (age <= ${123})`,
+    AND(
+      GE("name", "foo"),
+      LE("age", 123),
+    ),
+  );
+  assertQueryEquals(
+    query`(name > ${"foo"}) AND (age < ${123})`,
+    AND(
+      GT("name", "foo"),
+      LT("age", 123),
+    ),
+  );
+  assertQueryEquals(
+    query`NOT((name > ${"foo"}) AND (age < ${123}))`,
+    NOT(AND(
+      GT("name", "foo"),
+      LT("age", 123),
+    )),
+  );
+  assertQueryEquals(
+    query`name == ${"foo"} AND age == ${123} AND c == ${1111}`,
+    AND(
+      EQ("name", "foo"),
+      EQ("age", 123),
+      EQ("c", 1111),
+    ),
+  );
+  assertQueryEquals(
+    query`name == ${"foo"} OR age == ${123} OR c == ${3} OR d == ${4}`,
+    OR(
+      EQ("name", "foo"),
+      EQ("age", 123),
+      EQ("c", 3),
+      EQ("d", 4),
+    ),
+  );
+}
 
 async function checkQuery(userSet: IDbDocSet<User>) {
   assertEquals(
@@ -438,6 +499,14 @@ async function checkQuery(userSet: IDbDocSet<User>) {
       EQ("status", "online"),
       EQ("role", "admin"),
     )),
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      status == ${"online"}
+      AND role == ${"admin"}
+    `),
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
@@ -461,6 +530,19 @@ async function checkQuery(userSet: IDbDocSet<User>) {
   );
 
   assertEquals(
+    await userSet.query(query`
+      NOT(
+        status == ${"offline"}
+        OR role == ${"user"}
+      )
+    `),
+    await userSet.query(AND(
+      EQ("status", "online"),
+      EQ("role", "admin"),
+    )),
+  );
+
+  assertEquals(
     await userSet.query(
       BETWEEN("id", 2, 5, false, false),
     ),
@@ -468,9 +550,23 @@ async function checkQuery(userSet: IDbDocSet<User>) {
   );
 
   assertEquals(
+    await userSet.query(query`
+      id > ${2} AND id < ${5}
+    `),
+    users.filter((x) => x.id > 2 && x.id < 5),
+  );
+
+  assertEquals(
     await userSet.query(
       BETWEEN("id", 2, 5, true, true),
     ),
+    users.filter((x) => x.id >= 2 && x.id <= 5),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      id >= ${2} AND id <= ${5}
+    `),
     users.filter((x) => x.id >= 2 && x.id <= 5),
   );
 
@@ -915,90 +1011,6 @@ runWithDatabase(async function delete_massive_then_rebuild(db) {
 //     }
 //     await db.commit();
 // });
-
-async function recreateDatabase() {
-  await Runtime.mkdir("testdata", { recursive: true });
-  try {
-    await Runtime.remove(testFile);
-  } catch {}
-}
-
-function dumpObjectToFile(file: string, obj: any) {
-  const inspectOptions: RuntimeInspectOptions = {
-    colors: false,
-    iterableLimit: 100000,
-    depth: 10,
-    compact: false,
-    trailingComma: true,
-  };
-  return Runtime.writeTextFile(file, Runtime.inspect(obj, inspectOptions));
-}
-
-function runWithDatabase(
-  func: (db: Database) => Promise<void>,
-  only?: boolean | "ignore",
-) {
-  Runtime.test({
-    name: func.name,
-    fn: () => runDbTest(func),
-    only: only === true,
-    ignore: only === "ignore",
-  });
-
-  databaseTests.push({ func, only });
-}
-
-async function runDbTest(func: (db: Database) => Promise<void>) {
-  console.time("open");
-  const db = new Database();
-  await db.openFile(testFile, { fsync: false });
-  console.timeEnd("open");
-
-  console.time("run");
-  await func(db);
-  console.timeEnd("run");
-  db.close();
-
-  const file = await Runtime.open(testFile);
-  const size = (await file.stat()).size;
-  console.info("file size:", size, `(${size / PAGESIZE} pages)`);
-  const storage = (db as any).storage;
-  if (storage.written) {
-    console.info(
-      "space efficient:",
-      (1 - (storage.writtenFreebytes / storage.written)).toFixed(3),
-    );
-  }
-  file.close();
-}
-
-export async function run() {
-  if (recreate) {
-    await recreateDatabase();
-  }
-  const useOnly = databaseTests.filter((x) => x.only === true).length > 0;
-  let total = databaseTests.length, passed = 0, failed = 0, ignored = 0;
-  for (const { func, only } of databaseTests) {
-    if (only != "ignore" && (!useOnly || only)) {
-      console.info("");
-      console.info("=============================");
-      console.info("==> test " + func.name);
-      console.info("=============================");
-      try {
-        await runDbTest(func);
-        passed++;
-      } catch (error) {
-        console.error("error in test", error);
-        failed++;
-      }
-    } else {
-      ignored++;
-    }
-  }
-  const stat = { total, passed, failed, ignored };
-  console.info("Tests completed", stat);
-  return stat;
-}
 
 if (globalThis.Deno) {
   if (globalThis.Deno.args[0] == "run") {
