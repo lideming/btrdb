@@ -9,7 +9,7 @@ import {
 } from "./page.ts";
 import {
   DocumentValue,
-  JSONValue,
+  JSValue,
   KeyComparator,
   KValue,
   PageOffsetValue,
@@ -108,7 +108,7 @@ export class DbDocSet implements IDbDocSet {
 
   async get(key: string): Promise<any | null> {
     const { found, val } = await this.page.findKeyRecursive(
-      new KeyComparator(new JSONValue(key)),
+      new KeyComparator(new JSValue(key)),
     );
     if (!found) return null;
     const docVal = await this._readDocument((val as DocNodeType).value);
@@ -164,7 +164,7 @@ export class DbDocSet implements IDbDocSet {
       const dataPos = !doc
         ? null
         : await lockpage.storage.addData(new DocumentValue(doc));
-      const keyv = new JSONValue(key);
+      const keyv = new JSValue(key);
       if (keyv.byteLength > KEYSIZE_LIMIT) {
         throw new Error(
           `The id size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
@@ -198,7 +198,7 @@ export class DbDocSet implements IDbDocSet {
         ))
           .getDirty(false);
         if (oldDoc) {
-          const oldKey = new JSONValue(
+          const oldKey = new JSValue(
             indexInfo.func(
               (await this._readDocument((oldDoc as DocNodeType).value)).val,
             ),
@@ -216,7 +216,7 @@ export class DbDocSet implements IDbDocSet {
           }
         }
         if (doc) {
-          const kv = new KValue(new JSONValue(indexInfo.func(doc)), dataPos!);
+          const kv = new KValue(new JSValue(indexInfo.func(doc)), dataPos!);
           if (kv.key.byteLength > KEYSIZE_LIMIT) {
             throw new Error(
               `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
@@ -311,7 +311,7 @@ export class DbDocSet implements IDbDocSet {
           const index = new IndexTopPage(lockpage.storage).getDirty(true);
           await lockpage.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k.value);
-            const indexKV = new KValue(new JSONValue(func(doc.val)), k.value);
+            const indexKV = new KValue(new JSValue(func(doc.val)), k.value);
             if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
               throw new Error(
                 `The index key size is too large (${indexKV.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,

@@ -1,3 +1,4 @@
+import { encodeValue, readValue } from "./binval.ts";
 import { Buffer, encoder } from "./buffer.ts";
 import { Runtime } from "./runtime.ts";
 
@@ -98,22 +99,42 @@ export class UIntValue implements IKey<UIntValue> {
   }
 }
 
-export class JSONValue extends StringValue {
-  constructor(public readonly val: any, stringified?: string) {
-    super(stringified ?? JSON.stringify(val));
+export class JSValue implements Key<JSValue> {
+  private buf: Uint8Array | undefined;
+  constructor(public readonly val: any, buf?: Uint8Array) {
+    this.buf = buf;
   }
 
-  override compareTo(other: this) {
-    return this.val < other.val
-      ? -1
-      : this.val > other.val
-      ? 1
-      : super.compareTo(other);
+  get hash() {
+    throw new Error("Not implemented.");
+  }
+  get key(): Key<any> {
+    return this;
+  }
+
+  compareTo(other: this) {
+    return this.val < other.val ? -1 : this.val > other.val ? 1 : 0;
+  }
+
+  get byteLength(): number {
+    this.ensureBuf();
+    return this.buf!.byteLength;
+  }
+  writeTo(buf: Buffer): void {
+    this.ensureBuf();
+    buf.writeBuffer(this.buf!);
+  }
+  ensureBuf() {
+    if (this.buf === undefined) {
+      this.buf = encodeValue(this.val);
+    }
   }
 
   static readFrom(buf: Buffer) {
-    const str = buf.readString();
-    return new JSONValue(JSON.parse(str), str);
+    const begin = buf.pos;
+    const val = readValue(buf);
+    const end = buf.pos;
+    return new JSValue(val, buf.buffer.slice(begin, end));
   }
 
   [Runtime.customInspect]() {
@@ -156,11 +177,11 @@ export class KValue<K extends Key<K>, V extends IValue>
   }
 }
 
-export class DocumentValue extends JSONValue implements IKey<any> {
-  keyValue: JSONValue;
-  constructor(val: any, stringified?: string) {
-    super(val, stringified);
-    this.keyValue = new JSONValue(this.val.id);
+export class DocumentValue extends JSValue implements IKey<any> {
+  keyValue: JSValue;
+  constructor(val: any, buf?: Uint8Array) {
+    super(val, buf);
+    this.keyValue = new JSValue(this.val.id);
   }
 
   get key() {
@@ -168,14 +189,10 @@ export class DocumentValue extends JSONValue implements IKey<any> {
   }
 
   static readFrom(buf: Buffer) {
-    const str = buf.readString();
-    try {
-      return new DocumentValue(JSON.parse(str), str);
-    } catch (error) {
-      throw new Error(
-        "Failed to parse document: " + Runtime.inspect({ str, error }),
-      );
-    }
+    const begin = buf.pos;
+    const val = readValue(buf);
+    const end = buf.pos;
+    return new DocumentValue(val, buf.buffer.slice(begin, end));
   }
 
   [Runtime.customInspect]() {

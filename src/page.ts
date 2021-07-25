@@ -25,7 +25,7 @@ import { OneWriterLock } from "./util.ts";
 import {
   IComparable,
   IKey,
-  JSONValue,
+  JSValue,
   KeyComparator,
   KeyOf,
   KValue,
@@ -676,13 +676,13 @@ export { RecordsPage };
 export const SetPage = buildSetPageClass(SetPageBase);
 export type SetPage = InstanceType<typeof SetPage>;
 
-export type DocNodeType = KValue<JSONValue, PageOffsetValue>;
+export type DocNodeType = KValue<JSValue, PageOffsetValue>;
 
 const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses<
   DocNodeType
 >({
   valueReader: (buf: Buffer) =>
-    KValue.readFrom(buf, JSONValue.readFrom, PageOffsetValue.readFrom),
+    KValue.readFrom(buf, JSValue.readFrom, PageOffsetValue.readFrom),
   topPageType: PageType.DocSet,
   childPageType: PageType.DocRecords,
 });
@@ -836,13 +836,13 @@ export class IndexInfo {
 
 export type IndexInfoMap = Record<string, IndexInfo>;
 
-export type IndexNodeType = KValue<JSONValue, PageOffsetValue>;
+export type IndexNodeType = KValue<JSValue, PageOffsetValue>;
 
 const { top: IndexTopPage, child: IndexPage } = buildTreePageClasses<
   IndexNodeType
 >({
   valueReader: (buf: Buffer) =>
-    KValue.readFrom(buf, JSONValue.readFrom, PageOffsetValue.readFrom),
+    KValue.readFrom(buf, JSValue.readFrom, PageOffsetValue.readFrom),
   topPageType: PageType.IndexTop,
   childPageType: PageType.Index,
 });

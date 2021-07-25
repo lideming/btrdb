@@ -6,7 +6,7 @@ import {
   NodePage,
 } from "./page.ts";
 import {
-  JSONValue,
+  JSValue,
   KeyLeftmostComparator,
   KeyRightmostComparator,
   PageOffsetValue,
@@ -21,7 +21,7 @@ export function EQ(index: string, val: any): Query {
   return {
     eq: [index, val],
     async *run(page) {
-      const keyv = new JSONValue(val);
+      const keyv = new JSValue(val);
       const result = await findIndexKey(page, index, keyv, false);
       for await (const key of iterateNode(result.node, result.pos, false)) {
         if (keyv.compareTo(key.key) === 0) {
@@ -64,8 +64,8 @@ export function BETWEEN(
   return {
     between: [index, min, max, minInclusive, maxInclusive],
     async *run(page) {
-      const vMin = min == null ? null : new JSONValue(min);
-      const vMax = max == null ? null : new JSONValue(max);
+      const vMin = min == null ? null : new JSValue(min);
+      const vMax = max == null ? null : new JSValue(max);
       let keyIterator: AsyncIterable<IndexNodeType>;
       if (vMin) {
         const begin = await findIndexKey(page, index, vMin, !minInclusive);
@@ -158,7 +158,7 @@ export function NOT(query: Query): Query {
 export async function findIndexKey(
   page: DocSetPage,
   index: string,
-  vKey: JSONValue,
+  vKey: JSValue,
   rightMost: boolean,
 ) {
   let indexPage: NodePage<IndexNodeType>;
