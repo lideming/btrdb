@@ -17,6 +17,7 @@ function getPageSize() {
   }
 }
 
+import { readValue } from "./binval.ts";
 import { Buffer } from "./buffer.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
@@ -690,17 +691,15 @@ const { top: DocSetPageBase1, child: DocsPage } = buildTreePageClasses<
 const DocSetPageBase2 = buildSetPageClass(DocSetPageBase1);
 
 export class DocSetPage extends DocSetPageBase2 {
-  _lastId: any = null;
-  _lastIdLen = 5;
+  private _lastId: JSValue = new JSValue(null);
 
   get lastId() {
     return this._lastId;
   }
   set lastId(val) {
-    this.freeBytes += this._lastIdLen;
+    this.freeBytes += this._lastId.byteLength;
     this._lastId = val;
-    this._lastIdLen = Buffer.calcStringSize(JSON.stringify(val));
-    this.freeBytes -= this._lastIdLen;
+    this.freeBytes -= this._lastId.byteLength;
   }
 
   indexes: IndexInfoMap | null = null;
@@ -743,12 +742,12 @@ export class DocSetPage extends DocSetPageBase2 {
 
   override init() {
     super.init();
-    this.freeBytes -= 5 + 1 + 6;
+    this.freeBytes -= 1 + 1 + 6;
   }
 
   override _writeContent(buf: Buffer) {
     super._writeContent(buf);
-    buf.writeString(JSON.stringify(this.lastId));
+    this._lastId.writeTo(buf);
 
     buf.writeU8(this.indexesAddrs.length);
     for (const indexAddr of this.indexesAddrs) {
@@ -759,7 +758,7 @@ export class DocSetPage extends DocSetPageBase2 {
 
   override _readContent(buf: Buffer) {
     super._readContent(buf);
-    this.lastId = JSON.parse(buf.readString());
+    this.lastId = JSValue.readFrom(buf);
 
     const indexCount = buf.readU8();
     for (let i = 0; i < indexCount; i++) {
@@ -772,7 +771,6 @@ export class DocSetPage extends DocSetPageBase2 {
   override _copyTo(other: this) {
     super._copyTo(other);
     other._lastId = this._lastId;
-    other._lastIdLen = this._lastIdLen;
     other.indexes = this.indexes; // cow on change
     other.indexesInfoAddr = this.indexesInfoAddr; // cow on change
     other.indexesAddrs = [...this.indexesAddrs];

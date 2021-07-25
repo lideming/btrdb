@@ -117,17 +117,17 @@ export class JSValue implements Key<JSValue> {
   }
 
   get byteLength(): number {
-    this.ensureBuf();
-    return this.buf!.byteLength;
+    return this.ensureBuf().byteLength;
   }
   writeTo(buf: Buffer): void {
     this.ensureBuf();
-    buf.writeBuffer(this.buf!);
+    buf.writeBuffer(this.ensureBuf());
   }
   ensureBuf() {
     if (this.buf === undefined) {
       this.buf = encodeValue(this.val);
     }
+    return this.buf;
   }
 
   static readFrom(buf: Buffer) {

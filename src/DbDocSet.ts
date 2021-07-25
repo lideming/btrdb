@@ -158,8 +158,10 @@ export class DbDocSet implements IDbDocSet {
     const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
       if (inserting) {
-        if (key == null) key = doc["id"] = this.idGenerator(lockpage.lastId);
-        lockpage.lastId = key;
+        if (key == null) {
+          key = doc["id"] = this.idGenerator(lockpage.lastId.val);
+        }
+        lockpage.lastId = new JSValue(key);
       }
       const dataPos = !doc
         ? null
