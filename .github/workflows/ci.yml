@@ -15,6 +15,10 @@ jobs:
         with:
           deno-version: 1.x
 
+      - name: Run unit test
+        run: |
+          deno test tests/binval.test.ts
+
       - name: Run test.ts
         run: |
           mkdir -p testdata

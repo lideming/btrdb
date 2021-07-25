@@ -1,23 +1,40 @@
 export const encoder = new TextEncoder();
 export const decoder = new TextDecoder();
 
+const tmpbuf = new ArrayBuffer(8);
+const f64arr = new Float64Array(tmpbuf);
+const u8arr = new Uint8Array(tmpbuf);
+
 export class Buffer {
   constructor(
     public buffer: Uint8Array,
     public pos: number,
   ) {}
-  // TODO: actually not U32 but I32
+
+  writeF64(num: number) {
+    f64arr[0] = num;
+    this.writeBuffer(u8arr);
+  }
+  readF64() {
+    for (let i = 0; i < 8; i++) {
+      u8arr[i] = this.buffer[this.pos + i];
+    }
+    this.pos += 8;
+    return f64arr[0];
+  }
   writeU32(num: number) {
-    this.buffer[this.pos++] = (num >> 24) & 0xff;
-    this.buffer[this.pos++] = (num >> 16) & 0xff;
-    this.buffer[this.pos++] = (num >> 8) & 0xff;
+    this.buffer[this.pos++] = (num >>> 24) & 0xff;
+    this.buffer[this.pos++] = (num >>> 16) & 0xff;
+    this.buffer[this.pos++] = (num >>> 8) & 0xff;
     this.buffer[this.pos++] = num & 0xff;
   }
   readU32() {
-    return this.buffer[this.pos++] << 24 |
+    return (
+      this.buffer[this.pos++] << 24 |
       this.buffer[this.pos++] << 16 |
       this.buffer[this.pos++] << 8 |
-      this.buffer[this.pos++];
+      this.buffer[this.pos++]
+    ) >>> 0;
   }
   writeU16(num: number) {
     this.buffer[this.pos++] = (num >> 8) & 0xff;
@@ -38,7 +55,12 @@ export class Buffer {
     this.pos += buf.length;
   }
   readBuffer(len: number) {
-    var buf = this.buffer.slice(this.pos, len);
+    var buf = this.buffer.slice(this.pos, this.pos + len);
+    this.pos += len;
+    return buf;
+  }
+  readBufferReadonly(len: number) {
+    var buf = this.buffer.subarray(this.pos, this.pos + len);
     this.pos += len;
     return buf;
   }
