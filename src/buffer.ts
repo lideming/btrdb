@@ -12,6 +12,7 @@ export class Buffer {
   ) {}
 
   writeF64(num: number) {
+    this.beforeWriting(8);
     f64arr[0] = num;
     this.writeBuffer(u8arr);
   }
@@ -23,6 +24,7 @@ export class Buffer {
     return f64arr[0];
   }
   writeU32(num: number) {
+    this.beforeWriting(4);
     this.buffer[this.pos++] = (num >>> 24) & 0xff;
     this.buffer[this.pos++] = (num >>> 16) & 0xff;
     this.buffer[this.pos++] = (num >>> 8) & 0xff;
@@ -37,6 +39,7 @@ export class Buffer {
     ) >>> 0;
   }
   writeU16(num: number) {
+    this.beforeWriting(2);
     this.buffer[this.pos++] = (num >> 8) & 0xff;
     this.buffer[this.pos++] = num & 0xff;
   }
@@ -45,14 +48,20 @@ export class Buffer {
       this.buffer[this.pos++];
   }
   writeU8(num: number) {
+    this.beforeWriting(1);
     this.buffer[this.pos++] = num & 0xff;
   }
   readU8() {
     return this.buffer[this.pos++];
   }
   writeBuffer(buf: Uint8Array) {
-    this.buffer.set(buf, this.pos);
-    this.pos += buf.length;
+    this.beforeWriting(buf.byteLength);
+    try {
+      this.buffer.set(buf, this.pos);
+    } catch {
+      debugger;
+    }
+    this.pos += buf.byteLength;
   }
   readBuffer(len: number) {
     var buf = this.buffer.slice(this.pos, this.pos + len);
@@ -107,5 +116,25 @@ export class Buffer {
   }
   static calcEncodedUintSize(len: number) {
     return (len < 254) ? 1 : (len < 65536) ? 3 : 5;
+  }
+
+  beforeWriting(size: number) {}
+}
+
+export class DynamicBuffer extends Buffer {
+  constructor(initSize = 32) {
+    super(new Uint8Array(initSize), 0);
+  }
+  beforeWriting(size: number) {
+    const minsize = this.pos + size;
+    if (minsize > this.buffer.byteLength) {
+      let newsize = this.buffer.byteLength * 4;
+      while (minsize > newsize) {
+        newsize *= 4;
+      }
+      const newBuffer = new Uint8Array(newsize);
+      newBuffer.set(this.buffer);
+      this.buffer = newBuffer;
+    }
   }
 }

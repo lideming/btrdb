@@ -1,9 +1,19 @@
 // "binval" - Yet another BSON
 // See `docs/dev_binval.md`
 
-import { Buffer, decoder, encoder } from "./buffer.ts";
+import { Buffer, decoder, DynamicBuffer, encoder } from "./buffer.ts";
 
-export function encodeValue(obj: any, buf: Buffer) {
+export function encodeValue(val: any) {
+  const buf = new DynamicBuffer();
+  writeValue(val, buf);
+  return buf.buffer.subarray(0, buf.pos);
+}
+
+export function decodeValue(buf: Uint8Array) {
+  return readValue(new Buffer(buf, 0));
+}
+
+export function writeValue(obj: any, buf: Buffer) {
   if (obj === null) {
     buf.writeU8(0);
   } else if (obj === undefined) {
@@ -14,8 +24,18 @@ export function encodeValue(obj: any, buf: Buffer) {
     buf.writeU8(3);
   } else if (typeof obj === "number") {
     if (Number.isInteger(obj)) {
-      if (obj >= -8 && obj <= 127) {
-        buf.writeU8(128 + obj);
+      if (obj >= -7 && obj <= 127) {
+        if (obj > 0) {
+          buf.writeU8(128 + obj);
+        } else if (obj < 0) {
+          buf.writeU8(127 + obj);
+        } else {
+          if (Object.is(obj, -0)) {
+            buf.writeU8(127);
+          } else { // +0
+            buf.writeU8(128);
+          }
+        }
       } else {
         let negative = 0;
         if (obj < 0) {
@@ -59,7 +79,7 @@ export function encodeValue(obj: any, buf: Buffer) {
         buf.writeEncodedUint(obj.length);
       }
       for (const val of obj) {
-        encodeValue(val, buf);
+        writeValue(val, buf);
       }
     } else if (obj instanceof Uint8Array) {
       if (obj.length <= 32) {
@@ -79,7 +99,7 @@ export function encodeValue(obj: any, buf: Buffer) {
       }
       for (const key of keys) {
         buf.writeString(key);
-        encodeValue(obj[key], buf);
+        writeValue(obj[key], buf);
       }
     }
   } else {
@@ -87,7 +107,7 @@ export function encodeValue(obj: any, buf: Buffer) {
   }
 }
 
-export function decodeValue(buf: Buffer) {
+export function readValue(buf: Buffer) {
   const type = buf.readU8();
   return decodeMap[type](buf, type);
 }
@@ -154,8 +174,13 @@ for (let i = 1; i <= 32; i++) {
 }
 
 // 120 ~ 255 small number
-for (let i = 120; i <= 255; i++) {
-  decodeMap.push(decodeSmallNumber);
+for (let i = 120; i <= 126; i++) {
+  decodeMap.push(decodeSmallNegativeNumber);
+}
+// 127 "-0"
+decodeMap.push(() => -0);
+for (let i = 128; i <= 255; i++) {
+  decodeMap.push(decodeSmallPositiveNumber);
 }
 
 function decodeSmallArray(buf: Buffer, type: number) {
@@ -175,7 +200,11 @@ function decodeSmallString(buf: Buffer, type: number) {
   return decoder.decode(buffer);
 }
 
-function decodeSmallNumber(buf: Buffer, type: number) {
+function decodeSmallNegativeNumber(buf: Buffer, type: number) {
+  return type - 127;
+}
+
+function decodeSmallPositiveNumber(buf: Buffer, type: number) {
   return type - 128;
 }
 
@@ -187,7 +216,7 @@ function decodeObject(buf: Buffer, propCount: number) {
   let obj: any = {};
   for (let i = 0; i < propCount; i++) {
     const key = buf.readString();
-    obj[key] = decodeValue(buf);
+    obj[key] = readValue(buf);
   }
   return obj;
 }
@@ -195,7 +224,7 @@ function decodeObject(buf: Buffer, propCount: number) {
 function decodeArray(buf: Buffer, itemCount: number) {
   let arr: any[] = [];
   for (let i = 0; i < itemCount; i++) {
-    arr.push(decodeValue(buf));
+    arr.push(readValue(buf));
   }
   return arr;
 }

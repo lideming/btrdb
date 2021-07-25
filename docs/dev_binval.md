@@ -31,7 +31,8 @@ Yet another BSON to encode JavaScript values into binary.
 | 45 ~ 53   | (body) object with key count 0 ~ 8            |
 | 54 ~ 86   | (body) binary data with length 0 ~ 32         |
 | 87 ~ 119  | (body) string with length 0 ~ 32              |
-| 120 ~ 255 | number `-8` ~ `127`                           |
+| 120 ~ 127 | number `-7` ~ `-0`                            |
+| 128 ~ 255 | number `+0` ~ `127`                           |
 
 ## The length-prefixed
 
