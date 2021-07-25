@@ -200,7 +200,7 @@ export async function* iterateNode(
         pos = reverse ? node.keys.length - 1 : 0;
       } while (node.children[pos]);
     }
-    if ((reverse ? -1 : node.children.length) == pos) {
+    if ((reverse ? -1 : node.keys.length + 1) == pos) {
       // The end of this node, try go up
       if (node.parent) {
         pos = node.posInParent!;
