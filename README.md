@@ -23,7 +23,8 @@ btrfs.
 - [x] [Key-Value sets](#Use-key-value-set)
 - [x] [Document sets](#Use-document-set)
   - [x] [Indexes](#Indexes)
-  - [x] [Query expressions](#Query)
+  - [x] [Query functions](#Query_(functions))
+  - [x] [Query tagged template parser](#Query_(tagged_template))
   - [ ] BSON instead of JSON on disk (?)
 - [x] ACID
   - [x] Readers/writer lock
@@ -187,10 +188,41 @@ console.info(await userSet.findIndex("onlineAdmin", true));
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
-#### Query
+#### Query (tagged template)
 
-Querying on indexes is supported. Currently supported operators: `EQ` (==), `LT`
-(<), `GT` (>), `LE` (<=), `GE` (>=), `AND`, `OR`, `NOT`.
+Querying on indexes is supported.
+
+Queries can be created from the `query` tagged template parser for better
+readability.
+
+Operators: `==`, `!=`, `>`, `<`, `<=`, `>=`, `AND`, `OR`, `NOT`, `(`, `)`
+
+Always use `${}` to pass values.
+
+```ts
+// Get all offline admins
+console.info(
+  await userSet.query(query`
+    status == ${"offline"}
+    AND role == ${"admin"}
+  `),
+);
+// [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
+
+// Get all online users, but exclude id 1.
+console.info(
+  await userSet.query(query`
+    status == ${"online"}
+    AND NOT id == ${1}
+  `),
+);
+// [ { username: "bar", status: "online", role: "admin", id: 3 } ]
+```
+
+#### Query (functions)
+
+Query functions: `EQ` (==), `NE` (!=), `LT` (<), `GT` (>), `LE` (<=), `GE` (>=),
+`AND`, `OR`, `NOT`.
 
 ```ts
 // Get all offline admins
