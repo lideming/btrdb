@@ -120,9 +120,21 @@ async function nodeFromNames(names) {
 
 const zeros = new Uint8Array(EXTENT_SIZE);
 
-// Maps fd to inode id
-/** @type {Map<number, number>} */
+class Opened {
+  /** @param {Inode} inode */
+  constructor(inode) {
+    this.inode = inode;
+    this.dirty = false;
+  }
+}
+
+// Maps fd to inode
+/** @type {Map<number, Opened>} */
 const fdMap = new Map();
+
+// Maps inode id to inode
+/** @type {Map<number, Opened>} */
+const inoMap = new Map();
 
 let nextFd = 1;
 
@@ -160,7 +172,7 @@ const ops = {
     };
     await inodes.insert(inode);
     const fd = nextFd++;
-    fdMap.set(fd, inode.id);
+    fdMap.set(fd, new Opened(inode));
     console.info("create done", inode);
     cb(0, fd);
   },
@@ -189,22 +201,26 @@ const ops = {
   },
   open: async function (path, flags, cb) {
     console.info("open", { path, flags });
-    
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
     const fd = nextFd++;
-    fdMap.set(fd, node.id);
+    fdMap.set(fd, new Opened(node));
     return cb(0, fd);
   },
-  release: function (path, fd, cb) {
+  release: async function (path, fd, cb) {
+    const op = fdMap.get(fd);
     fdMap.delete(fd);
+    if (op.dirty) {
+      await inodes.upsert(op.inode);
+    }
     return cb(0);
   },
   /** @param {Buffer} buf */
   read: async function (path, fd, buf, len, pos, cb) {
-    const ino = fdMap.get(fd);
-    const node = await inodes.get(ino);
-    console.info("read", {ino, pos, len});
+    const op = fdMap.get(fd);
+    const ino = op.inode.id;
+    const node = op.inode;
+    console.info("read", { ino, pos, len });
     let haveRead = 0;
     while (len > 0 && pos < node.size) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
@@ -220,7 +236,7 @@ const ops = {
           (extoffset || tocopy < dataLen)
             ? data.subarray(extoffset, extoffset + tocopy)
             : data,
-          haveRead
+          haveRead,
         );
         haveRead += tocopy;
         pos += tocopy;
@@ -238,8 +254,9 @@ const ops = {
   },
   /** @param {Buffer} buf */
   write: async function (path, fd, buf, len, pos, cb) {
-    const ino = fdMap.get(fd);
-    const node = await inodes.get(ino);
+    const op = fdMap.get(fd);
+    const node = op.inode;
+    const ino = node.id;
     let haveWritten = 0;
     while (len > 0) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
@@ -252,7 +269,7 @@ const ops = {
           id: null,
           ino: ino,
           pos: extpos,
-          data: null
+          data: null,
         };
       }
       if (tocopy == EXTENT_SIZE) {
@@ -276,9 +293,9 @@ const ops = {
     if (pos > node.size) {
       node.size = pos;
       await inodes.upsert(node);
-      console.info("file extended", ino, node.size);
+      // console.info("file extended", ino, node.size);
     }
-    console.info("write done", ino, haveWritten);
+    // console.info("write done", ino, haveWritten);
     return cb(haveWritten);
   },
   async chown(path, uid, gid, cb) {
@@ -317,10 +334,9 @@ const ops = {
 
 // await db.commit();
 
-
 (async function () {
   while (true) {
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, 5000));
     if (await db.commit(true)) {
       // db.storage.cache.clear();
       // console.info(await inodes.getAll());
@@ -331,7 +347,12 @@ const ops = {
   }
 })();
 
-const fuse = new Fuse("mnt", ops, { debug: false, mkdir: true, force: true });
+const fuse = new Fuse("mnt", ops, {
+  debug: false,
+  mkdir: true,
+  force: true,
+  bigWrites: true,
+});
 fuse.mount(function (err) {
   if (err) console.error(err);
   //   fs.readFile(path.join(mnt, 'test'), function (err, buf) {
