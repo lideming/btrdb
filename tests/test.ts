@@ -11,6 +11,7 @@ import {
   OR,
   query,
 } from "../mod.ts";
+import { encoder } from "../src/buffer.ts";
 import { assert, assertEquals } from "./test.dep.ts";
 import {
   assertQueryEquals,
@@ -158,6 +159,18 @@ runWithDatabase(async function DocSet_largeDocument(db) {
     "id": 3,
     "username": longString,
   }]);
+  assertEquals(await db.commit(), true);
+});
+
+runWithDatabase(async function DocSet_blob(db) {
+  var set = await db.createSet<any>("testblob", "doc");
+  const buffer = encoder.encode(longString);
+  await set!.insert({ data: buffer });
+  await set!.insert({ data: new Uint8Array(0) });
+  assertEquals(await set!.getAll(), [
+    { id: 1, data: buffer },
+    { id: 2, data: new Uint8Array(0) },
+  ]);
   assertEquals(await db.commit(), true);
 });
 
