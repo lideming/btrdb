@@ -40,7 +40,7 @@ inodes.useIndexes({
  * @property {number} id
  * @property {number} ino - inode id
  * @property {number} pos
- * @property {string} data - base64
+ * @property {Uint8Array} data
  */
 
 const extents = await db.createSet("extents", "doc");
@@ -48,12 +48,17 @@ extents.useIndexes({
   "ino_pos": (x) => x.ino + "_" + x.pos,
 });
 
-if (!(await inodes.get(0))) {
+// console.info(await inodes._dump());
+// console.info(await inodes.getAll());
+// console.info(await extents._dump());
+// throw '';
+
+if (!(await inodes.get(1))) {
   // create the "root" folder
   const now = Date.now();
-  await inodes.upsert({
-    id: 0,
-    paid: -1,
+  await inodes.insert({
+    id: null,
+    paid: 0,
     kind: KIND_DIR,
     name: "",
     size: 0,
@@ -74,7 +79,7 @@ function statFromInode(node) {
     ctime: new Date(node.ct),
     nlink: 1,
     size: node.size,
-    mode: node.mode,
+    mode: node.kind == KIND_DIR ? 16877 : node.mode,
     uid: node.uid,
     gid: node.gid,
   };
@@ -99,19 +104,21 @@ function nodeFromPath(path) {
 
 /** @param {string[]} names */
 async function nodeFromNames(names) {
-  if (names.length === 0) return await inodes.get(0);
+  if (names.length === 0) return await inodes.get(1);
   /** @type {Inode} */
   let node = null;
   for (const name of names) {
     const [nextNode] = await inodes.findIndex(
       "paid_name",
-      (node ? node.id : 0) + "_" + name,
+      (node ? node.id : 1) + "_" + name,
     );
     if (!nextNode) return null;
     node = nextNode;
   }
   return node;
 }
+
+const zeros = new Uint8Array(EXTENT_SIZE);
 
 // Maps fd to inode id
 /** @type {Map<number, number>} */
@@ -123,12 +130,13 @@ const ops = {
   readdir: async function (path, cb) {
     const node = await nodeFromPath(path);
     const children = await inodes.findIndex("paid", node.id);
-    console.info({ node, children });
+    // console.info({ node, children });
     return cb(null, children.map((x) => x.name));
   },
   getattr: async function (path, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
+    // console.info('getattr', {path, node});
     return cb(0, statFromInode(node));
   },
   create: async function (path, mode, cb) {
@@ -137,7 +145,7 @@ const ops = {
     const dirnode = await nodeFromNames(dirOfNames(names));
     if (!dirnode) return cb(Fuse.ENOENT);
     const now = Date.now();
-    await inodes.insert({
+    const inode = {
       id: null,
       paid: dirnode.id,
       kind: KIND_FILE,
@@ -149,11 +157,39 @@ const ops = {
       mode: mode,
       uid: uid,
       gid: gid,
-    });
+    };
+    await inodes.insert(inode);
+    const fd = nextFd++;
+    fdMap.set(fd, inode.id);
+    console.info("create done", inode);
+    cb(0, fd);
+  },
+  mkdir: async function (path, mode, cb) {
+    console.info("mkdir", { path, mode });
+    const names = namesFromPath(path);
+    const dirnode = await nodeFromNames(dirOfNames(names));
+    if (!dirnode) return cb(Fuse.ENOENT);
+    const now = Date.now();
+    const inode = {
+      id: null,
+      paid: dirnode.id,
+      kind: KIND_DIR,
+      name: names[names.length - 1],
+      size: 0,
+      ct: now,
+      at: now,
+      mt: now,
+      mode: mode,
+      uid: uid,
+      gid: gid,
+    };
+    await inodes.insert(inode);
+    console.info("mkdir done", inode);
     cb(0);
   },
   open: async function (path, flags, cb) {
     console.info("open", { path, flags });
+    
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
     const fd = nextFd++;
@@ -164,21 +200,138 @@ const ops = {
     fdMap.delete(fd);
     return cb(0);
   },
-  read: function (path, fd, buf, len, pos, cb) {
+  /** @param {Buffer} buf */
+  read: async function (path, fd, buf, len, pos, cb) {
     const ino = fdMap.get(fd);
-    // const node = await inodes.get(ino);
+    const node = await inodes.get(ino);
+    console.info("read", {ino, pos, len});
     let haveRead = 0;
-    while (len > 0) {
+    while (len > 0 && pos < node.size) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
       const [extent] = await extents.findIndex("ino_pos", ino + "_" + extpos);
-      // TODO
+      let dataLen = 0;
+      if (extent) {
+        const data = extent.data;
+        dataLen = data.byteLength;
+        const extoffset = pos % EXTENT_SIZE;
+        const tocopy = Math.min(dataLen - extoffset, len);
+        // console.info("read", {ino, pos, len, extpos, extoffset, tocopy});
+        buf.set(
+          (extoffset || tocopy < dataLen)
+            ? data.subarray(extoffset, extoffset + tocopy)
+            : data,
+          haveRead
+        );
+        haveRead += tocopy;
+        pos += tocopy;
+        len -= tocopy;
+      }
+      if (len > 0 && dataLen < EXTENT_SIZE) {
+        const copyZeros = Math.min(EXTENT_SIZE - dataLen, len);
+        buf.set(zeros.subarray(0, copyZeros), haveRead);
+        haveRead += copyZeros;
+        pos += copyZeros;
+        len -= copyZeros;
+      }
     }
-    buf.write(str);
-    return cb(str.length);
+    return cb(haveRead);
+  },
+  /** @param {Buffer} buf */
+  write: async function (path, fd, buf, len, pos, cb) {
+    const ino = fdMap.get(fd);
+    const node = await inodes.get(ino);
+    let haveWritten = 0;
+    while (len > 0) {
+      const extpos = Math.floor(pos / EXTENT_SIZE);
+      const extoffset = pos % EXTENT_SIZE;
+      const tocopy = Math.min(EXTENT_SIZE - extoffset, len);
+      /** @type {[Extent]} */
+      let [extent] = await extents.findIndex("ino_pos", ino + "_" + extpos);
+      if (!extent) {
+        extent = {
+          id: null,
+          ino: ino,
+          pos: extpos,
+          data: null
+        };
+      }
+      if (tocopy == EXTENT_SIZE) {
+        extent.data = buf.slice(haveWritten, tocopy);
+      } else {
+        if (!extent.data || extent.data.byteLength < extoffset + tocopy) {
+          const newData = new Uint8Array(extoffset + tocopy);
+          if (extent.data) {
+            newData.set(extent.data);
+          }
+          extent.data = newData;
+        }
+        extent.data.set(buf.slice(haveWritten, tocopy), extoffset);
+      }
+      if (!extent.id) await extents.insert(extent);
+      else await extents.upsert(extent);
+      haveWritten += tocopy;
+      pos += tocopy;
+      len -= tocopy;
+    }
+    if (pos > node.size) {
+      node.size = pos;
+      await inodes.upsert(node);
+      console.info("file extended", ino, node.size);
+    }
+    console.info("write done", ino, haveWritten);
+    return cb(haveWritten);
+  },
+  async chown(path, uid, gid, cb) {
+    const node = await nodeFromPath(path);
+    node.uid = uid;
+    node.gid = gid;
+    await inodes.upsert(node);
+    cb(0);
+  },
+  async chmod(path, mode, cb) {
+    const node = await nodeFromPath(path);
+    node.mode = mode;
+    await inodes.upsert(node);
+    cb(0);
+  },
+  async truncate(path, size, cb) {
+    const node = await nodeFromPath(path);
+    node.size = size;
+    await inodes.upsert(node);
+    cb(0);
+  },
+  async ftruncate(path, fd, size, cb) {
+    const ino = fdMap.get(fd);
+    const node = await inodes.get(ino);
+    node.size = size;
+    await inodes.upsert(node);
+    cb(0);
   },
 };
 
-const fuse = new Fuse("mnt", ops, { debug: true, mkdir: true, force: true });
+// console.info(await inodes.getAll());
+
+// await ops.create("/a", 1234, () => {});
+// await ops.create("/b", 1234, () => {});
+// await ops.create("/c", 1234, () => {});
+
+// await db.commit();
+
+
+(async function () {
+  while (true) {
+    await new Promise(r => setTimeout(r, 5000));
+    if (await db.commit(true)) {
+      // db.storage.cache.clear();
+      // console.info(await inodes.getAll());
+      console.info("commited.");
+    } else {
+      console.info("nothing to commit.");
+    }
+  }
+})();
+
+const fuse = new Fuse("mnt", ops, { debug: false, mkdir: true, force: true });
 fuse.mount(function (err) {
   if (err) console.error(err);
   //   fs.readFile(path.join(mnt, 'test'), function (err, buf) {
