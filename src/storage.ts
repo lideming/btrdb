@@ -44,6 +44,7 @@ export abstract class PageStorage {
   /** Queue for committed pages being written to disk. */
   deferWritingQueue = new TaskQueue();
 
+  /** last dirty DataPage used by addData */
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
@@ -295,6 +296,8 @@ export abstract class PageStorage {
         throw new Error("super page is not dirty");
       }
     }
+    this.dataPage = undefined;
+    this.dataPageBuffer = undefined;
     if (this.cleanSuperPage) {
       this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
