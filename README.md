@@ -25,7 +25,8 @@ btrfs.
   - [x] [Indexes](#Indexes)
   - [x] [Query functions](#Query_(functions))
   - [x] [Query tagged template parser](#Query_(tagged_template))
-  - [ ] BSON instead of JSON on disk (?)
+  - [x] Serialize to ["binval" format](docs/dev_binval.md) on disk
+  - [x] Binary data value support
 - [x] ACID
   - [x] Readers/writer lock
   - [x] Isolation with concurrent reader on snapshots

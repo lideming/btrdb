@@ -1,6 +1,12 @@
 # `binval` format
 
-Yet another BSON to encode JavaScript values into binary.
+binval (binary value) is yet another BSON-like format to encode JavaScript
+values into binary.
+
+It's more space-efficient than BSON. It saves the space by encoding the length
+into the "type" byte in many cases.
+
+See [binval.ts](../src/binval.ts) for the implementation.
 
 ## Value
 
