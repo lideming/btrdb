@@ -12,7 +12,7 @@ Linux.
 - [x] chmod, chown, utimens, truncate
 - [x] unlink, rmdir, rename
 - [x] statfs
-- [ ] link, symlink
+- [x] link, symlink
 
 ## Performance
 

@@ -1,4 +1,5 @@
 import { Database } from "@yuuza/btrdb";
+import { readlink } from "fs";
 import Fuse from "fuse-native";
 import { getgid, getuid } from "process";
 
@@ -8,6 +9,7 @@ const EXTENT_SIZE = 4 * 4096;
 
 const KIND_DIR = 1;
 const KIND_FILE = 2;
+const KIND_SYMLINK = 3;
 
 const [gid, uid] = [getgid(), getuid()];
 
@@ -17,9 +19,7 @@ await db.openFile("testdata/fs.db");
 /**
  * @typedef {Object} Inode
  * @property {number} id
- * @property {number} paid - parent id
  * @property {number} kind - KIND_*
- * @property {string} name
  * @property {number} size
  * @property {number} ct - ctime
  * @property {number} at - atime
@@ -27,10 +27,20 @@ await db.openFile("testdata/fs.db");
  * @property {number} mode
  * @property {number} uid
  * @property {number} gid
+ * @property {string} ln - symlink
  */
 
 const inodes = await db.createSet("inodes", "doc");
-inodes.useIndexes({
+
+/**
+ * @typedef {Object} Link
+ * @property {number} id
+ * @property {number} ino
+ * @property {number} paid - parent dir inode
+ * @property {string} name
+ */
+const links = await db.createSet("links", "doc");
+await links.useIndexes({
   "paid": (x) => x.paid,
   "paid_name": (x) => x.paid + "_" + x.name,
 });
@@ -44,7 +54,7 @@ inodes.useIndexes({
  */
 
 const extents = await db.createSet("extents", "doc");
-extents.useIndexes({
+await extents.useIndexes({
   "ino_pos": (x) => x.ino + "_" + x.pos,
 });
 
@@ -58,9 +68,7 @@ if (!(await inodes.get(1))) {
   const now = Date.now();
   await inodes.insert({
     id: null,
-    paid: 0,
     kind: KIND_DIR,
-    name: "",
     size: 0,
     ct: now,
     at: now,
@@ -69,13 +77,29 @@ if (!(await inodes.get(1))) {
     uid: uid,
     gid: gid,
   });
+  await links.insert({
+    id: null,
+    ino: 1,
+    paid: 0,
+    name: "",
+  });
 }
+
+const rootLink = {
+  id: 1,
+  ino: 1,
+  paid: 0,
+  name: "",
+};
 
 /** @param {Inode} node */
 function statFromInode(node) {
   let mode = node.mode;
-  if (node.kind === KIND_DIR) {
-    mode |= 0o40000;
+  if (node.kind === KIND_FILE) {
+  } else if (node.kind === KIND_DIR) {
+    mode |= 0o040000;
+  } else if (node.kind === KIND_SYMLINK) {
+    mode |= 0o120000;
   }
   // console.info('stat', node.name, 'mode', (mode >>> 0).toString(2));
   return {
@@ -110,20 +134,34 @@ function nodeFromPath(path) {
   return nodeFromNames(names);
 }
 
+/** @param {string} path */
+function linkFromPath(path) {
+  const names = namesFromPath(path);
+  return linkFromNames(names);
+}
+
+/** @param {string[]} names */
+async function linkFromNames(names) {
+  if (names.length === 0) return rootLink;
+  /** @type {Inode} */
+  let link = null;
+  for (const name of names) {
+    const [nextLink] = await links.findIndex(
+      "paid_name",
+      (link ? link.ino : 1) + "_" + name,
+    );
+    if (!nextLink) return null;
+    link = nextLink;
+  }
+  return link;
+}
+
 /** @param {string[]} names */
 async function nodeFromNames(names) {
   if (names.length === 0) return tryGetCached(await inodes.get(1));
-  /** @type {Inode} */
-  let node = null;
-  for (const name of names) {
-    const [nextNode] = await inodes.findIndex(
-      "paid_name",
-      (node ? node.id : 1) + "_" + name,
-    );
-    if (!nextNode) return null;
-    node = nextNode;
-  }
-  return tryGetCached(node);
+  const link = await linkFromNames(names);
+  if (!link) return null;
+  return await nodeFromIno(link.ino);
 }
 
 function createFd(node) {
@@ -183,14 +221,41 @@ function tryGetCached(node) {
   return node;
 }
 
-function unlinkNode(node) {
-  node.paid = 0;
-  return flushNode(node);
+async function unlink(link) {
+  await links.delete(link.id);
 }
 
 function flushNode(node) {
   markCleanNode(node);
   return inodes.upsert(node);
+}
+
+async function createInode(path, kind, mode, symlink) {
+  const names = namesFromPath(path);
+  const dirlink = await linkFromNames(dirOfNames(names));
+  if (!dirlink) return Fuse.ENOENT;
+  const now = Date.now();
+  const inode = {
+    id: null,
+    kind: kind,
+    size: symlink ? symlink.length : 0,
+    ct: now,
+    at: now,
+    mt: now,
+    mode: mode,
+    uid: uid,
+    gid: gid,
+    ln: symlink,
+  };
+  await inodes.insert(inode);
+  const link = {
+    id: null,
+    ino: inode.id,
+    paid: dirlink.ino,
+    name: names[names.length - 1],
+  };
+  await links.insert(link);
+  return inode;
 }
 
 const zeros = new Uint8Array(EXTENT_SIZE);
@@ -215,17 +280,24 @@ let nextFd = 1;
 
 const ops = {
   readdir: async function (path, cb) {
-    const node = await nodeFromPath(path);
-    if (!node) return cb(Fuse.ENOENT);
-    const children = await inodes.findIndex("paid", node.id);
-    // console.info({ node, children });
-    return cb(null, children.map((x) => x.name));
+    let dirino;
+    if (path == "/") {
+      dirino = 1;
+    } else {
+      const link = await linkFromPath(path);
+      if (!link) return cb(Fuse.ENOENT);
+      dirino = link.ino;
+    }
+    const childLinks = await links.findIndex("paid", dirino);
+    // console.info({ node, childLinks });
+    return cb(null, childLinks.map((x) => x.name));
   },
   getattr: async function (path, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    // console.info("getattr", { path, node });
-    return cb(0, statFromInode(node));
+    const stat = statFromInode(node);
+    console.info("getattr", { path, stat });
+    return cb(0, stat);
   },
   fgetattr(path, fd, cb) {
     const node = nodeFromFd(fd);
@@ -234,48 +306,16 @@ const ops = {
   },
   create: async function (path, mode, cb) {
     console.info("create", { path, mode });
-    const names = namesFromPath(path);
-    const dirnode = await nodeFromNames(dirOfNames(names));
-    if (!dirnode) return cb(Fuse.ENOENT);
-    const now = Date.now();
-    const inode = {
-      id: null,
-      paid: dirnode.id,
-      kind: KIND_FILE,
-      name: names[names.length - 1],
-      size: 0,
-      ct: now,
-      at: now,
-      mt: now,
-      mode: mode,
-      uid: uid,
-      gid: gid,
-    };
-    await inodes.insert(inode);
+    const inode = await createInode(path, KIND_FILE, mode, null);
+    if (inode < 0) return cb(inode);
     const fd = createFd(inode);
     console.info("create done", inode);
     cb(0, fd);
   },
   mkdir: async function (path, mode, cb) {
     console.info("mkdir", { path, mode });
-    const names = namesFromPath(path);
-    const dirnode = await nodeFromNames(dirOfNames(names));
-    if (!dirnode) return cb(Fuse.ENOENT);
-    const now = Date.now();
-    const inode = {
-      id: null,
-      paid: dirnode.id,
-      kind: KIND_DIR,
-      name: names[names.length - 1],
-      size: 0,
-      ct: now,
-      at: now,
-      mt: now,
-      mode: mode,
-      uid: uid,
-      gid: gid,
-    };
-    await inodes.insert(inode);
+    const inode = await createInode(path, KIND_DIR, mode, null);
+    if (inode < 0) return cb(inode);
     console.info("mkdir done", inode);
     cb(0);
   },
@@ -417,36 +457,70 @@ const ops = {
     cb(0);
   },
   async unlink(path, cb) {
-    const node = await nodeFromPath(path);
-    if (!node) return cb(Fuse.ENOENT);
-    await unlinkNode(node);
+    const link = await linkFromPath(path);
+    if (!link) return cb(Fuse.ENOENT);
+    await unlink(link);
     cb(0);
   },
   async rmdir(path, cb) {
-    const node = await nodeFromPath(path);
-    if (!node) return cb(Fuse.ENOENT);
-    await unlinkNode(node);
+    const link = await linkFromPath(path);
+    if (!link) return cb(Fuse.ENOENT);
+    await unlink(link);
     cb(0);
   },
   async rename(src, dest, cb) {
-    let srcNode = await nodeFromPath(src);
-    if (!srcNode) return cb(Fuse.ENOENT);
-    srcNode = tryGetCached(srcNode);
+    let srcLink = await linkFromPath(src);
+    if (!srcLink) return cb(Fuse.ENOENT);
     const destNames = namesFromPath(dest);
     const destFileName = destNames[destNames.length - 1];
-    const destDirNode = await nodeFromNames(dirOfNames(destNames));
-    if (!destDirNode) return cb(Fuse.ENOENT);
-    const [destNode] = await inodes.findIndex(
+    const destDirLink = await linkFromNames(dirOfNames(destNames));
+    if (!destDirLink) return cb(Fuse.ENOENT);
+    const [destLink] = await links.findIndex(
       "paid_name",
-      destDirNode.id + "_" + destFileName,
+      destDirLink.ino + "_" + destFileName,
     );
-    if (destNode) {
-      await unlinkNode(tryGetCached(destNode));
+    if (destLink) {
+      await unlink(destLink);
     }
-    srcNode.paid = destDirNode.id;
-    srcNode.name = destFileName;
-    await flushNode(srcNode);
+    srcLink.paid = destDirLink.ino;
+    srcLink.name = destFileName;
+    await links.upsert(srcLink);
     cb(0);
+  },
+  async link(src, dest, cb) {
+    let srcLink = await linkFromPath(src);
+    if (!srcLink) return cb(Fuse.ENOENT);
+    const destNames = namesFromPath(dest);
+    const destFileName = destNames[destNames.length - 1];
+    const destDirLink = await linkFromNames(dirOfNames(destNames));
+    if (!destDirLink) return cb(Fuse.ENOENT);
+    const [destLink] = await links.findIndex(
+      "paid_name",
+      destDirLink.ino + "_" + destFileName,
+    );
+    if (destLink) {
+      await unlink(destLink);
+    }
+    srcLink.paid = destDirLink.ino;
+    srcLink.name = destFileName;
+    await links.insert({
+      id: null,
+      ino: srcLink.ino,
+      paid: destDirLink.ino,
+      name: destFileName,
+    });
+    cb(0);
+  },
+  async symlink(src, dest, cb) {
+    const inode = await createInode(dest, KIND_SYMLINK, 0o0777, src);
+    if (inode < 0) return cb(inode);
+    console.info("symlink done", inode);
+    cb(0);
+  },
+  async readlink(path, cb) {
+    const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
+    cb(0, node.ln);
   },
   statfs(path, cb) {
     const maxFiles = Number.MAX_SAFE_INTEGER;
