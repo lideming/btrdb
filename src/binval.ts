@@ -107,6 +107,82 @@ export function writeValue(obj: any, buf: Buffer) {
   }
 }
 
+export function calcEncodedLength(obj: any): number {
+  if (obj === null) {
+    return 1;
+  } else if (obj === undefined) {
+    return 1;
+  } else if (obj === false) {
+    return 1;
+  } else if (obj === true) {
+    return 1;
+  } else if (typeof obj === "number") {
+    if (Number.isInteger(obj)) {
+      if (obj >= -7 && obj <= 127) {
+        return 1;
+      } else {
+        if (obj < 0) obj = -obj;
+        if (obj < 256) {
+          return 2;
+        } else if (obj < 65536) {
+          return 3;
+        } else if (obj < 2 ** 32) {
+          return 5;
+        } else {
+          // float64
+          return 9;
+        }
+      }
+    } else {
+      return 9;
+    }
+  } else if (typeof obj === "string") {
+    const encoded = encoder.encode(obj);
+    if (encoded.length <= 32) {
+      return 1 + encoded.length;
+    } else {
+      return 1 + Buffer.calcEncodedUintSize(encoded.length) + encoded.length;
+    }
+  } else if (typeof obj === "object") {
+    if (obj instanceof Array) {
+      let len = 0;
+      if (obj.length <= 8) {
+        len += 1;
+      } else {
+        len += 1 + Buffer.calcEncodedUintSize(obj.length);
+      }
+      for (const val of obj) {
+        len += calcEncodedLength(val);
+      }
+      return len;
+    } else if (obj instanceof Uint8Array) {
+      let len = 0;
+      if (obj.length <= 32) {
+        len += 1;
+      } else {
+        len += 1 + Buffer.calcEncodedUintSize(obj.byteLength);
+      }
+      len += obj.byteLength;
+      return len;
+    } else {
+      let len = 0;
+      const keys = Object.keys(obj);
+      if (keys.length <= 8) {
+        len += 1;
+      } else {
+        len += 1 + Buffer.calcEncodedUintSize(keys.length);
+      }
+      for (const key of keys) {
+        len += Buffer.calcStringSize(key);
+        len += calcEncodedLength(obj[key]);
+      }
+      return len;
+    }
+  } else {
+    throw new Error("Unsupported value " + obj);
+  }
+}
+
 export function readValue(buf: Buffer) {
   const type = buf.readU8();
   return decodeMap[type](buf, type);

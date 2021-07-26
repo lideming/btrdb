@@ -1,4 +1,5 @@
 import {
+  calcEncodedLength,
   decodeValue,
   encodeValue,
   readValue,
@@ -53,5 +54,15 @@ Deno.test("binval read/write", () => {
 Deno.test("binval encode/decode", () => {
   for (const val of values) {
     assertEquals(decodeValue(encodeValue(val)), val);
+  }
+});
+
+Deno.test("binval calcEncodedLength", () => {
+  for (const val of values) {
+    try {
+      assertEquals(calcEncodedLength(val), encodeValue(val).byteLength);
+    } catch (error) {
+      throw new Error(Deno.inspect({ error, val }));
+    }
   }
 });
