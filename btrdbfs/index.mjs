@@ -50,7 +50,7 @@ extents.useIndexes({
 
 // console.info(await inodes._dump());
 // console.info(await inodes.getAll());
-// console.info(await extents._dump());
+// console.info((await extents._dump()).indexes.ino_pos);
 // throw '';
 
 if (!(await inodes.get(1))) {
@@ -115,12 +115,49 @@ async function nodeFromNames(names) {
     if (!nextNode) return null;
     node = nextNode;
   }
+  const cached = inoMap.get(node.id);
+  if (cached) return cached.inode;
   return node;
+}
+
+function createFd(node) {
+  const fd = nextFd++;
+  let cached = inoMap.get(node.id);
+  if (!cached) {
+    cached = new Cached(node);
+    inoMap.set(node.ino, cached);
+  }
+  fdMap.set(fd, cached);
+  return fd;
+}
+
+function nodeFromFd(fd) {
+  return fdMap.get(fd).inode;
+}
+
+function nodeFromIno(ino) {
+  const cached = inoMap.get(ino);
+  if (cached) return Promise.resolve(cached.inode);
+  return inodes.get(ino);
+}
+
+function markDirtyNode(node) {
+  let cached = inoMap.get(node.id);
+  if (cached) {
+    if (cached.inode !== node) {
+      throw new Error("Expected having same inode in cache");
+    }
+    cached.dirty = true;
+  } else {
+    cached = new Cached(node);
+    cached.dirty = true;
+    inoMap.set(node.id, cached);
+  }
 }
 
 const zeros = new Uint8Array(EXTENT_SIZE);
 
-class Opened {
+class Cached {
   /** @param {Inode} inode */
   constructor(inode) {
     this.inode = inode;
@@ -129,11 +166,11 @@ class Opened {
 }
 
 // Maps fd to inode
-/** @type {Map<number, Opened>} */
+/** @type {Map<number, Cached>} */
 const fdMap = new Map();
 
 // Maps inode id to inode
-/** @type {Map<number, Opened>} */
+/** @type {Map<number, Cached>} */
 const inoMap = new Map();
 
 let nextFd = 1;
@@ -148,7 +185,7 @@ const ops = {
   getattr: async function (path, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    // console.info('getattr', {path, node});
+    console.info("getattr", { path, node });
     return cb(0, statFromInode(node));
   },
   create: async function (path, mode, cb) {
@@ -171,8 +208,7 @@ const ops = {
       gid: gid,
     };
     await inodes.insert(inode);
-    const fd = nextFd++;
-    fdMap.set(fd, new Opened(inode));
+    const fd = createFd(inode);
     console.info("create done", inode);
     cb(0, fd);
   },
@@ -203,23 +239,18 @@ const ops = {
     console.info("open", { path, flags });
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    const fd = nextFd++;
-    fdMap.set(fd, new Opened(node));
+    const fd = createFd(node);
     return cb(0, fd);
   },
   release: async function (path, fd, cb) {
-    const op = fdMap.get(fd);
+    const cached = fdMap.get(fd);
     fdMap.delete(fd);
-    if (op.dirty) {
-      await inodes.upsert(op.inode);
-    }
     return cb(0);
   },
   /** @param {Buffer} buf */
   read: async function (path, fd, buf, len, pos, cb) {
-    const op = fdMap.get(fd);
-    const ino = op.inode.id;
-    const node = op.inode;
+    const node = nodeFromFd(fd);
+    const ino = node.id;
     console.info("read", { ino, pos, len });
     let haveRead = 0;
     while (len > 0 && pos < node.size) {
@@ -254,14 +285,17 @@ const ops = {
   },
   /** @param {Buffer} buf */
   write: async function (path, fd, buf, len, pos, cb) {
-    const op = fdMap.get(fd);
-    const node = op.inode;
+    // console.info('write ' + len);
+    // return cb(len);
+    const node = nodeFromFd(fd);
     const ino = node.id;
+    // console.info({ino, pos, len});
     let haveWritten = 0;
     while (len > 0) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
       const extoffset = pos % EXTENT_SIZE;
       const tocopy = Math.min(EXTENT_SIZE - extoffset, len);
+      // console.info({haveWritten, extpos, extoffset, tocopy});
       /** @type {[Extent]} */
       let [extent] = await extents.findIndex("ino_pos", ino + "_" + extpos);
       if (!extent) {
@@ -273,7 +307,7 @@ const ops = {
         };
       }
       if (tocopy == EXTENT_SIZE) {
-        extent.data = buf.slice(haveWritten, tocopy);
+        extent.data = buf.slice(haveWritten, haveWritten + tocopy);
       } else {
         if (!extent.data || extent.data.byteLength < extoffset + tocopy) {
           const newData = new Uint8Array(extoffset + tocopy);
@@ -282,7 +316,10 @@ const ops = {
           }
           extent.data = newData;
         }
-        extent.data.set(buf.slice(haveWritten, tocopy), extoffset);
+        extent.data.set(
+          buf.slice(haveWritten, haveWritten + tocopy),
+          extoffset,
+        );
       }
       if (!extent.id) await extents.insert(extent);
       else await extents.upsert(extent);
@@ -292,36 +329,35 @@ const ops = {
     }
     if (pos > node.size) {
       node.size = pos;
-      await inodes.upsert(node);
+      markDirtyNode(node);
       // console.info("file extended", ino, node.size);
     }
-    // console.info("write done", ino, haveWritten);
+    console.info("write done", ino, haveWritten);
     return cb(haveWritten);
   },
   async chown(path, uid, gid, cb) {
     const node = await nodeFromPath(path);
     node.uid = uid;
     node.gid = gid;
-    await inodes.upsert(node);
+    markDirtyNode(node);
     cb(0);
   },
   async chmod(path, mode, cb) {
     const node = await nodeFromPath(path);
     node.mode = mode;
-    await inodes.upsert(node);
+    markDirtyNode(node);
     cb(0);
   },
   async truncate(path, size, cb) {
     const node = await nodeFromPath(path);
     node.size = size;
-    await inodes.upsert(node);
+    markDirtyNode(node);
     cb(0);
   },
   async ftruncate(path, fd, size, cb) {
-    const ino = fdMap.get(fd);
-    const node = await inodes.get(ino);
+    const node = nodeFromFd(fd);
     node.size = size;
-    await inodes.upsert(node);
+    markDirtyNode(node);
     cb(0);
   },
 };
@@ -337,6 +373,13 @@ const ops = {
 (async function () {
   while (true) {
     await new Promise((r) => setTimeout(r, 5000));
+    for (const [ino, cached] of inoMap) {
+      if (cached.dirty) {
+        console.info("upsert inode", cached.inode);
+        await inodes.upsert(cached.inode);
+        cached.dirty = false;
+      }
+    }
     if (await db.commit(true)) {
       // db.storage.cache.clear();
       // console.info(await inodes.getAll());
@@ -348,10 +391,11 @@ const ops = {
 })();
 
 const fuse = new Fuse("mnt", ops, {
-  debug: false,
+  debug: true,
   mkdir: true,
   force: true,
   bigWrites: true,
+  // directIO: true,
 });
 fuse.mount(function (err) {
   if (err) console.error(err);

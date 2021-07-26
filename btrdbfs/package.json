@@ -13,6 +13,6 @@
   "license": "ISC",
   "dependencies": {
     "@yuuza/btrdb": "link:..",
-    "fuse-native": "^2.2.6"
+    "fuse-native": "link:../../fuse-native"
   }
 }
