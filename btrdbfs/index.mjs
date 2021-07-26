@@ -2,7 +2,7 @@ import { Database } from "@yuuza/btrdb";
 import Fuse from "fuse-native";
 import { getgid, getuid } from "process";
 
-// TODO: save data as blob (waiting for btrfs)
+const FS_SIZE = 2 * 1024 * 1024 * 1024;
 
 const EXTENT_SIZE = 4 * 4096;
 
@@ -451,8 +451,8 @@ const ops = {
   statfs(path, cb) {
     const maxFiles = Number.MAX_SAFE_INTEGER;
     const usedFiles = inodes.count;
-    const totalBlocks = (1024 * 1024 * 1024) / EXTENT_SIZE;
-    const usedBlocks = db.storage.nextAddr * 4096 / EXTENT_SIZE;
+    const usedBlocks = Math.ceil(db.storage.nextAddr * 4096 / EXTENT_SIZE);
+    const totalBlocks = Math.ceil(Math.max(FS_SIZE / EXTENT_SIZE, usedBlocks));
     cb(0, {
       bsize: EXTENT_SIZE,
       frsize: EXTENT_SIZE,
