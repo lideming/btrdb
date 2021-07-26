@@ -3,6 +3,8 @@ import { readlink } from "fs";
 import Fuse from "fuse-native";
 import { getgid, getuid } from "process";
 
+const DEBUG = false;
+
 const FS_SIZE = 2 * 1024 * 1024 * 1024;
 
 const EXTENT_SIZE = 4 * 4096;
@@ -289,44 +291,45 @@ const ops = {
       dirino = link.ino;
     }
     const childLinks = await links.findIndex("paid", dirino);
-    // console.info({ node, childLinks });
+    if (DEBUG) console.info("readdir", { node, childLinks });
     return cb(null, childLinks.map((x) => x.name));
   },
   getattr: async function (path, cb) {
     const node = await nodeFromPath(path);
+    if (DEBUG) console.info("getattr", { path, deno });
     if (!node) return cb(Fuse.ENOENT);
     const stat = statFromInode(node);
-    console.info("getattr", { path, stat });
     return cb(0, stat);
   },
   fgetattr(path, fd, cb) {
     const node = nodeFromFd(fd);
-    // console.info("fgetattr", { path, node });
+    if (DEBUG) console.info("fgetattr", { path, node });
     return cb(0, statFromInode(node));
   },
   create: async function (path, mode, cb) {
-    console.info("create", { path, mode });
+    if (DEBUG) console.info("create", path, mode);
     const inode = await createInode(path, KIND_FILE, mode, null);
     if (inode < 0) return cb(inode);
     const fd = createFd(inode);
-    console.info("create done", inode);
+    // console.info("create done", inode.id, path);
     cb(0, fd);
   },
   mkdir: async function (path, mode, cb) {
-    console.info("mkdir", { path, mode });
+    if (DEBUG) console.info("mkdir", path, mode);
     const inode = await createInode(path, KIND_DIR, mode, null);
     if (inode < 0) return cb(inode);
-    console.info("mkdir done", inode);
+    // console.info("mkdir done", inode.id, path);
     cb(0);
   },
   open: async function (path, flags, cb) {
-    console.info("open", { path, flags });
+    if (DEBUG) console.info("open", path, flags);
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
     const fd = createFd(node);
     return cb(0, fd);
   },
   release: async function (path, fd, cb) {
+    if (DEBUG) console.info("close", path, fd);
     const cached = fdMap.get(fd);
     fdMap.delete(fd);
     return cb(0);
@@ -335,7 +338,7 @@ const ops = {
   read: async function (path, fd, buf, len, pos, cb) {
     const node = nodeFromFd(fd);
     const ino = node.id;
-    // console.info("read", ino, pos, len);
+    if (DEBUG) console.info("read", ino, pos, len);
     let haveRead = 0;
     while (len > 0 && pos < node.size) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
@@ -369,7 +372,7 @@ const ops = {
   },
   /** @param {Buffer} buf */
   write: async function (path, fd, buf, len, pos, cb) {
-    // console.info('write ' + len);
+    if (DEBUG) console.info("write " + len);
     // return cb(len);
     const node = nodeFromFd(fd);
     const ino = node.id;
@@ -437,7 +440,7 @@ const ops = {
   async utimens(path, atime, mtime, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    console.info({ path, atime, mtime });
+    // console.info({ path, atime, mtime });
     node.at = atime;
     node.mt = mtime;
     markDirtyNode(node);
@@ -514,7 +517,7 @@ const ops = {
   async symlink(src, dest, cb) {
     const inode = await createInode(dest, KIND_SYMLINK, 0o0777, src);
     if (inode < 0) return cb(inode);
-    console.info("symlink done", inode);
+    if (DEBUG) console.info("symlink done", inode);
     cb(0);
   },
   async readlink(path, cb) {
@@ -554,12 +557,17 @@ const ops = {
 (async function () {
   while (true) {
     await new Promise((r) => setTimeout(r, 5000));
+    let updatedInodes = 0;
     for (const [ino, cached] of inoMap) {
       if (cached.dirty) {
-        console.info("upsert inode", cached.inode);
+        // console.info("upsert inode", cached.inode);
         await inodes.upsert(cached.inode);
         cached.dirty = false;
+        updatedInodes++;
       }
+    }
+    if (updatedInodes) {
+      console.info("updated inodes: " + updatedInodes);
     }
     if (await db.commit(false)) {
       // db.storage.cache.clear();
