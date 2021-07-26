@@ -43,6 +43,10 @@ The on-disk format structure and the API are NOT stable yet.
 
 Please do NOT use it in any serious production.
 
+## btrdbfs
+
+[btrdbfs](./btrdbfs/) is a project to run filesystem on btrdb using FUSE.
+
 ## Usage
 
 ### Import the module
