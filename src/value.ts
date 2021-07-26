@@ -1,4 +1,9 @@
-import { encodeValue, readValue } from "./binval.ts";
+import {
+  calcEncodedLength,
+  encodeValue,
+  readValue,
+  writeValue,
+} from "./binval.ts";
 import { Buffer, encoder } from "./buffer.ts";
 import { Runtime } from "./runtime.ts";
 
@@ -100,9 +105,9 @@ export class UIntValue implements IKey<UIntValue> {
 }
 
 export class JSValue implements Key<JSValue> {
-  private buf: Uint8Array | undefined;
+  private _byteLength: number | undefined;
   constructor(public readonly val: any, buf?: Uint8Array) {
-    this.buf = buf;
+    this._byteLength = buf?.byteLength;
   }
 
   get hash() {
@@ -117,17 +122,13 @@ export class JSValue implements Key<JSValue> {
   }
 
   get byteLength(): number {
-    return this.ensureBuf().byteLength;
+    return this._byteLength ??= calcEncodedLength(this.val);
   }
   writeTo(buf: Buffer): void {
-    this.ensureBuf();
-    buf.writeBuffer(this.ensureBuf());
+    writeValue(this.val, buf);
   }
-  ensureBuf() {
-    if (this.buf === undefined) {
-      this.buf = encodeValue(this.val);
-    }
-    return this.buf;
+  getBuf() {
+    return encodeValue(this.val);
   }
 
   static readFrom(buf: Buffer) {
