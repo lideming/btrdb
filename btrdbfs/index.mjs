@@ -73,16 +73,23 @@ if (!(await inodes.get(1))) {
 
 /** @param {Inode} node */
 function statFromInode(node) {
+  let mode = node.mode;
+  if (node.kind === KIND_DIR) {
+    mode |= 0o40000;
+  }
+  // console.info('stat', node.name, 'mode', (mode >>> 0).toString(2));
   return {
-    mtime: new Date(node.mt),
-    atime: new Date(node.at),
-    ctime: new Date(node.ct),
+    mtime: node.mt,
+    atime: node.at,
+    ctime: node.ct,
     nlink: 1,
     size: node.size,
-    mode: node.kind == KIND_DIR ? 0x4000 | node.mode : node.mode,
+    mode: mode,
     uid: node.uid,
     gid: node.gid,
     ino: node.id,
+    blksize: EXTENT_SIZE,
+    blocks: Math.ceil(node.size / 512),
   };
 }
 
@@ -390,7 +397,7 @@ const ops = {
   async utimens(path, atime, mtime, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    console({path, atime, mtime});
+    console.info({ path, atime, mtime });
     node.at = atime;
     node.mt = mtime;
     markDirtyNode(node);
@@ -455,11 +462,11 @@ const ops = {
       files: maxFiles,
       ffree: maxFiles - usedFiles,
       favail: maxFiles - usedFiles,
-      namemax: 1024
+      namemax: 1024,
       // fsid: 1234,
       // flag: 1000000,
     });
-  }
+  },
 };
 
 // console.info(await inodes.getAll());
@@ -491,10 +498,10 @@ const ops = {
 })();
 
 const fuse = new Fuse("mnt", ops, {
-  debug: true,
+  // debug: true,
   mkdir: true,
   force: true,
-  // bigWrites: true,
+  bigWrites: true,
   // directIO: true,
 });
 fuse.mount(function (err) {
