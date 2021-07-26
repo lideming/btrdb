@@ -104,7 +104,7 @@ function nodeFromPath(path) {
 
 /** @param {string[]} names */
 async function nodeFromNames(names) {
-  if (names.length === 0) return await inodes.get(1);
+  if (names.length === 0) return tryGetCached(await inodes.get(1));
   /** @type {Inode} */
   let node = null;
   for (const name of names) {
@@ -115,24 +115,27 @@ async function nodeFromNames(names) {
     if (!nextNode) return null;
     node = nextNode;
   }
-  const cached = inoMap.get(node.id);
-  if (cached) return cached.inode;
-  return node;
+  return tryGetCached(node);
 }
 
 function createFd(node) {
   const fd = nextFd++;
   let cached = inoMap.get(node.id);
-  if (!cached) {
+  if (cached) {
+    if (cached.inode !== node) {
+      throw new Error("Expected having same inode in cache");
+    }
+  } else {
     cached = new Cached(node);
-    inoMap.set(node.ino, cached);
+    inoMap.set(node.id, cached);
   }
   fdMap.set(fd, cached);
   return fd;
 }
 
 function nodeFromFd(fd) {
-  return fdMap.get(fd).inode;
+  const node = fdMap.get(fd).inode;
+  return node;
 }
 
 function nodeFromIno(ino) {
@@ -143,6 +146,7 @@ function nodeFromIno(ino) {
 
 function markDirtyNode(node) {
   let cached = inoMap.get(node.id);
+  // console.info("markDirty", node.id);
   if (cached) {
     if (cached.inode !== node) {
       throw new Error("Expected having same inode in cache");
@@ -153,6 +157,32 @@ function markDirtyNode(node) {
     cached.dirty = true;
     inoMap.set(node.id, cached);
   }
+}
+
+function markCleanNode(node) {
+  let cached = inoMap.get(node.id);
+  if (cached) {
+    if (cached.inode !== node) {
+      throw new Error("Expected having same inode in cache");
+    }
+    cached.dirty = false;
+  }
+}
+
+function tryGetCached(node) {
+  const cached = inoMap.get(node.id);
+  if (cached) return cached.inode;
+  return node;
+}
+
+function unlinkNode(node) {
+  node.paid = 0;
+  return flushNode(node);
+}
+
+function flushNode(node) {
+  markCleanNode(node);
+  return inodes.upsert(node);
 }
 
 const zeros = new Uint8Array(EXTENT_SIZE);
@@ -178,6 +208,7 @@ let nextFd = 1;
 const ops = {
   readdir: async function (path, cb) {
     const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
     const children = await inodes.findIndex("paid", node.id);
     // console.info({ node, children });
     return cb(null, children.map((x) => x.name));
@@ -185,7 +216,7 @@ const ops = {
   getattr: async function (path, cb) {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
-    console.info("getattr", { path, node });
+    // console.info("getattr", { path, node });
     return cb(0, statFromInode(node));
   },
   create: async function (path, mode, cb) {
@@ -337,6 +368,7 @@ const ops = {
   },
   async chown(path, uid, gid, cb) {
     const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
     node.uid = uid;
     node.gid = gid;
     markDirtyNode(node);
@@ -344,12 +376,14 @@ const ops = {
   },
   async chmod(path, mode, cb) {
     const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
     node.mode = mode;
     markDirtyNode(node);
     cb(0);
   },
   async truncate(path, size, cb) {
     const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
     node.size = size;
     markDirtyNode(node);
     cb(0);
@@ -358,6 +392,38 @@ const ops = {
     const node = nodeFromFd(fd);
     node.size = size;
     markDirtyNode(node);
+    cb(0);
+  },
+  async unlink(path, cb) {
+    const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
+    await unlinkNode(node);
+    cb(0);
+  },
+  async rmdir(path, cb) {
+    const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
+    await unlinkNode(node);
+    cb(0);
+  },
+  async rename(src, dest, cb) {
+    let srcNode = await nodeFromPath(src);
+    if (!srcNode) return cb(Fuse.ENOENT);
+    srcNode = tryGetCached(srcNode);
+    const destNames = namesFromPath(dest);
+    const destFileName = destNames[destNames.length - 1];
+    const destDirNode = await nodeFromNames(dirOfNames(destNames));
+    if (!destDirNode) return cb(Fuse.ENOENT);
+    const [destNode] = await inodes.findIndex(
+      "paid_name",
+      destDirNode.id + "_" + destFileName,
+    );
+    if (destNode) {
+      await unlinkNode(tryGetCached(destNode));
+    }
+    srcNode.paid = destDirNode.id;
+    srcNode.name = destFileName;
+    await flushNode(srcNode);
     cb(0);
   },
 };
