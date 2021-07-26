@@ -4,7 +4,7 @@ import { getgid, getuid } from "process";
 
 // TODO: save data as blob (waiting for btrfs)
 
-const EXTENT_SIZE = 4096;
+const EXTENT_SIZE = 4 * 4096;
 
 const KIND_DIR = 1;
 const KIND_FILE = 2;
@@ -79,9 +79,10 @@ function statFromInode(node) {
     ctime: new Date(node.ct),
     nlink: 1,
     size: node.size,
-    mode: node.kind == KIND_DIR ? 16877 : node.mode,
+    mode: node.kind == KIND_DIR ? 0x4000 | node.mode : node.mode,
     uid: node.uid,
     gid: node.gid,
+    ino: node.id,
   };
 }
 
@@ -219,6 +220,11 @@ const ops = {
     // console.info("getattr", { path, node });
     return cb(0, statFromInode(node));
   },
+  fgetattr(path, fd, cb) {
+    const node = nodeFromFd(fd);
+    // console.info("fgetattr", { path, node });
+    return cb(0, statFromInode(node));
+  },
   create: async function (path, mode, cb) {
     console.info("create", { path, mode });
     const names = namesFromPath(path);
@@ -282,7 +288,7 @@ const ops = {
   read: async function (path, fd, buf, len, pos, cb) {
     const node = nodeFromFd(fd);
     const ino = node.id;
-    console.info("read", { ino, pos, len });
+    // console.info("read", ino, pos, len);
     let haveRead = 0;
     while (len > 0 && pos < node.size) {
       const extpos = Math.floor(pos / EXTENT_SIZE);
@@ -363,7 +369,7 @@ const ops = {
       markDirtyNode(node);
       // console.info("file extended", ino, node.size);
     }
-    console.info("write done", ino, haveWritten);
+    // console.info("write done", ino, haveWritten);
     return cb(haveWritten);
   },
   async chown(path, uid, gid, cb) {
@@ -378,6 +384,15 @@ const ops = {
     const node = await nodeFromPath(path);
     if (!node) return cb(Fuse.ENOENT);
     node.mode = mode;
+    markDirtyNode(node);
+    cb(0);
+  },
+  async utimens(path, atime, mtime, cb) {
+    const node = await nodeFromPath(path);
+    if (!node) return cb(Fuse.ENOENT);
+    console({path, atime, mtime});
+    node.at = atime;
+    node.mt = mtime;
     markDirtyNode(node);
     cb(0);
   },
@@ -426,6 +441,25 @@ const ops = {
     await flushNode(srcNode);
     cb(0);
   },
+  statfs(path, cb) {
+    const maxFiles = Number.MAX_SAFE_INTEGER;
+    const usedFiles = inodes.count;
+    const totalBlocks = (1024 * 1024 * 1024) / EXTENT_SIZE;
+    const usedBlocks = db.storage.nextAddr * 4096 / EXTENT_SIZE;
+    cb(0, {
+      bsize: EXTENT_SIZE,
+      frsize: EXTENT_SIZE,
+      blocks: totalBlocks,
+      bfree: totalBlocks - usedBlocks,
+      bavail: totalBlocks - usedBlocks,
+      files: maxFiles,
+      ffree: maxFiles - usedFiles,
+      favail: maxFiles - usedFiles,
+      namemax: 1024
+      // fsid: 1234,
+      // flag: 1000000,
+    });
+  }
 };
 
 // console.info(await inodes.getAll());
@@ -446,7 +480,7 @@ const ops = {
         cached.dirty = false;
       }
     }
-    if (await db.commit(true)) {
+    if (await db.commit(false)) {
       // db.storage.cache.clear();
       // console.info(await inodes.getAll());
       console.info("commited.");
@@ -460,7 +494,7 @@ const fuse = new Fuse("mnt", ops, {
   debug: true,
   mkdir: true,
   force: true,
-  bigWrites: true,
+  // bigWrites: true,
   // directIO: true,
 });
 fuse.mount(function (err) {
