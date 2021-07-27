@@ -41,7 +41,8 @@ export class StringValue implements Key<StringValue> {
     public readonly str: string,
   ) {
   }
-  private buf: Uint8Array | undefined = undefined;
+  private _totalLen: number | undefined = undefined;
+  private _strLen: number | undefined = undefined;
   get hash() {
     return this.str;
   }
@@ -49,20 +50,21 @@ export class StringValue implements Key<StringValue> {
     return this;
   }
   get byteLength(): number {
-    this.ensureBuf();
-    return Buffer.calcLenEncodedBufferSize(this.buf!);
+    if (this._totalLen === undefined) {
+      this._strLen = Buffer.calcStringSize(this.str);
+      this._totalLen = Buffer.calcEncodedUintSize(this._strLen) + this._strLen;
+    }
+    return this._totalLen;
   }
   writeTo(buf: Buffer): void {
-    this.ensureBuf();
-    buf.writeLenEncodedBuffer(this.buf!);
+    this.byteLength;
+    buf.writeEncodedUint(this._strLen!);
+    buf.beforeWriting(this._strLen!);
+    encoder.encodeInto(this.str, buf.buffer.subarray(buf.pos));
+    buf.pos += this._strLen!;
   }
   compareTo(str: this) {
     return (this.str < str.str) ? -1 : (this.str === str.str) ? 0 : 1;
-  }
-  ensureBuf() {
-    if (this.buf === undefined) {
-      this.buf = encoder.encode(this.str);
-    }
   }
 
   static readFrom(buf: Buffer) {

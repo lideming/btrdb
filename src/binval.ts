@@ -62,14 +62,19 @@ export function writeValue(obj: any, buf: Buffer) {
       buf.writeF64(obj);
     }
   } else if (typeof obj === "string") {
-    const encoded = encoder.encode(obj);
-    if (encoded.length <= 32) {
-      buf.writeU8(87 + encoded.length);
+    const len = Buffer.calcStringSize(obj);
+    if (len <= 32) {
+      buf.writeU8(87 + len);
     } else {
       buf.writeU8(11);
-      buf.writeEncodedUint(encoded.length);
+      buf.writeEncodedUint(len);
     }
-    buf.writeBuffer(encoded);
+    buf.beforeWriting(len);
+    const r = encoder.encodeInto(obj, buf.buffer.subarray(buf.pos));
+    if (r.written !== len) {
+      throw new Error("Expect " + r.written + " == " + len);
+    }
+    buf.pos += len;
   } else if (typeof obj === "object") {
     if (obj instanceof Array) {
       if (obj.length <= 8) {
@@ -137,11 +142,11 @@ export function calcEncodedLength(obj: any): number {
       return 9;
     }
   } else if (typeof obj === "string") {
-    const encoded = encoder.encode(obj);
-    if (encoded.length <= 32) {
-      return 1 + encoded.length;
+    const len = Buffer.calcStringSize(obj);
+    if (len <= 32) {
+      return 1 + len;
     } else {
-      return 1 + Buffer.calcEncodedUintSize(encoded.length) + encoded.length;
+      return 1 + Buffer.calcEncodedUintSize(len) + len;
     }
   } else if (typeof obj === "object") {
     if (obj instanceof Array) {
@@ -173,7 +178,7 @@ export function calcEncodedLength(obj: any): number {
         len += 1 + Buffer.calcEncodedUintSize(keys.length);
       }
       for (const key of keys) {
-        len += Buffer.calcStringSize(key);
+        len += Buffer.calcLenEncodedStringSize(key);
         len += calcEncodedLength(obj[key]);
       }
       return len;

@@ -784,8 +784,8 @@ class IndexesInfoValue {
     for (const key in indexes) {
       if (Object.prototype.hasOwnProperty.call(indexes, key)) {
         const info = indexes[key];
-        size += Buffer.calcStringSize(key) +
-          Buffer.calcStringSize(info.funcStr) +
+        size += Buffer.calcLenEncodedStringSize(key) +
+          Buffer.calcLenEncodedStringSize(info.funcStr) +
           1;
       }
     }
