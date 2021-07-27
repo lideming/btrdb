@@ -370,14 +370,17 @@ export abstract class PageStorage {
   protected abstract _close(): void;
 }
 
+const MAX_COMBINED = 4;
+
 export class InFileStorage extends PageStorage {
   file: RuntimeFile | undefined = undefined;
   filePath: string | undefined = undefined;
   lock = new OneWriterLock();
+  commitBuffer = new Buffer(new Uint8Array(PAGESIZE * MAX_COMBINED), 0);
 
   /**
      * `"final-only"` (default): call the fsync once only after final writing.
-     * This ensures the consistency on most systems.
+     * This ensures the consistency on some systems.
      *
      * `true | "strict"`: call fsync once before SuperPage and once after final writing.
      * This ensures the consistency on all (correctly implemented) systems.
@@ -385,14 +388,14 @@ export class InFileStorage extends PageStorage {
      * `false`: do not call fsync.
      * This should be used on systems with power backup. Also on some FileSystems like Btrfs.
      *
-     * Because most of underlying OSes and FileSystems does not guarantee the order of writing on-disk,
-     * we need to do "write(file, data); fsync(file); write(file, superPage); fsync(file);" to ensure
-     * the writing order.
+     * Because the underlying OSes and FileSystems does not guarantee the order of writing on-disk,
+     * people usually do "write(file, data); fsync(file); write(file, superPage); fsync(file);"
+     * to ensure the writing order.
      * This ensures the consistency on system crash or power loss during the commit.
      *
-     * But since this DB engine is log-structured, the DB file is like a write-ahead-log,
+     * Since this DB engine is log-structured, the DB file is like a write-ahead-log,
      * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
-     * is probably okay for most FileSystems.
+     * is probably okay on some FileSystems (esp. on Btrfs).
      */
   fsync: "final-only" | "strict" | boolean = "final-only";
 
@@ -427,26 +430,48 @@ export class InFileStorage extends PageStorage {
     // 4) Call fsync().
 
     await this.lock.enterWriter();
-    const buffer = new Buffer(new Uint8Array(PAGESIZE), 0);
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      page.writeTo(buffer);
-      this.perfCounter.pageWrites++;
-      this.perfCounter.pageFreebyteWrites += page.freeBytes;
-      await this.file!.seek(page.addr * PAGESIZE, Runtime.SeekMode.Start);
-      for (let i = 0; i < buffer.pos;) {
-        const nwrite = await this.file!.write(buffer.buffer.subarray(i));
+    const buffer = this.commitBuffer;
+    const pagesLen = pages.length;
+    let filePos = -1;
+    for (let i = 0; i < pagesLen; i++) {
+      const beginAddr = pages[i].addr;
+      const beginI = i;
+      let combined = 1;
+      while (
+        i + 2 < pagesLen && pages[i + 1].addr === beginAddr + combined &&
+        combined < MAX_COMBINED
+      ) {
+        i++;
+        combined++;
+      }
+      for (let p = 0; p < combined; p++) {
+        buffer.pos = p * PAGESIZE;
+        const page = pages[beginI + p];
+        page.writeTo(buffer);
+        this.perfCounter.pageWrites++;
+        this.perfCounter.pageFreebyteWrites += page.freeBytes;
+      }
+      const targerPos = beginAddr * PAGESIZE;
+      if (filePos !== targerPos) {
+        await this.file!.seek(targerPos, Runtime.SeekMode.Start);
+      }
+      const toWrite = combined * PAGESIZE;
+      for (let i = 0; i < toWrite;) {
+        const nwrite = await this.file!.write(
+          buffer.buffer.subarray(i, toWrite),
+        );
         if (nwrite <= 0) {
           throw new Error("Unexpected return value of write(): " + nwrite);
         }
         i += nwrite;
       }
+      filePos = targerPos + toWrite;
       // console.info("written page addr", page.addr);
       buffer.buffer.set(InFileStorage.emptyBuffer, 0);
       buffer.pos = 0;
 
       // Assuming the last item in `pages` is the SuperPage.
-      if (i === pages.length - 2 && this.fsync && this.fsync !== "final-only") {
+      if (i === pagesLen - 2 && this.fsync && this.fsync !== "final-only") {
         // Call fsync() before the SuperPage
         await Runtime.fdatasync(this.file!.rid);
       }
@@ -465,5 +490,5 @@ export class InFileStorage extends PageStorage {
   protected _close() {
     this.file!.close();
   }
-  private static readonly emptyBuffer = new Uint8Array(PAGESIZE);
+  private static readonly emptyBuffer = new Uint8Array(PAGESIZE * MAX_COMBINED);
 }
