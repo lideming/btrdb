@@ -1,10 +1,11 @@
-# btrdbfs
+# btrdbfs - btrdb FileSystem
 
 Run a filesystem on btrdb!
 
-Implements FUSE filesystem using Node.js with the binding
-[fuse-native](https://github.com/fuse-friends/fuse-native). Only tested on
-Linux.
+btrdbfs implements FUSE filesystem using Node.js with the binding
+[fuse-native](https://github.com/fuse-friends/fuse-native).
+
+## Implemented operations
 
 - [x] create, open, mkdir, release
 - [x] readdir, getattr
@@ -14,11 +15,15 @@ Linux.
 - [x] statfs
 - [x] link, symlink
 
+## Tested workloads
+
+- [x] copy/make some large files
+- [x] clone btrdb: `git clone btrdb`
+- [x] build btrdb: `pnpm i && pnpm run build`
+
 ## Performance
 
 About 50 MB/s sequential read/write on i5-3320M with `big_writes` option.
-
-The bottleneck is the CPU.
 
 ```
 $ dd if=/dev/zero of=mnt/zeros bs=1M status=progress
@@ -36,23 +41,23 @@ $ dd if=mnt/bigfile of=/dev/null bs=1M status=progress
 1130364928 bytes (1.1 GB, 1.1 GiB) copied, 22.9497 s, 49.3 MB/s
 ```
 
+The bottleneck is the CPU. Since both btrdb and btrdbfs are running on JS
+engine, the performance is better than my expectation.
+
+The btrdb never do random write on the database file. For this reason, btrdbfs
+will have great random write performance on HDD.
+
 ## Design
 
-Using two document sets for inodes and extents.
+Using three document sets for inodes, links and extents.
 
 ### Inodes
-
-For inodes, use "paid" index to get all items under the directory on
-`readdir()`, and use "paid_name" index to find a node specific name under the
-specific directory when finding an inode from path string.
 
 ```js
 /**
  * @typedef {Object} Inode
  * @property {number} id
- * @property {number} paid - parent id
  * @property {number} kind - KIND_*
- * @property {string} name
  * @property {number} size
  * @property {number} ct - ctime
  * @property {number} at - atime
@@ -60,13 +65,28 @@ specific directory when finding an inode from path string.
  * @property {number} mode
  * @property {number} uid
  * @property {number} gid
+ * @property {string} ln - symlink
  */
 
-const KIND_DIR = 1;
-const KIND_FILE = 2;
-
 const inodes = await db.createSet("inodes", "doc");
-inodes.useIndexes({
+```
+
+### Links
+
+For links, use "paid" index to get all links under the directory on `readdir()`,
+and use "paid_name" index to find a link with specific name under the specific
+directory when finding an link from path string.
+
+```js
+/**
+ * @typedef {Object} Link
+ * @property {number} id
+ * @property {number} ino
+ * @property {number} paid - parent dir inode
+ * @property {string} name
+ */
+const links = await db.createSet("links", "doc");
+await links.useIndexes({
   "paid": (x) => x.paid,
   "paid_name": (x) => x.paid + "_" + x.name,
 });
