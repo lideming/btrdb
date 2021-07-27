@@ -63,13 +63,24 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
   const file = await Runtime.open(testFile);
   const size = (await file.stat()).size;
   console.info("file size:", size, `(${size / PAGESIZE} pages)`);
-  const storage = (db as any).storage;
-  if (storage.written) {
+  const counter = (db as any).storage.perfCounter;
+  if (counter.pageWrites) {
     console.info(
+      "pageWrites:",
+      counter.pageWrites,
       "space efficient:",
-      (1 - (storage.writtenFreebytes / storage.written)).toFixed(3),
+      (1 - (counter.pageFreebyteWrites / (counter.pageWrites * PAGESIZE)))
+        .toFixed(3),
     );
   }
+  console.info(
+    "acutalReads:",
+    counter.acutalPageReads,
+    "cachedReads:",
+    counter.cachedPageReads,
+  );
+  console.info("dataReads:", counter.dataReads, "dataAdds:", counter.dataAdds);
+  if (counter.cacheCleans) console.info("cacheCleans:", counter.cacheCleans);
   file.close();
 }
 

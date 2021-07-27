@@ -23,6 +23,18 @@ import {
 
 const CACHE_LIMIT = Math.round(64 * 1024 * 1024 / PAGESIZE);
 
+class PageStorageCounter {
+  pageWrites = 0;
+  pageFreebyteWrites = 0;
+
+  acutalPageReads = 0;
+  cachedPageReads = 0;
+  cacheCleans = 0;
+
+  dataAdds = 0;
+  dataReads = 0;
+}
+
 export abstract class PageStorage {
   cache = new Map<PageAddr, Page | Promise<Page>>();
 
@@ -48,9 +60,7 @@ export abstract class PageStorage {
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
-  written = 0;
-
-  writtenFreebytes = 0;
+  perfCounter = new PageStorageCounter();
 
   async init() {
     const lastAddr = await this._getLastAddr();
@@ -105,19 +115,22 @@ export abstract class PageStorage {
     // This method ensures that no duplicated reading will happen.
     const cached = this.cache.get(addr);
     if (cached) {
-      return Promise.resolve(cached as T).then((cached) => {
-        if (Object.getPrototypeOf(cached) !== type.prototype) {
-          throw new BugError(
-            "BUG: page type from cached mismatched: " +
-              Runtime.inspect({ cached, type }),
-          );
-        }
-        return cached;
-      });
+      this.perfCounter.cachedPageReads++;
+      return Promise.resolve(cached as T);
+      // .then((cached) => {
+      //   if (Object.getPrototypeOf(cached) !== type.prototype) {
+      //     throw new BugError(
+      //       "BUG: page type from cached mismatched: " +
+      //         Runtime.inspect({ cached, type }),
+      //     );
+      //   }
+      //   return cached;
+      // });
     }
     if (addr < 0 || addr >= this.nextAddr) {
       throw new Error("Invalid page addr " + addr);
     }
+    this.perfCounter.acutalPageReads++;
     const buffer = new Uint8Array(PAGESIZE);
     const promise = this._readPageBuffer(addr, buffer).then(() => {
       const page = new type(this);
@@ -129,6 +142,7 @@ export abstract class PageStorage {
       if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
         let deleteCount = CACHE_LIMIT / 2;
         for (const [addr, page] of this.cache) {
+          this.perfCounter.cacheCleans++;
           // TODO: should not remove deferred writing pages
           if (page instanceof Page && !page.dirty) {
             // It's safe to delete on iterating.
@@ -159,6 +173,7 @@ export abstract class PageStorage {
   }
 
   addData(val: IValue) {
+    this.perfCounter.dataAdds++;
     if (!this.dataPage || this.dataPage.freeBytes == 0) {
       this.createDataPage(false);
     }
@@ -219,6 +234,7 @@ export abstract class PageStorage {
     pageOffset: PageOffsetValue,
     type: ValueType<T> | null,
   ) {
+    this.perfCounter.dataReads++;
     let page = await this.readPage(pageOffset.addr, DataPage);
     let buffer = new Buffer(page.buffer!, pageOffset.offset);
     const valLength = buffer.readEncodedUint();
@@ -415,8 +431,8 @@ export class InFileStorage extends PageStorage {
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
       page.writeTo(buffer);
-      this.written += PAGESIZE;
-      this.writtenFreebytes += page.freeBytes;
+      this.perfCounter.pageWrites++;
+      this.perfCounter.pageFreebyteWrites += page.freeBytes;
       await this.file!.seek(page.addr * PAGESIZE, Runtime.SeekMode.Start);
       for (let i = 0; i < buffer.pos;) {
         const nwrite = await this.file!.write(buffer.buffer.subarray(i));
