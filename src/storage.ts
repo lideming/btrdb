@@ -60,6 +60,14 @@ export abstract class PageStorage {
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
+  /** The last addr commited. */
+  get cleanAddr() {
+    return this.cleanSuperPage?.addr ?? 0;
+  }
+
+  /** The last addr commited and written to the file. */
+  writtenAddr: number = 0;
+
   perfCounter = new PageStorageCounter();
 
   async init() {
@@ -79,7 +87,8 @@ export abstract class PageStorage {
             continue;
           }
           this.superPage = page;
-          this.cleanSuperPage = this.superPage;
+          this.cleanSuperPage = page;
+          this.writtenAddr = page.addr;
           break;
         } catch (error) {
           console.error(error);
@@ -139,23 +148,28 @@ export abstract class PageStorage {
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
       page.readFrom(new Buffer(buffer, 0));
       this.cache.set(page.addr, page);
-      if (CACHE_LIMIT > 0 && this.cache.size > CACHE_LIMIT) {
-        let deleteCount = CACHE_LIMIT / 2;
-        for (const [addr, page] of this.cache) {
-          this.perfCounter.cacheCleans++;
-          // TODO: should not remove deferred writing pages
-          if (page instanceof Page && !page.dirty) {
-            // It's safe to delete on iterating.
-            this.cache.delete(addr);
-            if (--deleteCount == 0) break;
-          }
-        }
-      }
-      // console.log("readPage", page);
+      this.checkCache();
       return page;
     });
     this.cache.set(addr, promise as Promise<Page>);
     return promise;
+  }
+
+  checkCache() {
+    const cleanCacheSize = this.cache.size -
+      (this.nextAddr - this.writtenAddr - 1);
+    if (CACHE_LIMIT > 0 && cleanCacheSize > CACHE_LIMIT) {
+      let deleteCount = cleanCacheSize - CACHE_LIMIT / 2;
+      let deleted = 0;
+      for (const [addr, page] of this.cache) {
+        this.perfCounter.cacheCleans++;
+        if (page instanceof Page && page.addr <= this.writtenAddr) {
+          // It's safe to delete on iterating.
+          this.cache.delete(addr);
+          if (++deleted == deleteCount) break;
+        }
+      }
+    }
   }
 
   addDirty(page: Page) {
@@ -370,7 +384,7 @@ export abstract class PageStorage {
   protected abstract _close(): void;
 }
 
-const MAX_COMBINED = 4;
+const MAX_COMBINED = 32;
 
 export class InFileStorage extends PageStorage {
   file: RuntimeFile | undefined = undefined;
@@ -467,8 +481,11 @@ export class InFileStorage extends PageStorage {
       }
       filePos = targerPos + toWrite;
       // console.info("written page addr", page.addr);
-      buffer.buffer.set(InFileStorage.emptyBuffer, 0);
+      buffer.buffer.set(InFileStorage.emptyBuffer.subarray(0, toWrite), 0);
       buffer.pos = 0;
+
+      this.writtenAddr = beginAddr + combined - 1;
+      if (i % CACHE_LIMIT === CACHE_LIMIT - 1) this.checkCache();
 
       // Assuming the last item in `pages` is the SuperPage.
       if (i === pagesLen - 2 && this.fsync && this.fsync !== "final-only") {
