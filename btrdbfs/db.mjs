@@ -132,6 +132,21 @@ export class DB {
     }
   }
 
+  async startStatTask() {
+    const prevCouner = { ...this.db.storage.counter };
+    while (true) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const storage = this.db.storage;
+      const counter = storage.perfCounter;
+      console.info({
+        ...counter,
+        dirty: storage.nextAddr - 1 - storage.cleanAddr,
+        writeback: storage.cleanAddr - storage.writtenAddr,
+      });
+      Object.assign(prevCouner, counter);
+    }
+  }
+
   /** @param {Inode} node */
   statFromInode(node) {
     let mode = node.mode;

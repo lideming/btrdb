@@ -14,6 +14,7 @@ await db.initialize(uid, gid);
 
 const ops = getOps(db, uid, gid);
 db.startCommitingTask();
+db.startStatTask();
 
 const fuse = new Fuse(mnt, ops, {
   // debug: true,
@@ -21,6 +22,11 @@ const fuse = new Fuse(mnt, ops, {
   force: true,
   bigWrites: true,
   // directIO: true,
+  noatime: true,
+  largeRead: true,
+  autoCache: true,
+  kernelCache: true,
+  autoUnmount: true,
 });
 
 fuse.mount(function (err) {
