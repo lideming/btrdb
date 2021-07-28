@@ -20,6 +20,9 @@ btrdbfs implements FUSE filesystem using Node.js with the binding
 - [x] copy/make some large files
 - [x] clone btrdb: `git clone btrdb`
 - [x] build btrdb: `pnpm i && pnpm run build`
+- [x] git clone and build [MusicCloud](https://github.com/lideming/MusicCloud),
+  build and run its [server](https://github.com/lideming/MusicCloudServer)
+- [x] run btrdbfs on btrdbfs and do things above
 
 ## Performance
 
