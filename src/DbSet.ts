@@ -1,5 +1,6 @@
 import { DatabaseEngine } from "./database.ts";
 import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
+import { Node } from "./tree.ts";
 import { KeyComparator, KValue, StringValue } from "./value.ts";
 
 export interface IDbSet {
@@ -28,6 +29,10 @@ export class DbSet implements IDbSet {
     return this._page = this._page.getLatestCopy();
   }
 
+  protected get node() {
+    return new Node(this.page);
+  }
+
   get count() {
     return this.page.count;
   }
@@ -36,7 +41,7 @@ export class DbSet implements IDbSet {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      const { found, val } = await this.page.findKeyRecursive(
+      const { found, val } = await this.node.findKeyRecursive(
         new KeyComparator(new StringValue(key)),
       );
       if (!found) return null;
@@ -50,7 +55,7 @@ export class DbSet implements IDbSet {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      return (await this.page.getAllValues());
+      return (await this.node.getAllValues());
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
@@ -80,7 +85,7 @@ export class DbSet implements IDbSet {
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
     try { // BEGIN WRITE LOCK
-      const { action } = await lockpage.set(
+      const { action } = await this.node.set(
         new KeyComparator(keyv),
         valv,
         "can-change",
@@ -108,14 +113,14 @@ export class DbSet implements IDbSet {
 
   async _cloneTo(other: DbSet) {
     for await (
-      const kv of this.page.iterateKeys() as AsyncIterable<KVNodeType>
+      const kv of this.node.iterateKeys() as AsyncIterable<KVNodeType>
     ) {
-      await other.page.set(new KeyComparator(kv.key), kv, "no-change");
+      await other.node.set(new KeyComparator(kv.key), kv, "no-change");
     }
     other.page.count = this.page.count;
   }
 
   async _dump() {
-    return { kvTree: await this.page._dumpTree() };
+    return { kvTree: await this.node._dumpTree() };
   }
 }

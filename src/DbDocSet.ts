@@ -17,6 +17,7 @@ import {
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { EQ, Query } from "./query.ts";
+import { Node } from "./tree.ts";
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
@@ -100,6 +101,10 @@ export class DbDocSet implements IDbDocSet {
     return this._page = this._page.getLatestCopy();
   }
 
+  protected get node() {
+    return new Node(this.page);
+  }
+
   get count() {
     return this.page.count;
   }
@@ -107,7 +112,7 @@ export class DbDocSet implements IDbDocSet {
   idGenerator: (lastId: any) => any = numberIdGenerator;
 
   async get(key: string): Promise<any | null> {
-    const { found, val } = await this.page.findKeyRecursive(
+    const { found, val } = await this.node.findKeyRecursive(
       new KeyComparator(new JSValue(key)),
     );
     if (!found) return null;
@@ -118,8 +123,9 @@ export class DbDocSet implements IDbDocSet {
   protected async _getAllRaw() {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
+    const thisnode = this.node;
     try { // BEGIN READ LOCK
-      return (await this.page.getAllValues());
+      return (await thisnode.getAllValues());
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
@@ -156,6 +162,7 @@ export class DbDocSet implements IDbDocSet {
 
     await this._db.commitLock.enterWriter();
     const lockpage = await this.page.enterCoWLock();
+    const thisnode = this.node;
     try { // BEGIN WRITE LOCK
       if (inserting) {
         if (key == null) {
@@ -173,7 +180,7 @@ export class DbDocSet implements IDbDocSet {
         );
       }
       const valv = !doc ? null : new KValue(keyv, dataPos!);
-      const { action, oldValue: oldDoc } = await lockpage.set(
+      const { action, oldValue: oldDoc } = await thisnode.set(
         new KeyComparator(keyv),
         valv,
         inserting ? "no-change" : "can-change",
@@ -199,13 +206,14 @@ export class DbDocSet implements IDbDocSet {
           IndexTopPage,
         ))
           .getDirty(false);
+        const indexNode = new Node(index);
         if (oldDoc) {
           const oldKey = new JSValue(
             indexInfo.func(
               (await this._readDocument((oldDoc as DocNodeType).value)).val,
             ),
           );
-          const setResult = await index.set(
+          const setResult = await indexNode.set(
             new KValue(oldKey, (oldDoc as DocNodeType).value),
             null,
             "no-change",
@@ -224,7 +232,7 @@ export class DbDocSet implements IDbDocSet {
               `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
             );
           }
-          const setResult = await index.set(
+          const setResult = await indexNode.set(
             indexInfo.unique ? new KeyComparator(kv.key) : kv,
             kv,
             "no-change",
@@ -237,7 +245,7 @@ export class DbDocSet implements IDbDocSet {
           }
         }
 
-        const newIndexAddr = index.getLatestCopy().getDirty(true).addr;
+        const newIndexAddr = indexNode.page.getDirty(true).addr;
         lockpage.indexesAddrs[seq] = newIndexAddr;
         lockpage.indexesAddrMap[indexName] = newIndexAddr;
       }
@@ -292,6 +300,7 @@ export class DbDocSet implements IDbDocSet {
       if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
       await this._db.commitLock.enterWriter();
       const lockpage = await this.page.enterCoWLock();
+      const thisnode = this.node;
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };
         const newAddrs = { ...lockpage.indexesAddrMap! };
@@ -311,7 +320,8 @@ export class DbDocSet implements IDbDocSet {
             func,
           );
           const index = new IndexTopPage(lockpage.storage).getDirty(true);
-          await lockpage.traverseKeys(async (k: DocNodeType) => {
+          const indexNode = new Node(index);
+          await thisnode.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k.value);
             const indexKV = new KValue(new JSValue(func(doc.val)), k.value);
             if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
@@ -319,7 +329,7 @@ export class DbDocSet implements IDbDocSet {
                 `The index key size is too large (${indexKV.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
               );
             }
-            await index.set(
+            await indexNode.set(
               unique ? new KeyComparator(indexKV.key) : indexKV,
               indexKV,
               "no-change",
@@ -329,6 +339,7 @@ export class DbDocSet implements IDbDocSet {
           newIndexes[key] = info;
         }
         lockpage.setIndexes(newIndexes, newAddrs);
+        thisnode.postChange();
         if (this._db.autoCommit) await this._db._autoCommit();
       } finally { // END WRITE LOCK
         lockpage.lock.exitWriter();
@@ -342,7 +353,7 @@ export class DbDocSet implements IDbDocSet {
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
       const result = [];
-      for await (const docAddr of query.run(lockpage)) {
+      for await (const docAddr of query.run(this.node)) {
         result.push(await this._readDocument(docAddr));
       }
       return result.sort((a, b) => a.key.compareTo(b.key))
@@ -363,13 +374,13 @@ export class DbDocSet implements IDbDocSet {
   async _cloneTo(other: DbDocSet) {
     const dataAddrMap = new Map<number, number>();
     for await (
-      const key of this.page.iterateKeys() as AsyncIterable<DocNodeType>
+      const key of this.node.iterateKeys() as AsyncIterable<DocNodeType>
     ) {
       const doc = await this.page.storage.readData(key.value, DocumentValue);
       const newAddr = await other.page.storage.addData(doc);
       dataAddrMap.set(key.value.encode(), newAddr.encode());
       const newKey = new KValue(key.key, newAddr);
-      await other.page.set(newKey, newKey, "no-change");
+      await new Node(other.page).set(newKey, newKey, "no-change");
     }
     const indexes = await this.page.ensureIndexes();
     const newIndexes: Record<string, IndexInfo> = {};
@@ -380,25 +391,27 @@ export class DbDocSet implements IDbDocSet {
         IndexTopPage,
       );
       const otherIndex = new IndexTopPage(other.page.storage).getDirty(true);
-      for await (const key of indexPage.iterateKeys()) {
+      const otherIndexNode = new Node(otherIndex);
+      for await (const key of new Node(indexPage).iterateKeys()) {
         const newKey = new KValue(
           key.key,
           PageOffsetValue.fromEncoded(
             dataAddrMap.get(key.value.encode())!,
           ),
         );
-        await otherIndex.set(newKey, newKey, "no-change");
+        await otherIndexNode.set(newKey, newKey, "no-change");
       }
       newIndexes[name] = info;
       newAddrs[name] = otherIndex.addr;
     }
     other.page.setIndexes(newIndexes, newAddrs);
+    other.node.postChange();
     other.page.count = this.page.count;
   }
 
   async _dump() {
     return {
-      docTree: await this.page._dumpTree(),
+      docTree: await this.node._dumpTree(),
       indexes: Object.fromEntries(
         await Promise.all(
           Object.entries(await this.page.ensureIndexes()).map(
@@ -407,7 +420,7 @@ export class DbDocSet implements IDbDocSet {
                 this.page.indexesAddrMap[name],
                 IndexTopPage,
               );
-              return [name, await indexPage._dumpTree()];
+              return [name, await new Node(indexPage)._dumpTree()];
             },
           ),
         ),

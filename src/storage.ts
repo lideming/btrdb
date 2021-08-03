@@ -10,6 +10,7 @@ import {
   SuperPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
+import { Node } from "./tree.ts";
 import { OneWriterLock, TaskQueue } from "./util.ts";
 import {
   IValue,
@@ -291,6 +292,7 @@ export abstract class PageStorage {
   async commitMark() {
     if (!this.superPage) throw new Error("superPage does not exist.");
     if (this.dirtySets.length) {
+      const rootTree = new Node(this.superPage);
       for (const set of this.dirtySets) {
         if (set._newerCopy) {
           console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
@@ -299,7 +301,7 @@ export abstract class PageStorage {
         }
         set.getDirty(true);
         try {
-          await this.superPage.set(
+          await rootTree.set(
             new KeyComparator(new StringValue(set.prefixedName)),
             new KValue(
               new StringValue(set.prefixedName),

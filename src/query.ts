@@ -9,11 +9,13 @@ import {
   JSValue,
   KeyLeftmostComparator,
   KeyRightmostComparator,
+  KValue,
   PageOffsetValue,
 } from "./value.ts";
+import { Node } from "./tree.ts";
 
 export interface Query {
-  run(page: DocSetPage): AsyncIterable<PageOffsetValue>;
+  run(page: Node<DocNodeType>): AsyncIterable<PageOffsetValue>;
   [additional: string]: any;
 }
 
@@ -156,20 +158,22 @@ export function NOT(query: Query): Query {
 }
 
 export async function findIndexKey(
-  page: DocSetPage,
+  node: Node<DocNodeType>,
   index: string,
   vKey: JSValue,
   rightMost: boolean,
 ) {
-  let indexPage: NodePage<IndexNodeType>;
+  let indexPage: Node<DocNodeType>;
   if (index == "id") {
-    indexPage = page;
+    indexPage = node;
   } else {
-    const info = (await page.ensureIndexes())[index];
+    const info = (await (node.page as DocSetPage).ensureIndexes())[index];
     if (!info) throw new Error("Specified index does not exist.");
-    indexPage = await page.storage.readPage(
-      page.indexesAddrMap![index],
-      IndexTopPage,
+    indexPage = new Node(
+      await node.page.storage.readPage(
+        (node.page as DocSetPage).indexesAddrMap![index],
+        IndexTopPage,
+      ),
     );
   }
   const indexResult = await indexPage.findKeyRecursive(
@@ -181,7 +185,7 @@ export async function findIndexKey(
 }
 
 export async function* iterateNode(
-  node: NodePage<IndexNodeType>,
+  node: Node<IndexNodeType>,
   pos: number,
   reverse: boolean,
 ): AsyncIterable<IndexNodeType> {

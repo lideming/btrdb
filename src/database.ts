@@ -8,6 +8,7 @@ import { OneWriterLock } from "./util.ts";
 import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
+import { Node } from "./tree.ts";
 
 export interface EngineContext {
   storage: PageStorage;
@@ -33,6 +34,10 @@ export class DatabaseEngine implements EngineContext, Database {
 
   get superPage() {
     return this.snapshot || this.storage.superPage;
+  }
+
+  getTree() {
+    return new Node(this.superPage!);
   }
 
   async openFile(path: string, options?: { fsync?: InFileStorage["fsync"] }) {
@@ -68,8 +73,11 @@ export class DatabaseEngine implements EngineContext, Database {
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
       const setPage = new Ctorpage(this.storage).getDirty(true);
       setPage.prefixedName = prefixedName;
-      await this.superPage!.insert(
-        new KValue(new StringValue(prefixedName), new UIntValue(setPage.addr)),
+      const keyv = new StringValue(prefixedName);
+      await this.getTree().set(
+        new KeyComparator(keyv),
+        new KValue(keyv, new UIntValue(setPage.addr)),
+        "no-change",
       );
       this.superPage!.setCount++;
       if (this.autoCommit) await this._autoCommit();
@@ -101,8 +109,7 @@ export class DatabaseEngine implements EngineContext, Database {
     if (useLock) await lock.enterReader();
     try {
       const prefixedName = this._getPrefixedName(type, name);
-      const superPage = this.superPage!;
-      const r = await superPage.findKeyRecursive(
+      const r = await this.getTree().findKeyRecursive(
         new KeyComparator(new StringValue(prefixedName)),
       );
       if (!r.found) return null;
@@ -127,7 +134,7 @@ export class DatabaseEngine implements EngineContext, Database {
     await lock.enterWriter();
     try {
       const prefixedName = this._getPrefixedName(type, name);
-      const { action } = await this.superPage!.set(
+      const { action } = await this.getTree().set(
         new KeyComparator(new StringValue(prefixedName)),
         null,
         "no-change",
@@ -161,7 +168,7 @@ export class DatabaseEngine implements EngineContext, Database {
   }
 
   async _getObjectsNoLock() {
-    return (await this.superPage!.getAllValues()).map((x) => {
+    return (await this.getTree().getAllValues()).map((x) => {
       return this._parsePrefixedName(x.key.str) as any;
     });
   }
@@ -177,7 +184,7 @@ export class DatabaseEngine implements EngineContext, Database {
         new StringValue(prefixedName),
         new UIntValue(this.storage.cleanSuperPage!.addr),
       );
-      await this.superPage!.set(
+      await this.getTree().set(
         new KeyComparator(kv.key),
         kv,
         overwrite ? "can-change" : "no-change",
@@ -193,7 +200,7 @@ export class DatabaseEngine implements EngineContext, Database {
     await lock.enterReader();
     try {
       const prefixedName = "s_" + name;
-      const result = await this.superPage!.findKeyRecursive(
+      const result = await this.getTree().findKeyRecursive(
         new KeyComparator(new StringValue(prefixedName)),
       );
       if (!result.found) return null;
