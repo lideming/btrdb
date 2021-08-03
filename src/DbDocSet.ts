@@ -161,7 +161,8 @@ export class DbDocSet implements IDbDocSet {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
 
     await this._db.commitLock.enterWriter();
-    const lockpage = await this.page.enterCoWLock();
+    const lockpage = this.page.getDirty(false);
+    await lockpage.lock.enterWriter();
     const thisnode = this.node;
     try { // BEGIN WRITE LOCK
       if (inserting) {
@@ -299,7 +300,8 @@ export class DbDocSet implements IDbDocSet {
     if (toBuild.length || toRemove.length) {
       if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
       await this._db.commitLock.enterWriter();
-      const lockpage = await this.page.enterCoWLock();
+      const lockpage = this.page.getDirty(false);
+      await lockpage.lock.enterWriter();
       const thisnode = this.node;
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };

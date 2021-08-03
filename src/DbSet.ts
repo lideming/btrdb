@@ -83,7 +83,8 @@ export class DbSet implements IDbSet {
     const valv = val == null ? null : new KValue(keyv, new StringValue(val));
 
     await this._db.commitLock.enterWriter();
-    const lockpage = await this.page.enterCoWLock();
+    const lockpage = this.page.getDirty(false);
+    await lockpage.lock.enterWriter();
     try { // BEGIN WRITE LOCK
       const { action } = await this.node.set(
         new KeyComparator(keyv),

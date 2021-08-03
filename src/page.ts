@@ -390,17 +390,6 @@ function buildSetPageClass<
     prefixedName: string = "";
     lock = new OneWriterLock();
 
-    async enterCoWLock() {
-      var node = this.getLatestCopy();
-      await node.lock.enterWriter();
-      var node2 = node.getDirty(false);
-      if (node !== node2) {
-        await node2.lock.enterWriter();
-        node.lock.exitWriter();
-      }
-      return node2;
-    }
-
     override _copyTo(page: this) {
       super._copyTo(page as any);
       page.prefixedName = this.prefixedName;
