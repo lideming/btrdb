@@ -15,25 +15,25 @@ export function decodeValue(buf: Uint8Array) {
 
 export function writeValue(obj: any, buf: Buffer) {
   if (obj === null) {
-    buf.writeU8(0);
+    buf.writeU8(Type.Null);
   } else if (obj === undefined) {
-    buf.writeU8(1);
+    buf.writeU8(Type.Undefined);
   } else if (obj === false) {
-    buf.writeU8(2);
+    buf.writeU8(Type.False);
   } else if (obj === true) {
-    buf.writeU8(3);
+    buf.writeU8(Type.True);
   } else if (typeof obj === "number") {
     if (Number.isInteger(obj)) {
       if (obj >= -7 && obj <= 127) {
         if (obj > 0) {
-          buf.writeU8(128 + obj);
+          buf.writeU8(Type.Number0 + obj);
         } else if (obj < 0) {
-          buf.writeU8(127 + obj);
+          buf.writeU8(Type.NumberNeg0 + obj);
         } else {
           if (Object.is(obj, -0)) {
-            buf.writeU8(127);
+            buf.writeU8(Type.NumberNeg0);
           } else { // +0
-            buf.writeU8(128);
+            buf.writeU8(Type.Number0);
           }
         }
       } else {
@@ -43,30 +43,30 @@ export function writeValue(obj: any, buf: Buffer) {
           negative = 3;
         }
         if (obj < 256) {
-          buf.writeU8(4 + negative);
+          buf.writeU8(Type.Uint8 + negative);
           buf.writeU8(obj);
         } else if (obj < 65536) {
-          buf.writeU8(5 + negative);
+          buf.writeU8(Type.Uint16 + negative);
           buf.writeU16(obj);
         } else if (obj < 2 ** 32) {
-          buf.writeU8(6 + negative);
+          buf.writeU8(Type.Uint32 + negative);
           buf.writeU32(obj);
         } else {
           // float64
-          buf.writeU8(10);
+          buf.writeU8(Type.Float64);
           buf.writeF64(negative ? -obj : obj);
         }
       }
     } else {
-      buf.writeU8(10);
+      buf.writeU8(Type.Float64);
       buf.writeF64(obj);
     }
   } else if (typeof obj === "string") {
     const len = Buffer.calcStringSize(obj);
     if (len <= 32) {
-      buf.writeU8(87 + len);
+      buf.writeU8(Type.String0 + len);
     } else {
-      buf.writeU8(11);
+      buf.writeU8(Type.String);
       buf.writeEncodedUint(len);
     }
     buf.beforeWriting(len);
@@ -78,9 +78,9 @@ export function writeValue(obj: any, buf: Buffer) {
   } else if (typeof obj === "object") {
     if (obj instanceof Array) {
       if (obj.length <= 8) {
-        buf.writeU8(36 + obj.length);
+        buf.writeU8(Type.Array0 + obj.length);
       } else {
-        buf.writeU8(14);
+        buf.writeU8(Type.Array);
         buf.writeEncodedUint(obj.length);
       }
       for (const val of obj) {
@@ -88,18 +88,18 @@ export function writeValue(obj: any, buf: Buffer) {
       }
     } else if (obj instanceof Uint8Array) {
       if (obj.length <= 32) {
-        buf.writeU8(54 + obj.byteLength);
+        buf.writeU8(Type.Binary0 + obj.byteLength);
       } else {
-        buf.writeU8(12);
+        buf.writeU8(Type.Binary);
         buf.writeEncodedUint(obj.byteLength);
       }
       buf.writeBuffer(obj);
     } else {
       const keys = Object.keys(obj);
       if (keys.length <= 8) {
-        buf.writeU8(45 + keys.length);
+        buf.writeU8(Type.Object0 + keys.length);
       } else {
-        buf.writeU8(13);
+        buf.writeU8(Type.Object);
         buf.writeEncodedUint(keys.length);
       }
       for (const key of keys) {
@@ -265,28 +265,28 @@ for (let i = 128; i <= 255; i++) {
 }
 
 function decodeSmallArray(buf: Buffer, type: number) {
-  return decodeArray(buf, type - 36);
+  return decodeArray(buf, type - Type.Array0);
 }
 
 function decodeSmallObject(buf: Buffer, type: number) {
-  return decodeObject(buf, type - 45);
+  return decodeObject(buf, type - Type.Object0);
 }
 
 function decodeSmallBlob(buf: Buffer, type: number) {
-  return buf.readBuffer(type - 54);
+  return buf.readBuffer(type - Type.Binary0);
 }
 
 function decodeSmallString(buf: Buffer, type: number) {
-  const buffer = buf.readBufferReadonly(type - 87);
+  const buffer = buf.readBufferReadonly(type - Type.String0);
   return decoder.decode(buffer);
 }
 
 function decodeSmallNegativeNumber(buf: Buffer, type: number) {
-  return type - 127;
+  return type - Type.NumberNeg0;
 }
 
 function decodeSmallPositiveNumber(buf: Buffer, type: number) {
-  return type - 128;
+  return type - Type.Number0;
 }
 
 function decodeUnused(buf: Buffer, type: number) {
@@ -310,6 +310,27 @@ function decodeArray(buf: Buffer, itemCount: number) {
   return arr;
 }
 
-[].forEach((x) => {
-  console.info();
-});
+const enum Type {
+  Null = 0,
+  Undefined,
+  False,
+  True,
+  Uint8,
+  Uint16,
+  Uint32,
+  NegUint8,
+  NegUint16,
+  NegUint32,
+  Float64,
+  String,
+  Binary,
+  Object,
+  Array,
+  // 15 ~ 35 not used
+  Array0 = 36,
+  Object0 = 45,
+  Binary0 = 54,
+  String0 = 87,
+  NumberNeg0 = 127,
+  Number0 = 128,
+}

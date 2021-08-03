@@ -43,11 +43,11 @@ See [binval.ts](../src/binval.ts) for the implementation.
 ## The length-prefixed
 
 ```
-(1 byte) small_value
+(1 byte) uint8 small_value
 if (small_value == 254)
-    (2 byte) true value
+    (2 byte) uint16 true_value
 else if (small_value == 255)
-    (4 byte) true value
+    (4 byte) uint32 true_value
 ```
 
 ## Object
