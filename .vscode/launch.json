@@ -16,7 +16,7 @@
         "--inspect-brk",
         "--allow-all"
       ],
-      "program": "test.ts",
+      "program": "tests/test.ts",
       "args": [
         "run"
       ],
