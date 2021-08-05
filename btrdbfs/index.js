@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 //@ts-check
 import Fuse from "@yuuza/fuse-native";
 import { argv, getgid, getuid } from "process";

@@ -50,6 +50,21 @@ engine, the performance is better than my expectation.
 The btrdb never do random write on the database file. For this reason, btrdbfs
 will have great random write performance on HDD.
 
+## Try it now
+
+Install btrdbfs on your Linux OS:
+
+```
+npm install -g @yuuza/btrdbfs
+```
+
+Mount the btrdbfs:
+
+```
+mkdir mnt
+btrdbfs myfs.db mnt
+```
+
 ## Design
 
 Using three document sets for inodes, links and extents.

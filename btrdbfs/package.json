@@ -1,16 +1,25 @@
 {
-  "name": "btrdbfs",
-  "version": "1.0.0",
+  "name": "@yuuza/btrdbfs",
+  "version": "1.0.3",
   "description": "",
   "main": "index.js",
   "module": "index.js",
   "type": "module",
+  "bin": {
+    "btrdbfs": "./index.js",
+    "mount.btrdbfs": "./index.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "files": [
+    "index.js",
+    "db.js",
+    "ops.js"
+  ],
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@yuuza/btrdb": "^0.4.0",
     "@yuuza/fuse-native": "^1.0.0"
