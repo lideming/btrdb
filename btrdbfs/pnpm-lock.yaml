@@ -1,17 +1,17 @@
 lockfileVersion: 5.3
 
 specifiers:
-  '@yuuza/btrdb': ^0.3.0
+  '@yuuza/btrdb': ^0.4.0
   '@yuuza/fuse-native': ^1.0.0
 
 dependencies:
-  '@yuuza/btrdb': 0.3.0
+  '@yuuza/btrdb': 0.4.0
   '@yuuza/fuse-native': 1.0.0
 
 packages:
 
-  /@yuuza/btrdb/0.3.0:
-    resolution: {integrity: sha512-x4d+e7UucuAufvYjkaEW/KDeOdHvksZuXqO+NM04TzAOWIvosHAHNXauXVyMsyty8T3tvBzX7TiO0tb+ylqv5g==}
+  /@yuuza/btrdb/0.4.0:
+    resolution: {integrity: sha512-ZlFP4A6ALytm/zCMSzQfPbV3J++ARXqbm7tmSIvFeY7g6vhpdvbZGhv6BR9tEKdbseS6YPGaCB3d+seSTS606A==}
     dev: false
 
   /@yuuza/fuse-native/1.0.0:

@@ -12,7 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@yuuza/btrdb": "^0.3.0",
+    "@yuuza/btrdb": "^0.4.0",
     "@yuuza/fuse-native": "^1.0.0"
   }
 }
