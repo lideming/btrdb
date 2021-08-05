@@ -1,5 +1,6 @@
+//@ts-check
 import Fuse from "fuse-native";
-import { EXTENT_SIZE, KIND_DIR, KIND_FILE, KIND_SYMLINK } from "./db.mjs";
+import { EXTENT_SIZE, KIND_DIR, KIND_FILE, KIND_SYMLINK } from "./db.js";
 
 const DEBUG = false;
 
@@ -19,12 +20,12 @@ export function getOps(db, uid, gid) {
         dirino = link.ino;
       }
       const childLinks = await db.links.findIndex("paid", dirino);
-      if (DEBUG) console.info("readdir", { node, childLinks });
+      if (DEBUG) console.info("readdir", { dirino, childLinks });
       return cb(null, childLinks.map((x) => x.name));
     },
     getattr: async function (path, cb) {
       const node = await db.nodeFromPath(path);
-      if (DEBUG) console.info("getattr", { path, deno });
+      if (DEBUG) console.info("getattr", { path, node });
       if (!node) return cb(Fuse.ENOENT);
       const stat = db.statFromInode(node);
       return cb(0, stat);
@@ -113,7 +114,7 @@ export function getOps(db, uid, gid) {
         const extoffset = pos % EXTENT_SIZE;
         const tocopy = Math.min(EXTENT_SIZE - extoffset, len);
         // console.info({haveWritten, extpos, extoffset, tocopy});
-        /** @type {[Extent]} */
+        /** @type {[import("./db.js").Extent]} */
         let [extent] = await db.extents.findIndex(
           "ino_pos",
           ino + "_" + extpos,

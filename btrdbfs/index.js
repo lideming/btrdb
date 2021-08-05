@@ -1,7 +1,8 @@
+//@ts-check
 import Fuse from "fuse-native";
 import { argv, getgid, getuid } from "process";
-import { DB, EXTENT_SIZE, KIND_DIR, KIND_FILE, KIND_SYMLINK } from "./db.mjs";
-import { getOps } from "./ops.mjs";
+import { DB } from "./db.js";
+import { getOps } from "./ops.js";
 
 const dbFile = argv[2];
 const mnt = argv[3];
@@ -9,7 +10,9 @@ const mnt = argv[3];
 const [gid, uid] = [getgid(), getuid()];
 
 const db = new DB();
+// @ts-ignore
 await db.openFile(dbFile);
+// @ts-ignore
 await db.initialize(uid, gid);
 
 const ops = getOps(db, uid, gid);

@@ -2,8 +2,8 @@
   "name": "btrdbfs",
   "version": "1.0.0",
   "description": "",
-  "main": "index.mjs",
-  "module": "index.mjs",
+  "main": "index.js",
+  "module": "index.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

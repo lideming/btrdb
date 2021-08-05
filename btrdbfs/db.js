@@ -1,10 +1,44 @@
+//@ts-check
 import { Database } from "@yuuza/btrdb";
+import Fuse from "fuse-native";
 
 export const KIND_DIR = 1;
 export const KIND_FILE = 2;
 export const KIND_SYMLINK = 3;
 
 export const EXTENT_SIZE = 4 * 4096;
+
+/**
+ * @typedef {Object} Inode
+ * @property {number} id
+ * @property {number} kind - KIND_*
+ * @property {number} size
+ * @property {number} ct - ctime
+ * @property {number} at - atime
+ * @property {number} mt - mtime
+ * @property {number} mode
+ * @property {number} uid
+ * @property {number} gid
+ * @property {string} ln - symlink
+ */
+
+
+/**
+ * @typedef {Object} Link
+ * @property {number} id
+ * @property {number} ino
+ * @property {number} paid - parent dir inode
+ * @property {string} name
+ */
+
+
+/**
+ * @typedef {Object} Extent
+ * @property {number} id
+ * @property {number} ino - inode id
+ * @property {number} pos
+ * @property {Uint8Array} data
+ */
 
 const rootLink = {
   id: 1,
@@ -35,43 +69,21 @@ export class DB {
   async openFile(path) {
     await this.db.openFile(path);
     // await this.db.openFile("testdata/fs.db");
-    /**
-         * @typedef {Object} Inode
-         * @property {number} id
-         * @property {number} kind - KIND_*
-         * @property {number} size
-         * @property {number} ct - ctime
-         * @property {number} at - atime
-         * @property {number} mt - mtime
-         * @property {number} mode
-         * @property {number} uid
-         * @property {number} gid
-         * @property {string} ln - symlink
-         */
 
+    /** @type {import("@yuuza/btrdb").IDbDocSet<Inode>} */
+    // @ts-ignore
     this.inodes = await this.db.createSet("inodes", "doc");
 
-    /**
-         * @typedef {Object} Link
-         * @property {number} id
-         * @property {number} ino
-         * @property {number} paid - parent dir inode
-         * @property {string} name
-         */
+    /** @type {import("@yuuza/btrdb").IDbDocSet<Link>} */
+    // @ts-ignore
     this.links = await this.db.createSet("links", "doc");
     await this.links.useIndexes({
       "paid": (x) => x.paid,
       "paid_name": (x) => x.paid + "_" + x.name,
     });
 
-    /**
-         * @typedef {Object} Extent
-         * @property {number} id
-         * @property {number} ino - inode id
-         * @property {number} pos
-         * @property {Uint8Array} data
-         */
-
+    /** @type {import("@yuuza/btrdb").IDbDocSet<Extent>} */
+    // @ts-ignore
     this.extents = await this.db.createSet("extents", "doc");
     await this.extents.useIndexes({
       "ino_pos": (x) => x.ino + "_" + x.pos,
@@ -97,6 +109,7 @@ export class DB {
         mode: 16877,
         uid: uid,
         gid: gid,
+        ln: null,
       });
       await this.links.insert({
         id: null,
@@ -133,9 +146,11 @@ export class DB {
   }
 
   async startStatTask() {
+    // @ts-ignore
     const prevCouner = { ...this.db.storage.counter };
     while (true) {
       await new Promise((r) => setTimeout(r, 2000));
+      // @ts-ignore
       const storage = this.db.storage;
       const counter = storage.perfCounter;
       console.info({
@@ -198,7 +213,7 @@ export class DB {
   /** @param {string[]} names */
   async linkFromNames(names) {
     if (names.length === 0) return rootLink;
-    /** @type {Inode} */
+    /** @type {Link} */
     let link = null;
     for (const name of names) {
       const [nextLink] = await this.links.findIndex(
@@ -289,7 +304,7 @@ export class DB {
   }
 
   flushNode(node) {
-    markCleanNode(node);
+    this.markCleanNode(node);
     return this.inodes.upsert(node);
   }
 
