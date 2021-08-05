@@ -1,6 +1,6 @@
 //@ts-check
 import { Database } from "@yuuza/btrdb";
-import Fuse from "fuse-native";
+import Fuse from "@yuuza/fuse-native";
 
 export const KIND_DIR = 1;
 export const KIND_FILE = 2;

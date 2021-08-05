@@ -1,5 +1,5 @@
 //@ts-check
-import Fuse from "fuse-native";
+import Fuse from "@yuuza/fuse-native";
 import { argv, getgid, getuid } from "process";
 import { DB } from "./db.js";
 import { getOps } from "./ops.js";

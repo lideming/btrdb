@@ -1,5 +1,5 @@
 //@ts-check
-import Fuse from "fuse-native";
+import Fuse from "@yuuza/fuse-native";
 import { EXTENT_SIZE, KIND_DIR, KIND_FILE, KIND_SYMLINK } from "./db.js";
 
 const DEBUG = false;
