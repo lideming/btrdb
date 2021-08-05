@@ -119,7 +119,13 @@ jobs:
 
     strategy:
       matrix:
-        page_size: [128, 256, 512, 1024, 2048, 8192]
+        page_size: 
+        # - 128
+        - 256
+        - 512
+        - 1024
+        - 2048
+        - 8192
 
     steps:
       - uses: actions/checkout@v2
