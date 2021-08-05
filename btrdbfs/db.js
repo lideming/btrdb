@@ -22,7 +22,6 @@ export const EXTENT_SIZE = 4 * 4096;
  * @property {string} ln - symlink
  */
 
-
 /**
  * @typedef {Object} Link
  * @property {number} id
@@ -30,7 +29,6 @@ export const EXTENT_SIZE = 4 * 4096;
  * @property {number} paid - parent dir inode
  * @property {string} name
  */
-
 
 /**
  * @typedef {Object} Extent
