@@ -1,16 +1,8 @@
+import type { IDbSet } from "./btrdb.d.ts";
 import { DatabaseEngine } from "./database.ts";
 import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
 import { Node } from "./tree.ts";
 import { KeyComparator, KValue, StringValue } from "./value.ts";
-
-export interface IDbSet {
-  readonly count: number;
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<boolean>;
-  getAll(): Promise<{ key: string; value: string }[]>;
-  getKeys(): Promise<string[]>;
-  delete(key: string): Promise<boolean>;
-}
 
 export class DbSet implements IDbSet {
   protected _page: SetPage;

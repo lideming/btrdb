@@ -4,6 +4,7 @@
   "description": "A CoW NoSQL database engine inspired by btrfs.",
   "main": "dist/btrdb.js",
   "module": "dist/btrdb.mjs",
+  "types": "src/btrdb.d.ts",
   "directories": {
     "doc": "docs"
   },
@@ -17,7 +18,8 @@
   },
   "files": [
     "dist/btrdb.mjs",
-    "dist/btrdb.js"
+    "dist/btrdb.js",
+    "src/btrdb.d.ts"
   ],
   "keywords": [],
   "author": "",
