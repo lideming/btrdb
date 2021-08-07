@@ -4,7 +4,7 @@ export class LRUMap<K, T> {
   private newest: Entry<K, T> | null = null;
   private oldest: Entry<K, T> | null = null;
 
-  get count() {
+  get size() {
     return this.map.size;
   }
 
@@ -19,6 +19,11 @@ export class LRUMap<K, T> {
     if (this.newest !== null) this.newest.newer = entry;
     this.newest = entry;
     if (this.oldest === null) this.oldest = entry;
+  }
+
+  set(key: K, val: T) {
+    this.delete(key);
+    this.add(key, val);
   }
 
   get(key: K): T | undefined {
@@ -40,7 +45,7 @@ export class LRUMap<K, T> {
     return entry.value;
   }
 
-  remove(key: K) {
+  delete(key: K) {
     const entry = this.map.get(key);
     if (entry === undefined) return false;
     this.map.delete(key);
@@ -58,9 +63,15 @@ export class LRUMap<K, T> {
     return true;
   }
 
-  *valuesFromOldest() {
+  *valuesFromOldest(): Generator<T> {
     for (let node = this.oldest; node !== null; node = node.newer) {
       yield node.value;
+    }
+  }
+
+  *[Symbol.iterator](): Generator<[K, T]> {
+    for (let node = this.oldest; node !== null; node = node.newer) {
+      yield [node.key, node.value];
     }
   }
 }
