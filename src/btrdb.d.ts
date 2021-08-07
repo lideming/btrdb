@@ -135,7 +135,9 @@ export type IndexDef<T> = Record<
   KeySelector<T> | { key: KeySelector<T>; unique?: boolean }
 >;
 
-export type KeySelector<T> = (doc: T) => any;
+export type KeySelector<T> = (
+  doc: T,
+) => string | number | boolean | null | undefined;
 
 export interface IDocument {
   id: string | number;
