@@ -73,12 +73,19 @@ export class DbDocSet implements IDbDocSet {
   }
 
   async getAll(): Promise<any[]> {
-    return Promise.all(
-      (await this._getAllRaw() as DocNodeType[]).map(async (x) => {
-        const doc = await this._readDocument(x.value);
-        return doc.val;
-      }),
-    );
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    const thisnode = this.node;
+    try { // BEGIN READ LOCK
+      const result = [];
+      for await (const kv of thisnode.iterateKeys()) {
+        const doc = await this._readDocument(kv.value);
+        result.push(doc.val);
+      }
+      return result;
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
   }
 
   async getIds(): Promise<any[]> {
@@ -315,12 +322,14 @@ export class DbDocSet implements IDbDocSet {
   }
 
   async _cloneTo(other: DbDocSet) {
+    const thisStorage = this.page.storage;
+    const otherStorage = other.page.storage;
     const dataAddrMap = new Map<number, number>();
     for await (
       const key of this.node.iterateKeys() as AsyncIterable<DocNodeType>
     ) {
-      const doc = await this.page.storage.readData(key.value, DocumentValue);
-      const newAddr = await other.page.storage.addData(doc);
+      const doc = await thisStorage.readData(key.value, DocumentValue);
+      const newAddr = await otherStorage.addData(doc);
       dataAddrMap.set(key.value.encode(), newAddr.encode());
       const newKey = new KValue(key.key, newAddr);
       await new Node(other.page).set(newKey, newKey, "no-change");
@@ -329,11 +338,11 @@ export class DbDocSet implements IDbDocSet {
     const newIndexes: Record<string, IndexInfo> = {};
     const newAddrs: Record<string, PageAddr> = {};
     for (const [name, info] of Object.entries(indexes)) {
-      const indexPage = await this.page.storage.readPage(
+      const indexPage = await thisStorage.readPage(
         this.page.indexesAddrMap[name],
         IndexTopPage,
       );
-      const otherIndex = new IndexTopPage(other.page.storage).getDirty(true);
+      const otherIndex = new IndexTopPage(otherStorage).getDirty(true);
       const otherIndexNode = new Node(otherIndex);
       for await (const key of new Node(indexPage).iterateKeys()) {
         const newKey = new KValue(
