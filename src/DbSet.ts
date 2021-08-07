@@ -1,8 +1,8 @@
-import type { IDbSet } from "./btrdb.d.ts";
+import type { IDbSet, SetKeyType, SetValueType } from "./btrdb.d.ts";
 import { DatabaseEngine } from "./database.ts";
 import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
 import { Node } from "./tree.ts";
-import { KeyComparator, KValue, StringValue } from "./value.ts";
+import { JSValue, KeyComparator, KValue, StringValue } from "./value.ts";
 
 export class DbSet implements IDbSet {
   protected _page: SetPage;
@@ -29,15 +29,15 @@ export class DbSet implements IDbSet {
     return this.page.count;
   }
 
-  async get(key: string): Promise<string | null> {
+  async get(key: SetKeyType): Promise<string | null> {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
       const { found, val } = await this.node.findKeyRecursive(
-        new KeyComparator(new StringValue(key)),
+        new KeyComparator(new JSValue(key)),
       );
       if (!found) return null;
-      return (val as KVNodeType)!.value.str;
+      return (val as KVNodeType)!.value.val;
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
@@ -55,24 +55,24 @@ export class DbSet implements IDbSet {
 
   async getAll(): Promise<{ key: string; value: string }[]> {
     return (await this._getAllRaw()).map((x) => ({
-      key: (x as KVNodeType).key.str,
-      value: (x as KVNodeType).value.str,
+      key: (x as KVNodeType).key.val,
+      value: (x as KVNodeType).value.val,
     }));
   }
 
   async getKeys(): Promise<string[]> {
-    return (await this._getAllRaw()).map((x) => (x as KVNodeType).key.str);
+    return (await this._getAllRaw()).map((x) => (x as KVNodeType).key.val);
   }
 
-  async set(key: string, val: string | null) {
+  async set(key: SetKeyType, val: SetValueType | null) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
-    const keyv = new StringValue(key);
+    const keyv = new JSValue(key);
     if (keyv.byteLength > KEYSIZE_LIMIT) {
       throw new Error(
         `The key size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
       );
     }
-    const valv = val == null ? null : new KValue(keyv, new StringValue(val));
+    const valv = val == null ? null : new KValue(keyv, new JSValue(val));
 
     await this._db.commitLock.enterWriter();
     const lockpage = this.page.getDirty(false);

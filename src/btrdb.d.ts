@@ -69,13 +69,16 @@ export type DbSetType = "kv" | "doc";
 
 export type DbObjectType = DbSetType | "snapshot";
 
+export type SetKeyType = string | number;
+export type SetValueType = string | number | any[] | object;
+
 export interface IDbSet {
   readonly count: number;
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<boolean>;
-  getAll(): Promise<{ key: string; value: string }[]>;
-  getKeys(): Promise<string[]>;
-  delete(key: string): Promise<boolean>;
+  get(key: SetKeyType): Promise<SetValueType | null>;
+  set(key: SetKeyType, value: SetValueType): Promise<boolean>;
+  getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]>;
+  getKeys(): Promise<SetKeyType[]>;
+  delete(key: SetKeyType): Promise<boolean>;
 }
 
 export type IdType<T> = T extends { id: infer U } ? U : never;

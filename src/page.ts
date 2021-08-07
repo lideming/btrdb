@@ -401,13 +401,13 @@ function buildSetPageClass<
   return SetPageBase;
 }
 
-export type KVNodeType = KValue<StringValue, StringValue>;
+export type KVNodeType = KValue<JSValue, JSValue>;
 
 const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<
-  KValue<StringValue, StringValue>
+  KValue<JSValue, JSValue>
 >({
   valueReader: (buf: Buffer) =>
-    KValue.readFrom(buf, StringValue.readFrom, StringValue.readFrom),
+    KValue.readFrom(buf, JSValue.readFrom, JSValue.readFrom),
   topPageType: PageType.Set,
   childPageType: PageType.Records,
 });
