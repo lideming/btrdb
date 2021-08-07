@@ -106,16 +106,16 @@ export class UIntValue implements IKey<UIntValue> {
   }
 }
 
-export class JSValue implements Key<JSValue> {
+export class JSValue<T = any> implements Key<JSValue<T>> {
   private _byteLength: number | undefined;
-  constructor(public readonly val: any, buf?: Uint8Array) {
+  constructor(public readonly val: T, buf?: Uint8Array) {
     this._byteLength = buf?.byteLength;
   }
 
   get hash() {
     throw new Error("Not implemented.");
   }
-  get key(): Key<any> {
+  get key(): Key<JSValue<T>> {
     return this;
   }
 
@@ -141,7 +141,7 @@ export class JSValue implements Key<JSValue> {
   }
 
   [Runtime.customInspect]() {
-    return "JSON(" + Runtime.inspect(this.val) + ")";
+    return "JSVal(" + Runtime.inspect(this.val) + ")";
   }
 }
 
