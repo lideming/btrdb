@@ -17,20 +17,15 @@ function getPageSize() {
   }
 }
 
-import { readValue } from "./binval.ts";
 import { Buffer } from "./buffer.ts";
-import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
+import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { PageStorage } from "./storage.ts";
-import { Node } from "./tree.ts";
 import { OneWriterLock } from "./util.ts";
 import {
-  IComparable,
   IKey,
   IValue,
   JSValue,
-  KeyComparator,
-  KeyOf,
   KValue,
   PageOffsetValue,
   StringValue,

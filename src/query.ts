@@ -3,13 +3,11 @@ import {
   DocSetPage,
   IndexNodeType,
   IndexTopPage,
-  NodePage,
 } from "./page.ts";
 import {
   JSValue,
   KeyLeftmostComparator,
   KeyRightmostComparator,
-  KValue,
   PageOffsetValue,
 } from "./value.ts";
 import { Node } from "./tree.ts";

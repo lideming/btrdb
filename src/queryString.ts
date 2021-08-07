@@ -1,4 +1,4 @@
-import { AND, EQ, GE, GT, LE, LT, NE, NOT, OR, Query } from "./query.ts";
+import { AND, EQ, GE, GT, LE, LT, NE, NOT, OR } from "./query.ts";
 
 const cache = globalThis.WeakMap
   ? new WeakMap<TemplateStringsArray, AST>()
