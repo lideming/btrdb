@@ -7,6 +7,7 @@ import {
   IDbDocSet,
   LE,
   LT,
+  NoId,
   NOT,
   OR,
   query,
@@ -399,7 +400,7 @@ interface User {
   role: "admin" | "user";
 }
 
-const users: User[] = [
+const usersNoId: NoId<User>[] = [
   { username: "yuuza0", status: "online", role: "admin" },
   { username: "yuuza3", status: "online", role: "user" },
   { username: "foo", status: "offline", role: "admin" },
@@ -408,6 +409,8 @@ const users: User[] = [
   { username: "bar", status: "offline", role: "admin" },
   { username: "bar2", status: "online", role: "admin" },
 ] as any;
+
+const users = usersNoId.map((x, i) => ({ id: i + 1, ...x })) as User[];
 
 runWithDatabase(async function DocSet_query(db) {
   const userSet = await db.createSet<User>("users2", "doc");
@@ -426,8 +429,8 @@ runWithDatabase(async function DocSet_query(db) {
     // define "onlineAdmin" index, the value is a computed boolean.
   });
 
-  for (const doc of users) {
-    await userSet.insert(doc);
+  for (const doc of usersNoId) {
+    await userSet.insert(doc as NoId<User>);
   }
   assertEquals(await db.commit(), true);
 

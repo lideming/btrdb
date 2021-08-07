@@ -18,7 +18,7 @@ import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { EQ, Query } from "./query.ts";
 import { Node } from "./tree.ts";
-import type { IDbDocSet, IdType, IndexDef, OptionalId } from "./btrdb.d.ts";
+import type { IDbDocSet, IndexDef } from "./btrdb.d.ts";
 
 export function numberIdGenerator(lastId: number | null) {
   if (lastId == null) return 1;

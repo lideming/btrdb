@@ -83,9 +83,9 @@ export interface IDbSet {
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
-export type OptionalId<T extends IDocument> =
-  & Partial<Pick<T, "id">>
-  & Omit<T, "id">;
+export type NoId<T extends IDocument> =
+  & Omit<T, "id">
+  & { id?: null | undefined };
 
 export interface IDbDocSet<
   T extends IDocument = any,
@@ -103,7 +103,7 @@ export interface IDbDocSet<
   get(id: IdType<T>): Promise<T>;
 
   /** Insert a document with auto-id. */
-  insert(doc: OptionalId<T>): Promise<void>;
+  insert(doc: NoId<T>): Promise<void>;
 
   /** Update the document if the id exists, or insert the docuemnt if the id not exists. */
   upsert(doc: T): Promise<void>;
