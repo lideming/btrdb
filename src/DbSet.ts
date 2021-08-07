@@ -2,7 +2,7 @@ import type { IDbSet, SetKeyType, SetValueType } from "./btrdb.d.ts";
 import { DatabaseEngine } from "./database.ts";
 import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
 import { Node } from "./tree.ts";
-import { JSValue, KeyComparator, KValue, StringValue } from "./value.ts";
+import { JSValue, KeyComparator, KValue } from "./value.ts";
 
 export class DbSet implements IDbSet {
   protected _page: SetPage;
@@ -29,7 +29,7 @@ export class DbSet implements IDbSet {
     return this.page.count;
   }
 
-  async get(key: SetKeyType): Promise<string | null> {
+  async get(key: SetKeyType): Promise<SetValueType | null> {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
@@ -37,7 +37,7 @@ export class DbSet implements IDbSet {
         new KeyComparator(new JSValue(key)),
       );
       if (!found) return null;
-      return (val as KVNodeType)!.value.val;
+      return (await this.readValue(val as KVNodeType)).val;
     } finally { // END READ LOCK
       lockpage.lock.exitReader();
     }
@@ -53,11 +53,21 @@ export class DbSet implements IDbSet {
     }
   }
 
-  async getAll(): Promise<{ key: string; value: string }[]> {
-    return (await this._getAllRaw()).map((x) => ({
-      key: (x as KVNodeType).key.val,
-      value: (x as KVNodeType).value.val,
-    }));
+  async getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]> {
+    const result = [];
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    try { // BEGIN READ LOCK
+      for await (const key of this.node.iterateKeys()) {
+        result.push({
+          key: key.key.val,
+          value: await this.readValue(key),
+        });
+      }
+      return result;
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
   }
 
   async getKeys(): Promise<string[]> {
@@ -72,12 +82,13 @@ export class DbSet implements IDbSet {
         `The key size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
       );
     }
-    const valv = val == null ? null : new KValue(keyv, new JSValue(val));
 
     await this._db.commitLock.enterWriter();
     const lockpage = this.page.getDirty(false);
     await lockpage.lock.enterWriter();
     try { // BEGIN WRITE LOCK
+      const dataAddr = this.page.storage.addData(new JSValue(val));
+      const valv = val == null ? null : new KValue(keyv, dataAddr);
       const { action } = await this.node.set(
         new KeyComparator(keyv),
         valv,
@@ -104,11 +115,20 @@ export class DbSet implements IDbSet {
     return this.set(key, null);
   }
 
+  readValue(node: KVNodeType) {
+    return this.page.storage.readData(node.value, JSValue);
+  }
+
   async _cloneTo(other: DbSet) {
+    const otherStorage = other._page.storage;
     for await (
       const kv of this.node.iterateKeys() as AsyncIterable<KVNodeType>
     ) {
-      await other.node.set(new KeyComparator(kv.key), kv, "no-change");
+      const newKv = new KValue(
+        kv.key,
+        otherStorage.addData(await this.readValue(kv)),
+      );
+      await other.node.set(new KeyComparator(newKv.key), newKv, "no-change");
     }
     other.page.count = this.page.count;
   }
