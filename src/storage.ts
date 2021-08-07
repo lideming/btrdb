@@ -1,5 +1,6 @@
 import { Buffer } from "./buffer.ts";
 import { BugError, NotExistError } from "./errors.ts";
+import { LRUMap } from "./lru.ts";
 import {
   DataPage,
   Page,
@@ -22,7 +23,9 @@ import {
   ValueType,
 } from "./value.ts";
 
-const CACHE_LIMIT = Math.round(64 * 1024 * 1024 / PAGESIZE);
+const METADATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
+const DATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
+const TOTAL_CACHE_LIMIT = METADATA_CACHE_LIMIT + DATA_CACHE_LIMIT;
 
 class PageStorageCounter {
   pageWrites = 0;
@@ -37,7 +40,9 @@ class PageStorageCounter {
 }
 
 export abstract class PageStorage {
-  cache = new Map<PageAddr, Page | Promise<Page>>();
+  /** Use two cache pools for metadata and data */
+  metaCache = new LRUMap<PageAddr, Page | Promise<Page>>();
+  dataCache = new LRUMap<PageAddr, Page | Promise<Page>>();
 
   /** Pages that are dirty and pending to be written on-disk. */
   dirtyPages: Page[] = [];
@@ -123,7 +128,8 @@ export abstract class PageStorage {
     // If it's the promise, `Promise.resolve` will return the promise as-is.
     // If cache not hitted, start a reading task and set the promise to `cache`.
     // This method ensures that no duplicated reading will happen.
-    const cached = this.cache.get(addr);
+    const cache = this.getCacheForPageType(type);
+    const cached = cache.get(addr);
     if (cached) {
       this.perfCounter.cachedPageReads++;
       return Promise.resolve(cached as T);
@@ -148,25 +154,47 @@ export abstract class PageStorage {
       page.addr = addr;
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
       page.readFrom(new Buffer(buffer, 0));
-      this.cache.set(page.addr, page);
+      cache.set(page.addr, page);
       this.checkCache();
       return page;
     });
-    this.cache.set(addr, promise as Promise<Page>);
+    cache.set(addr, promise as Promise<Page>);
     return promise;
   }
 
+  getCacheForPageType(type: PageClass<any>) {
+    if (type === DataPage) {
+      return this.dataCache;
+    } else {
+      return this.metaCache;
+    }
+  }
+
+  getCacheForPage(page: Page) {
+    if (Object.getPrototypeOf(page) === DataPage.prototype) {
+      return this.dataCache;
+    } else {
+      return this.metaCache;
+    }
+  }
+
   checkCache() {
-    const cleanCacheSize = this.cache.size -
-      (this.nextAddr - this.writtenAddr - 1);
-    if (CACHE_LIMIT > 0 && cleanCacheSize > CACHE_LIMIT) {
-      let deleteCount = cleanCacheSize - CACHE_LIMIT / 2;
+    this._checkCache(METADATA_CACHE_LIMIT, this.metaCache);
+    this._checkCache(DATA_CACHE_LIMIT, this.dataCache);
+  }
+
+  _checkCache(limit: number, cache: this["metaCache"]) {
+    const cleanCacheSize = cache.size -
+      (this.nextAddr - 1 - this.writtenAddr);
+    if (limit > 0 && cleanCacheSize > limit) {
+      let deleteCount = cleanCacheSize - limit * 3 / 4;
       let deleted = 0;
-      for (const [addr, page] of this.cache) {
-        this.perfCounter.cacheCleans++;
+      for (const page of cache.valuesFromOldest()) {
         if (page instanceof Page && page.addr <= this.writtenAddr) {
-          // It's safe to delete on iterating.
-          this.cache.delete(addr);
+          // console.info('clean ' + page.type + ' ' + page.addr);
+          this.perfCounter.cacheCleans++;
+          // It's safe to remove on iterating.
+          cache.delete(page.addr);
           if (++deleted == deleteCount) break;
         }
       }
@@ -184,7 +212,7 @@ export abstract class PageStorage {
     }
     page.addr = this.nextAddr++;
     this.dirtyPages.push(page);
-    this.cache.set(page.addr, page);
+    this.getCacheForPage(page).set(page.addr, page);
   }
 
   addData(val: IValue) {
@@ -487,7 +515,9 @@ export class InFileStorage extends PageStorage {
       buffer.pos = 0;
 
       this.writtenAddr = beginAddr + combined - 1;
-      if (i % CACHE_LIMIT === CACHE_LIMIT - 1) this.checkCache();
+      if (i % TOTAL_CACHE_LIMIT === TOTAL_CACHE_LIMIT - 1) {
+        this.checkCache();
+      }
 
       // Assuming the last item in `pages` is the SuperPage.
       if (i === pagesLen - 2 && this.fsync && this.fsync !== "final-only") {
