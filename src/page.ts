@@ -171,8 +171,6 @@ export abstract class Page {
 
 /** A page as an B+ tree node */
 export abstract class NodePage<T extends IKey<unknown>> extends Page {
-  parent?: NodePage<T> = undefined;
-  posInParent?: number = undefined;
   keys: T[] = [];
   children: PageAddr[] = [];
 
@@ -264,8 +262,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   override _debugView() {
     return {
       ...super._debugView(),
-      parentAddr: this.parent?.addr,
-      posInParent: this.posInParent,
       keys: this.keys,
     };
   }
@@ -295,8 +291,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
   protected override _copyTo(page: this) {
     super._copyTo(page);
-    page.parent = this.parent;
-    page.posInParent = this.posInParent;
     page.keys = [...this.keys];
     page.children = [...this.children];
     page.freeBytes = this.freeBytes;
