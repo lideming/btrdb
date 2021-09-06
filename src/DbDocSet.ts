@@ -88,6 +88,20 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
+  async forEach(fn: (doc: any) => (void | Promise<void>)): Promise<void> {
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    const thisnode = this.node;
+    try { // BEGIN READ LOCK
+      for await (const kv of thisnode.iterateKeys()) {
+        const doc = await this._readDocument(kv.value);
+        await fn(doc.val);
+      }
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
+  }
+
   async getIds(): Promise<any[]> {
     return (await this._getAllRaw() as DocNodeType[]).map((x) => x.key.val);
   }

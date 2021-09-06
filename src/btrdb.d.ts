@@ -78,6 +78,9 @@ export interface IDbSet {
   set(key: SetKeyType, value: SetValueType): Promise<boolean>;
   getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]>;
   getKeys(): Promise<SetKeyType[]>;
+  forEach(
+    fn: (key: SetKeyType, value: SetValueType) => (void | Promise<void>),
+  ): Promise<void>;
   delete(key: SetKeyType): Promise<boolean>;
 }
 
@@ -113,6 +116,8 @@ export interface IDbDocSet<
 
   /** Get all ids from this set. */
   getIds<T>(): Promise<IdType<T>[]>;
+
+  forEach(fn: (doc: T) => (void | Promise<void>)): Promise<void>;
 
   /** Delete a document by id. */
   delete(id: IdType<T>): Promise<boolean>;

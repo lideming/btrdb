@@ -55,6 +55,19 @@ runWithDatabase(async function Set_getAll(db) {
   assertEquals(await db.commit(), false);
 });
 
+runWithDatabase(async function Set_forEach(db) {
+  var set = await db.getSet("test");
+  const all: any[] = [];
+  await set!.forEach((key, value) => {
+    all.push({ key, value });
+  });
+  assertEquals(all, [
+    { key: "testkey", value: "testval" },
+    { key: "testkey2", value: "testval2" },
+  ]);
+  assertEquals(await db.commit(), false);
+});
+
 runWithDatabase(async function Set_delete(db) {
   var set = await db.getSet("test");
   await set!.delete("testkey");
@@ -138,6 +151,19 @@ runWithDatabase(async function DocSet_get(db) {
 runWithDatabase(async function DocSet_getAll(db) {
   var set = await db.getSet("testdoc", "doc");
   assertEquals(await set!.getAll(), [
+    { "id": 1, "username": "whatdb" },
+    { "id": 2, "username": "nobody" },
+  ]);
+  assertEquals(await db.commit(), false);
+});
+
+runWithDatabase(async function DocSet_forEach(db) {
+  var set = await db.getSet("testdoc", "doc");
+  const all: any[] = [];
+  await set!.forEach((doc) => {
+    all.push(doc);
+  });
+  assertEquals(all, [
     { "id": 1, "username": "whatdb" },
     { "id": 2, "username": "nobody" },
   ]);

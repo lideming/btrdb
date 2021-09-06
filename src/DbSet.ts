@@ -74,6 +74,20 @@ export class DbSet implements IDbSet {
     return (await this._getAllRaw()).map((x) => (x as KVNodeType).key.val);
   }
 
+  async forEach(
+    fn: (key: any, value: any) => (void | Promise<void>),
+  ): Promise<void> {
+    const lockpage = this.page;
+    await lockpage.lock.enterReader();
+    try { // BEGIN READ LOCK
+      for await (const key of this.node.iterateKeys()) {
+        await fn(key.key.val, (await this.readValue(key)).val);
+      }
+    } finally { // END READ LOCK
+      lockpage.lock.exitReader();
+    }
+  }
+
   async set(key: SetKeyType, val: SetValueType | null) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
     const keyv = new JSValue(key);
