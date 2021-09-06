@@ -46,6 +46,15 @@ runWithDatabase(async function Set_get(db) {
   assertEquals(await db.commit(), false);
 });
 
+runWithDatabase(async function Set_getAll(db) {
+  var set = await db.getSet("test");
+  assertEquals(await set!.getAll(), [
+    { key: "testkey", value: "testval" },
+    { key: "testkey2", value: "testval2" },
+  ]);
+  assertEquals(await db.commit(), false);
+});
+
 runWithDatabase(async function Set_delete(db) {
   var set = await db.getSet("test");
   await set!.delete("testkey");

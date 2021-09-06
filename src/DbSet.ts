@@ -61,7 +61,7 @@ export class DbSet implements IDbSet {
       for await (const key of this.node.iterateKeys()) {
         result.push({
           key: key.key.val,
-          value: await this.readValue(key),
+          value: (await this.readValue(key)).val,
         });
       }
       return result;
