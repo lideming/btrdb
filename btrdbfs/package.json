@@ -1,6 +1,6 @@
 {
   "name": "@yuuza/btrdbfs",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "",
   "main": "index.js",
   "module": "index.js",
@@ -21,7 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@yuuza/btrdb": "^0.4.0",
+    "@yuuza/btrdb": "^0.5.0",
     "@yuuza/fuse-native": "^1.0.0"
   }
 }
