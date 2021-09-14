@@ -6,11 +6,8 @@ btrfs.
 [![CI](https://github.com/lideming/btrdb/actions/workflows/ci.yml/badge.svg)](https://github.com/lideming/btrdb/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
 
-- [x] Deno runtime
-- [x] Node.js runtime
-  - [x] Compatibility layer
-  - [x] ES module and CommonJS bundle
-  - [x] Publish to NPM registry
+- [x] [Deno runtime](https://deno.land/x/btrdb)
+- [x] [Node.js runtime](https://www.npmjs.com/package/@yuuza/btrdb)
 - [x] Single file
 - [x] B-tree Copy-on-Write
   ([paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
@@ -23,15 +20,20 @@ btrfs.
 - [x] [Key-Value sets](#Use-key-value-set)
 - [x] [Document sets](#Use-document-set)
   - [x] [Indexes](#Indexes)
-  - [x] [Query functions](#Query_(functions))
-  - [x] [Query tagged template parser](#Query_(tagged_template))
+  - [x] [Query functions](#Query-(functions))
+  - [x] [Query tagged template parser](#Query-(tagged-template))
   - [x] Serialize to ["binval" format](docs/dev_binval.md) on disk
   - [x] Binary data value support
 - [x] ACID
   - [x] Readers/writer lock
   - [x] Isolation with concurrent reader on snapshots
 - [x] Auto-commit
-- [x] GC (Rebuilding database file)
+- [ ] Space reclamation
+  - [x] Rebuilding database file (a.k.a. stop-and-copy GC)
+  - [ ] Real solution, one of:
+    - Refcount tree
+      [like btrfs](https://btrfs.wiki.kernel.org/index.php/Btrfs_design#Reference_Counted_Extents)
+    - Mark-and-sweep GC
 - [ ] Client / Server (?)
 - [ ] Replication (?)
 
@@ -59,7 +61,7 @@ import { Database } from "https://deno.land/x/btrdb/mod.ts";
 
 **Node.js:**
 
-Install from NPM registry:
+Install from [NPM registry](https://www.npmjs.com/package/@yuuza/btrdb):
 
 ```
 npm i @yuuza/btrdb
