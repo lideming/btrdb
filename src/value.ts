@@ -120,7 +120,13 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
   }
 
   compareTo(other: this) {
-    return this.val < other.val ? -1 : this.val > other.val ? 1 : 0;
+    return this.val < other.val
+      ? -1
+      : this.val > other.val
+      ? 1
+      : typeof this.val !== "object"
+      ? 0
+      : compareObject(this.val, other.val);
   }
 
   get byteLength(): number {
@@ -143,6 +149,39 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
   [Runtime.customInspect]() {
     return "JSVal(" + Runtime.inspect(this.val) + ")";
   }
+}
+
+function compare(a: any, b: any) {
+  return a < b
+    ? -1
+    : a > b
+    ? 1
+    : typeof a !== "object"
+    ? 0
+    : compareObject(a, b);
+}
+
+function compareValue(a: any, b: any) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function compareObject(a: any, b: any): -1 | 0 | 1 {
+  if (a === b) return 0;
+  if (typeof a !== typeof b) {
+    return compareValue(typeof a, typeof b);
+  }
+  if (a instanceof Array) {
+    for (let i = 0; i < a.length; i++) {
+      const r = compare(a[i], b[i]);
+      if (r !== 0) return r;
+    }
+    if (a.length === b.length) return 0;
+    else if (a.length > b.length) return 1;
+    else return -1;
+  }
+  throw new Error(
+    `Cannot compare between ${Runtime.inspect(a)} and ${Runtime.inspect(b)}`,
+  );
 }
 
 export class KValue<K extends Key<K>, V extends IValue>

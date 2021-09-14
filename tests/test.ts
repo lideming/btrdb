@@ -462,6 +462,8 @@ runWithDatabase(async function DocSet_query(db) {
 
     onlineAdmin: (user) => user.status == "online" && user.role == "admin",
     // define "onlineAdmin" index, the value is a computed boolean.
+
+    status_role: (user) => [user.status, user.role],
   });
 
   for (const doc of usersNoId) {
@@ -557,6 +559,20 @@ async function checkQuery(userSet: IDbDocSet<User>) {
     await userSet.query(query`
       status == ${"online"}
       AND role == ${"admin"}
+    `),
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  assertEquals(
+    await userSet.query(
+      EQ("status_role", ["online", "admin"])
+    ),
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      status_role == ${["online", "admin"]}
     `),
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
