@@ -423,24 +423,24 @@ export class InFileStorage extends PageStorage {
   commitBuffer = new Buffer(new Uint8Array(PAGESIZE * MAX_COMBINED), 0);
 
   /**
-     * `"final-only"` (default): call the fsync once only after final writing.
-     * This ensures the consistency on some systems.
-     *
-     * `true | "strict"`: call fsync once before SuperPage and once after final writing.
-     * This ensures the consistency on all (correctly implemented) systems.
-     *
-     * `false`: do not call fsync.
-     * This should be used on systems with power backup. Also on some FileSystems like Btrfs.
-     *
-     * Because the underlying OSes and FileSystems does not guarantee the order of writing on-disk,
-     * people usually do "write(file, data); fsync(file); write(file, superPage); fsync(file);"
-     * to ensure the writing order.
-     * This ensures the consistency on system crash or power loss during the commit.
-     *
-     * Since this DB engine is log-structured, the DB file is like a write-ahead-log,
-     * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
-     * is probably okay on some FileSystems (esp. on Btrfs).
-     */
+   * `"final-only"` (default): call the fsync once only after final writing.
+   * This ensures the consistency on some systems.
+   *
+   * `true | "strict"`: call fsync once before SuperPage and once after final writing.
+   * This ensures the consistency on all (correctly implemented) systems.
+   *
+   * `false`: do not call fsync.
+   * This should be used on systems with power backup. Also on some FileSystems like Btrfs.
+   *
+   * Because the underlying OSes and FileSystems does not guarantee the order of writing on-disk,
+   * people usually do "write(file, data); fsync(file); write(file, superPage); fsync(file);"
+   * to ensure the writing order.
+   * This ensures the consistency on system crash or power loss during the commit.
+   *
+   * Since this DB engine is log-structured, the DB file is like a write-ahead-log,
+   * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
+   * is probably okay on some FileSystems (esp. on Btrfs).
+   */
   fsync: "final-only" | "strict" | boolean = "final-only";
 
   async openPath(path: string) {

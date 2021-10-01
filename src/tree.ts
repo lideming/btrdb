@@ -205,9 +205,9 @@ export class Node<T extends IKey<unknown>> {
   }
 
   /**
-     * Finish copy-on-write on this node and parent nodes.
-     * Also split this node if the node is overflow.
-     */
+   * Finish copy-on-write on this node and parent nodes.
+   * Also split this node if the node is overflow.
+   */
   postChange() {
     if (this.page._newerCopy) {
       throw new BugError("BUG: postChange() on old copy.");

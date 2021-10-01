@@ -78,9 +78,9 @@ export abstract class Page {
   init() {}
 
   /**
-     * Create a dirty copy of this page or return this page if it's already dirty.
-     * @param addDirty {boolean} whether to assign the page address
-     */
+   * Create a dirty copy of this page or return this page if it's already dirty.
+   * @param addDirty {boolean} whether to assign the page address
+   */
   getDirty(addDirty: boolean): this {
     if (this._newerCopy) throw new BugError("getDirty on out-dated page");
     if (this.dirty) {
@@ -198,9 +198,9 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   /**
-     * Remove and return a range of keys, and/or, insert a key.
-     * @returns `delCount` keys and `delCount` children.
-     **/
+   * Remove and return a range of keys, and/or, insert a key.
+   * @returns `delCount` keys and `delCount` children.
+   */
   spliceKeys(
     pos: number,
     delCount: number,

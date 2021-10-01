@@ -48,18 +48,18 @@ export class Database {
   getPrevCommit(): Promise<Database | null>;
 
   /**
-     * Commit and write the changes to the disk.
-     * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resoving. If false, "deferred writing" is used.
-     */
+   * Commit and write the changes to the disk.
+   * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resoving. If false, "deferred writing" is used.
+   */
   commit(waitWriting?: boolean): Promise<boolean>;
 
   /** Wait for previous deferred writing tasks. */
   waitWriting(): Promise<void>;
 
   /**
-     * Close the opened database file.
-     * If deferred writing is used, ensure to await `waitWriting()` before closing.
-     */
+   * Close the opened database file.
+   * If deferred writing is used, ensure to await `waitWriting()` before closing.
+   */
   close(): void;
 
   rebuild(): Promise<void>;
@@ -97,9 +97,9 @@ export interface IDbDocSet<
   readonly count: number;
 
   /**
-     * Get/set a function used to generate next id when inserting document.
-     * `numberIdGenerator` is used by default.
-     */
+   * Get/set a function used to generate next id when inserting document.
+   * `numberIdGenerator` is used by default.
+   */
   idGenerator: (lastId: IdType<T> | null) => IdType<T>;
 
   /** Get a document by id */
@@ -123,10 +123,10 @@ export interface IDbDocSet<
   delete(id: IdType<T>): Promise<boolean>;
 
   /**
-     * Define indexes on this set.
-     * The new set of index definitions will overwrite the old one.
-     * If some definition is added/changed/removed, the index will be added/changed/removed accrodingly.
-     */
+   * Define indexes on this set.
+   * The new set of index definitions will overwrite the old one.
+   * If some definition is added/changed/removed, the index will be added/changed/removed accrodingly.
+   */
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
 
   /** Find values from the index. Returns matched documents. It equals to `query(EQ(index, key))`. */
