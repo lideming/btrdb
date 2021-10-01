@@ -547,6 +547,7 @@ function checkQueryString() {
 }
 
 async function checkQuery(userSet: IDbDocSet<User>) {
+  // query functions
   assertEquals(
     await userSet.query(AND(
       EQ("status", "online"),
@@ -555,6 +556,7 @@ async function checkQuery(userSet: IDbDocSet<User>) {
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
+  // query expressions
   assertEquals(
     await userSet.query(query`
       status == ${"online"}
@@ -563,9 +565,19 @@ async function checkQuery(userSet: IDbDocSet<User>) {
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
+  // query expressions (inverted name and value)
+  assertEquals(
+    await userSet.query(query`
+      ${"online"} == status
+      AND ${"admin"} == role
+    `),
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  // composite index
   assertEquals(
     await userSet.query(
-      EQ("status_role", ["online", "admin"])
+      EQ("status_role", ["online", "admin"]),
     ),
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );

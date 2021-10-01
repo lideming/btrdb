@@ -29,18 +29,23 @@ type Token =
 
 type TokenType<T> = Extract<Token, { type: T }>;
 
-type OpInfo = { func: (...args: any) => any; prec: number; bin: boolean };
+type OpInfo = {
+  func: (...args: any) => any;
+  prec: number;
+  bin: boolean;
+  type: "name-value" | "bool";
+};
 
 const Operators: Record<string, OpInfo> = {
-  "==": { func: EQ, bin: true, prec: 2 },
-  "!=": { func: NE, bin: true, prec: 2 },
-  "<": { func: LT, bin: true, prec: 2 },
-  ">": { func: GT, bin: true, prec: 2 },
-  "<=": { func: LE, bin: true, prec: 2 },
-  ">=": { func: GE, bin: true, prec: 2 },
-  "NOT": { func: NOT, bin: false, prec: 1 },
-  "AND": { func: AND, bin: true, prec: 0 },
-  "OR": { func: OR, bin: true, prec: 0 },
+  "==": { func: EQ, bin: true, prec: 2, type: "name-value" },
+  "!=": { func: NE, bin: true, prec: 2, type: "name-value" },
+  "<": { func: LT, bin: true, prec: 2, type: "name-value" },
+  ">": { func: GT, bin: true, prec: 2, type: "name-value" },
+  "<=": { func: LE, bin: true, prec: 2, type: "name-value" },
+  ">=": { func: GE, bin: true, prec: 2, type: "name-value" },
+  "NOT": { func: NOT, bin: false, prec: 1, type: "bool" },
+  "AND": { func: AND, bin: true, prec: 0, type: "bool" },
+  "OR": { func: OR, bin: true, prec: 0, type: "bool" },
 };
 
 const hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -221,12 +226,33 @@ class OpAST extends AST {
       }
     }
 
+    if (this.op.type === "name-value") {
+      if (optimizedChildren.length !== 2) {
+        throw new Error("Wrong count of operands");
+      }
+      if (
+        optimizedChildren[0] instanceof NameAST &&
+        optimizedChildren[1] instanceof ArgAST
+      ) {
+        // noop
+      } else if (
+        optimizedChildren[0] instanceof ArgAST &&
+        optimizedChildren[1] instanceof NameAST
+      ) {
+        // value == name
+        //    => name == value
+        [optimizedChildren[1], optimizedChildren[0]] = [
+          optimizedChildren[0],
+          optimizedChildren[1],
+        ];
+      } else {
+        throw new Error("Wrong type of operands");
+      }
+    }
     // TODO: more transforms
     //
     // name > min AND name < max
     //    => BETWEEN(name, min, max, false, false)
-    // value == name
-    //    => name == value
 
     return new OpAST(this.op, optimizedChildren);
   }
