@@ -25,6 +25,13 @@ export function numberIdGenerator(lastId: number | null) {
   return lastId + 1;
 }
 
+const enum Op {
+  insert,
+  upsert,
+  update,
+  delete,
+}
+
 export class DbDocSet implements IDbDocSet {
   protected _page: DocSetPage;
 
@@ -107,19 +114,27 @@ export class DbDocSet implements IDbDocSet {
   }
 
   async insert(doc: any) {
-    if (doc["id"] != null) {
-      throw new Error('"id" property should not exist on inserting');
-    }
-    await this._set(null, doc, true);
+    await this._set(doc.id, doc, Op.insert);
+  }
+
+  async update(doc: any) {
+    const key = doc.id;
+    if (key == null) throw new Error('"id" property doesn\'t exist');
+    await this._set(key, doc, Op.update);
   }
 
   async upsert(doc: any) {
-    const key = doc["id"];
+    const key = doc.id;
     if (key == null) throw new Error('"id" property doesn\'t exist');
-    await this._set(key, doc, false);
+    await this._set(key, doc, Op.upsert);
   }
 
-  async _set(key: any, doc: any, inserting: boolean) {
+  async delete(key: any) {
+    const { action } = await this._set(key, null, Op.delete);
+    return action == "removed";
+  }
+
+  async _set(key: any, doc: any, op: Op) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
 
     await this._db.commitLock.enterWriter();
@@ -127,11 +142,10 @@ export class DbDocSet implements IDbDocSet {
     await lockpage.lock.enterWriter();
     const thisnode = this.node;
     try { // BEGIN WRITE LOCK
-      if (inserting) {
+      if (op === Op.insert) {
         if (key == null) {
-          key = doc["id"] = this.idGenerator(lockpage.lastId.val);
+          key = doc.id = this.idGenerator(lockpage.lastId.val);
         }
-        lockpage.lastId = new JSValue(key);
       }
       const dataPos = !doc
         ? null
@@ -146,9 +160,16 @@ export class DbDocSet implements IDbDocSet {
       const { action, oldValue: oldDoc } = await thisnode.set(
         new KeyComparator(keyv),
         valv,
-        inserting ? "no-change" : "can-change",
+        op === Op.insert
+          ? "no-change"
+          : op === Op.update
+          ? "change-only"
+          : "can-change",
       );
       if (action == "added") {
+        if (keyv.compareTo(lockpage.lastId) > 0) {
+          lockpage.lastId = keyv;
+        }
         lockpage.count += 1;
       } else if (action == "removed") {
         lockpage.count -= 1;
@@ -226,11 +247,6 @@ export class DbDocSet implements IDbDocSet {
       lockpage.lock.exitWriter();
       this._db.commitLock.exitWriter();
     }
-  }
-
-  async delete(key: any) {
-    const { action } = await this._set(key, null, false);
-    return action == "removed";
   }
 
   async useIndexes(indexDefs: IndexDef<any>): Promise<void> {

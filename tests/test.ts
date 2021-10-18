@@ -7,8 +7,8 @@ import {
   IDbDocSet,
   LE,
   LT,
-  NoId,
   NOT,
+  OptionalId,
   OR,
   query,
 } from "../mod.ts";
@@ -435,7 +435,7 @@ interface User {
   role: "admin" | "user";
 }
 
-const usersNoId: NoId<User>[] = [
+const usersNoId: OptionalId<User>[] = [
   { username: "yuuza0", status: "online", role: "admin" },
   { username: "yuuza3", status: "online", role: "user" },
   { username: "foo", status: "offline", role: "admin" },
@@ -467,7 +467,7 @@ runWithDatabase(async function DocSet_query(db) {
   });
 
   for (const doc of usersNoId) {
-    await userSet.insert(doc as NoId<User>);
+    await userSet.insert(doc as OptionalId<User>);
   }
   assertEquals(await db.commit(), true);
 

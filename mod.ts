@@ -12,6 +12,7 @@ export type {
   IndexDef,
   KeySelector,
   NoId,
+  OptionalId,
   Query,
   SetKeyType,
   SetValueType,
