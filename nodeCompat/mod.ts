@@ -71,7 +71,7 @@ if (!global["Deno"]) {
     path: string | URL,
     options?: Deno.OpenOptions,
   ): Promise<RuntimeFile> {
-    return new File((await fsPromises.open(path, "a+"))) as any;
+    return new File(await fsPromises.open(path, "a+")) as any;
   };
 
   Runtime.fdatasync = function (fd: number) {

@@ -120,8 +120,10 @@ export abstract class Page {
     this._writeContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
-        `BUG: buffer written (${buf.pos - beginPos}) != space used (${PAGESIZE -
-          this.freeBytes})`,
+        `BUG: buffer written (${buf.pos - beginPos}) != space used (${
+          PAGESIZE -
+          this.freeBytes
+        })`,
       );
     }
   }
@@ -138,8 +140,10 @@ export abstract class Page {
     this._readContent(buf);
     if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
       throw new BugError(
-        `BUG: buffer read (${buf.pos - beginPos}) != space used (${PAGESIZE -
-          this.freeBytes})`,
+        `BUG: buffer read (${buf.pos - beginPos}) != space used (${
+          PAGESIZE -
+          this.freeBytes
+        })`,
       );
     }
   }
