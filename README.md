@@ -49,7 +49,7 @@ Please do NOT use it in any serious production.
 
 [btrdbfs](./btrdbfs/) is a project to run filesystem on btrdb using FUSE.
 
-## Usage
+## Getting Started
 
 ### Import the module
 
@@ -87,7 +87,7 @@ await db.openFile("data.db");
 // Will create new database if the file doesn't exist.
 ```
 
-### Use key-value set
+## Key-value set
 
 ```ts
 const configSet = await db.createSet("config");
@@ -100,9 +100,9 @@ await db.commit();
 // Commit to persist the changes.
 ```
 
-### Use document set
+## Use document set
 
-#### Create set
+### Create set
 
 ```ts
 interface User {
@@ -115,7 +115,7 @@ const userSet = await db.createSet<User>("users", "doc");
 // Get the set or create if not exist.
 ```
 
-#### Insert
+### Insert
 
 ```ts
 await userSet.insert({ username: "yuuza", status: "offline" });
@@ -128,7 +128,7 @@ await db.commit();
 // Commit to persist the changes.
 ```
 
-#### Upsert
+### Upsert
 
 `upsert` will update the document with the same id, or insert a new document if
 the id does not exist.
@@ -148,7 +148,7 @@ await db.commit();
 // Commit to persist the changes.
 ```
 
-#### Indexes
+### Indexes
 
 ```ts
 interface User {
@@ -195,7 +195,7 @@ console.info(await userSet.findIndex("onlineAdmin", true));
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
-#### Query (tagged template)
+### Query (tagged template)
 
 Querying on indexes is supported.
 
@@ -226,7 +226,7 @@ console.info(
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
-#### Query (functions)
+### Query (functions)
 
 Query functions: `EQ` (==), `NE` (!=), `LT` (<), `GT` (>), `LE` (<=), `GE` (>=),
 `AND`, `OR`, `NOT`.
@@ -255,7 +255,7 @@ console.info(
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
 
-### Use snapshots
+## Snapshots
 
 Since btrdb uses CoW mechanism and never overwrites data on-disk, creating
 "snapshot" have almost no cost.
@@ -280,11 +280,11 @@ console.info(await snap.getSet("data").get("foo"));
 
 Also, `db.getPrevCommit()` can be used to get previous commit as a snapshot.
 
-### Use rebuild
+## Use rebuild
 
 Call `db.rebuild()` to lose all snapshots and reclaim some space.
 
-### More example in the test code
+## More example in the test code
 
 See [test.ts](./test.ts).
 
