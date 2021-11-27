@@ -1,3 +1,15 @@
+/**
+ * @example
+ * const db = await new Database().openFile('data.db');
+ *
+ * const keyValues = await db.createSet('my_set');
+ * await keyValues.set('key1', 'value1');
+ *
+ * const documents = await db.createSet('my_documents', 'doc');
+ * await documents.insert({ username: 'yuuza', age: 20 });
+ *
+ * db.close();
+ */
 export class Database {
   /** (default: false) Whether to auto-commit on changes (i.e. on every call on `set`/`insert`/`upsert` methods) */
   autoCommit: boolean;
@@ -86,9 +98,12 @@ export interface IDbSet {
 
 export type IdType<T> = T extends { id: infer U } ? U : never;
 
-export type NoId<T extends IDocument> =
+/** @deprecated use OptionalId */
+export type NoId<T extends IDocument> = OptionalId<T>;
+
+export type OptionalId<T extends IDocument> =
   & Omit<T, "id">
-  & { id?: null | undefined };
+  & { id?: T["id"] };
 
 export interface IDbDocSet<
   T extends IDocument = any,
@@ -106,7 +121,10 @@ export interface IDbDocSet<
   get(id: IdType<T>): Promise<T>;
 
   /** Insert a document with auto-id. */
-  insert(doc: NoId<T>): Promise<void>;
+  insert(doc: OptionalId<T>): Promise<void>;
+
+  /** Update the document if the id exists, or throw if the id not exists. */
+  update(doc: T): Promise<void>;
 
   /** Update the document if the id exists, or insert the docuemnt if the id not exists. */
   upsert(doc: T): Promise<void>;
@@ -117,6 +135,7 @@ export interface IDbDocSet<
   /** Get all ids from this set. */
   getIds<T>(): Promise<IdType<T>[]>;
 
+  /** Iterate through all documents. */
   forEach(fn: (doc: T) => (void | Promise<void>)): Promise<void>;
 
   /** Delete a document by id. */

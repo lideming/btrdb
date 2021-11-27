@@ -10,8 +10,8 @@ btrfs.
 - [x] [Node.js runtime](https://www.npmjs.com/package/@yuuza/btrdb)
 - [x] Single file
 - [x] B-tree Copy-on-Write
-  ([paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
-  [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
+      ([paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
+      [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
 - [x] Good performance even written in pure TypeScript
   - [x] [Set 100k key-value pairs under 1.2s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:296)
   - [x] [Insert 100k documents under 3.3s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:320)
