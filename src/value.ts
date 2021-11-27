@@ -151,7 +151,17 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
   }
 }
 
-function compare(a: any, b: any) {
+export function compareJSValue(a: JSValue, b: JSValue): -1 | 0 | 1 {
+  return a.val < b.val
+    ? -1
+    : a.val > b.val
+    ? 1
+    : typeof a.val !== "object"
+    ? 0
+    : compareObject(a.val, b.val);
+}
+
+function compareValueOrObject(a: any, b: any) {
   return a < b
     ? -1
     : a > b
@@ -172,7 +182,7 @@ function compareObject(a: any, b: any): -1 | 0 | 1 {
   }
   if (a instanceof Array) {
     for (let i = 0; i < a.length; i++) {
-      const r = compare(a[i], b[i]);
+      const r = compareValueOrObject(a[i], b[i]);
       if (r !== 0) return r;
     }
     if (a.length === b.length) return 0;
