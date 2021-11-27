@@ -5,7 +5,6 @@ import {
   IndexTopPage,
 } from "./page.ts";
 import {
-  compareJSValue,
   JSValue,
   KeyLeftmostComparator,
   KeyRightmostComparator,
@@ -24,9 +23,9 @@ export function EQ(index: string, val: any): Query {
     async *run(page) {
       const keyv = new JSValue(val);
       const result = await findIndexKey(page, index, keyv, false);
-      for await (const it of iterateNode(result.node, result.pos, false)) {
-        if (compareJSValue(keyv, it.key) === 0) {
-          yield it.value;
+      for await (const key of iterateNode(result.node, result.pos, false)) {
+        if (keyv.compareTo(key.key) === 0) {
+          yield key.value;
         } else {
           break;
         }
@@ -77,7 +76,7 @@ export function BETWEEN(
       for await (const key of keyIterator) {
         let _c;
         if (
-          vMax == null || (_c = compareJSValue(vMax, key.key)) > 0 ||
+          vMax == null || (_c = vMax.compareTo(key.key)) > 0 ||
           (_c === 0 && maxInclusive)
         ) {
           yield key.value;
