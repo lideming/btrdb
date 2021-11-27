@@ -1,6 +1,6 @@
 {
   "name": "@yuuza/btrdb",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "A CoW NoSQL database engine inspired by btrfs.",
   "main": "dist/btrdb.js",
   "module": "dist/btrdb.mjs",
