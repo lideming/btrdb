@@ -76,6 +76,7 @@ export abstract class PageStorage {
 
   perfCounter = new PageStorageCounter();
 
+  /** Read the super page of existing database. Or create a empty database. */
   async init() {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
@@ -201,6 +202,7 @@ export abstract class PageStorage {
     }
   }
 
+  /** Mark a page as dirty. Only newly created pages or cloned pages can be marked. */
   addDirty(page: Page) {
     if (page.hasAddr) {
       if (page.dirty) {
@@ -215,6 +217,7 @@ export abstract class PageStorage {
     this.getCacheForPage(page).set(page.addr, page);
   }
 
+  /** Add a value into data pages and return its address (PageOffsetValue). */
   addData(val: IValue) {
     this.perfCounter.dataAdds++;
     if (!this.dataPage || this.dataPage.freeBytes == 0) {
@@ -265,6 +268,7 @@ export abstract class PageStorage {
     return new PageOffsetValue(pageAddr, offset);
   }
 
+  /** Read a value from data page by a address (PageOffsetValue) */
   async readData<T extends IValue>(
     pageOffset: PageOffsetValue,
     type: ValueType<T>,
@@ -308,6 +312,10 @@ export abstract class PageStorage {
     }
   }
 
+  /**
+   * Create a new data page.
+   * @param continued Whether this page is a continued page after the previous one.
+   */
   createDataPage(continued: boolean) {
     const prev = this.dataPage;
     this.dataPage = new DataPage(this);
@@ -317,6 +325,7 @@ export abstract class PageStorage {
     if (continued) prev!.next = this.dataPage.addr;
   }
 
+  /** Mark all dirty pages as pending-commit. We will write them into disk later.  */
   async commitMark() {
     if (!this.superPage) throw new Error("superPage does not exist.");
     if (this.dirtySets.length) {
@@ -378,6 +387,7 @@ export abstract class PageStorage {
     return currentDirtyPages;
   }
 
+  /** Commit all current changes into disk. */
   async commit(waitWriting: boolean) {
     const pages = await this.commitMark();
     this.deferWritingQueue.enqueue({
