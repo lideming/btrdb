@@ -66,3 +66,9 @@ Deno.test("binval calcEncodedLength", () => {
     }
   }
 });
+
+Deno.test("binval decoded objects have null prototype", () => {
+  for (const obj of [{}, { a: 1 }]) {
+    assertEquals(decodeValue(encodeValue(obj))["toString"], undefined);
+  }
+});
