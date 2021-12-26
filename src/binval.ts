@@ -293,8 +293,12 @@ function decodeUnused(buf: Buffer, type: number) {
   throw new Error("Unsupported value type " + type);
 }
 
+function BinvalObject() {}
+(BinvalObject as any).prototype = Object.create(null);
+declare class BinvalObject {}
+
 function decodeObject(buf: Buffer, propCount: number) {
-  let obj: any = {};
+  let obj: any = new BinvalObject();
   for (let i = 0; i < propCount; i++) {
     const key = buf.readString();
     obj[key] = readValue(buf);
