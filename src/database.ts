@@ -165,7 +165,7 @@ export class DatabaseEngine implements EngineContext, IDB {
 
   async _getObjectsNoLock() {
     return (await this.getTree().getAllValues()).map((x) => {
-      return this._parsePrefixedName(x.key.str) as any;
+      return this._parsePrefixedName(x.key.str);
     });
   }
 
@@ -255,7 +255,7 @@ export class DatabaseEngine implements EngineContext, IDB {
     if (prefixedName[1] != "_") {
       throw new Error("Unexpected prefixedName '" + prefixedName + "'");
     }
-    const type = prefix == "k"
+    const type: DbObjectType | null = prefix == "k"
       ? "kv"
       : prefix == "d"
       ? "doc"
@@ -317,6 +317,65 @@ export class DatabaseEngine implements EngineContext, IDB {
       else this.commitLock.exitReader();
     }
   }
+
+  async dump() {
+    const obj: DbDump = {
+      btrdbDumpVersion: "0",
+      sets: [],
+    };
+    for (const { type, name } of (await this.getObjects())) {
+      if (type == "snapshot") {
+        // TODO: not supported yet
+      } else if (type == "kv") {
+        const set = await this.getSet(name, "kv");
+        obj.sets.push({
+          type,
+          name,
+          kvs: await set!.getAll(),
+        });
+      } else if (type == "doc") {
+        const set = await this.getSet(name, "doc");
+        obj.sets.push({
+          type,
+          name,
+          indexes: await set!.getIndexes(),
+          docs: await set!.getAll(),
+        });
+      } else {
+        throw new Error(`Unknown type '${type}'`);
+      }
+    }
+    return JSON.stringify(obj);
+  }
+
+  async import(data: string) {
+    const obj = JSON.parse(data) as DbDump;
+    if (obj.btrdbDumpVersion != "0") {
+      throw new Error(`Unknown version '${obj.btrdbDumpVersion}'`);
+    }
+    for (const setData of obj.sets) {
+      if (setData.type == "doc") {
+        const set = await this.createSet(setData.name, "doc");
+        for (const idx of Object.values(setData.indexes) as any) {
+          idx.key = (0, eval)(idx.key);
+        }
+        await set.useIndexes(setData.indexes);
+        for (const doc of setData.docs) {
+          await set.insert(doc);
+        }
+      } else if (setData.type == "kv") {
+        const set = await this.createSet(setData.name, "kv");
+        for (const kv of setData.kvs) {
+          await set.set(kv.key, kv.value);
+        }
+      }
+    }
+  }
+}
+
+interface DbDump {
+  btrdbDumpVersion: "0";
+  sets: any[];
 }
 
 export const Database: { new (): IDB } = DatabaseEngine as any;

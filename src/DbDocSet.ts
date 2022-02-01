@@ -249,6 +249,16 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
+  async getIndexes(): Promise<
+    Record<string, { key: string; unique: boolean }>
+  > {
+    await this.page.ensureIndexes();
+    return Object.fromEntries(
+      Object.entries(this.page.indexes!)
+        .map(([k, v]) => [k, { key: v.funcStr, unique: v.unique }]),
+    );
+  }
+
   async useIndexes(indexDefs: IndexDef<any>): Promise<void> {
     const toBuild: string[] = [];
     const toRemove: string[] = [];
@@ -291,9 +301,7 @@ export class DbDocSet implements IDbDocSet {
         for (const key of toBuild) {
           const obj = indexDefs[key];
           const func = typeof obj == "function" ? obj : obj.key;
-          const unique = typeof obj == "function"
-            ? false
-            : (obj.unique ?? false);
+          const unique = typeof obj == "object" && obj.unique == true;
           const info: IndexInfo = new IndexInfo(
             func.toString(),
             unique,

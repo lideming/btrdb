@@ -75,6 +75,12 @@ export class Database {
   close(): void;
 
   rebuild(): Promise<void>;
+
+  /** Dump all sets as a JSON string. */
+  dump(): Promise<string>;
+
+  /** Import sets from a JSON string. */
+  import(data: string): Promise<void>;
 }
 
 export type DbSetType = "kv" | "doc";
@@ -148,6 +154,9 @@ export interface IDbDocSet<
    */
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
 
+  /** Get current index definitions on this set. */
+  getIndexes(): Promise<Record<string, { key: string; unique: boolean }>>;
+
   /** Find values from the index. Returns matched documents. It equals to `query(EQ(index, key))`. */
   findIndex(index: string, key: any): Promise<T[]>;
 
@@ -170,9 +179,7 @@ export type IndexValue =
   | null
   | undefined;
 
-export type KeySelector<T> = (
-  doc: T,
-) => IndexValue;
+export type KeySelector<T> = (doc: T) => IndexValue;
 
 export interface IDocument {
   id: string | number;

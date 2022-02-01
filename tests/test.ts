@@ -739,6 +739,31 @@ runWithDatabase(async function checkSnap2(db) {
   assertEquals(await db.commit(), false);
 });
 
+// dump/import
+
+runWithDatabase(async function dumpAndImport(db) {
+  await Deno.writeFile(
+    "testdata/dump.json",
+    new TextEncoder().encode(await db.dump()),
+  );
+
+  for (const obj of await db.getObjects()) {
+    await db.deleteObject(obj.name, obj.type);
+  }
+
+  await db.import(await Deno.readTextFile("testdata/dump.json"));
+
+  await db.commit();
+
+  const userSet = await db.getSet<User>("users2", "doc");
+  await checkQuery(userSet!);
+
+  var testkv = await db.getSet("test");
+  assertEquals(await testkv!.getAll(), [
+    { key: "testkey2", value: "testval2" },
+  ]);
+});
+
 // create/get named snapshot
 
 runWithDatabase(async function namedSnap1(db) {
