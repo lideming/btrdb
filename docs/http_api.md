@@ -21,9 +21,7 @@ The `setid` is a string as `` `${type}:${name}` ``
 Response body: (json)
 
 ```ts
-type ListObjectsResponse = {
-  objects: { name: string; type: DbObjectType }[];
-};
+type ListObjectsResponse = { name: string; type: DbObjectType }[];
 ```
 
 ## Key-value Sets
@@ -103,6 +101,18 @@ Request body: (json) the document
 `DELETE /sets/:setid/:id`
 
 Returns status code 404 if the id is not found.
+
+### Get documents count
+
+`GET /sets/:setid/?count`
+
+Response body: (json) the count
+
+### List document ids
+
+`GET /sets/:setid/?ids`
+
+Response body: (json) array of document ids
 
 ### Set indexes
 

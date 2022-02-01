@@ -144,6 +144,14 @@ export class HttpApiServer {
                 );
                 const q = query(querystr.split("{}") as any, ...values);
                 return await set.query(q);
+              } else if (url.search == "?count") {
+                // Get documents count
+                const set = await this.getSet(setname, settype);
+                return set.count;
+              } else if (url.search == "?ids") {
+                // Get document ids
+                const set = await this.getSet(setname, settype);
+                return await set.getIds();
               }
             } else if (req.method == "POST") {
               if (url.search == "?query") {
