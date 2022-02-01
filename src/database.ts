@@ -45,6 +45,12 @@ export class DatabaseEngine implements EngineContext, IDB {
     // console.log('openFile():', this.superPage);
   }
 
+  static async openFile(...args: Parameters<DatabaseEngine["openFile"]>) {
+    const db = new DatabaseEngine();
+    await db.openFile(...args);
+    return db;
+  }
+
   async createSet(name: string, type: "kv"): Promise<DbSet>;
   async createSet(name: string, type: "doc"): Promise<DbDocSet>;
   async createSet(
@@ -378,4 +384,4 @@ interface DbDump {
   sets: any[];
 }
 
-export const Database: { new (): IDB } = DatabaseEngine as any;
+export const Database: typeof IDB = DatabaseEngine as any;

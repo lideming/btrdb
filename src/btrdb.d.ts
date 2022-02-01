@@ -26,6 +26,9 @@ export class Database {
     options?: { fsync?: "final-only" | "strict" | boolean },
   ): Promise<void>;
 
+  /** Open a database file as a new database instance. Create a new file if not exists. */
+  static openFile(...args: Parameters<Database["openFile"]>): Promise<Database>;
+
   createSet(name: string, type?: "kv"): Promise<IDbSet>;
   createSet<T extends IDocument>(
     name: string,
