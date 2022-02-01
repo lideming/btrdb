@@ -8,6 +8,7 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   remove: _Deno.remove,
   rename: _Deno.rename,
   writeTextFile: _Deno.writeTextFile,
+  readTextFile: _Deno.readTextFile,
   test: _Deno.test,
   open: _Deno.open,
   inspect: _Deno.inspect,

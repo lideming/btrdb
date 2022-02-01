@@ -13,6 +13,7 @@ import {
   query,
 } from "../mod.ts";
 import { encoder } from "../src/buffer.ts";
+import { Runtime } from "../src/runtime.ts";
 import { assert, assertEquals } from "./test.dep.ts";
 import {
   assertQueryEquals,
@@ -742,16 +743,16 @@ runWithDatabase(async function checkSnap2(db) {
 // dump/import
 
 runWithDatabase(async function dumpAndImport(db) {
-  await Deno.writeFile(
+  await Runtime.writeTextFile(
     "testdata/dump.json",
-    new TextEncoder().encode(await db.dump()),
+    await db.dump(),
   );
 
   for (const obj of await db.getObjects()) {
     await db.deleteObject(obj.name, obj.type);
   }
 
-  await db.import(await Deno.readTextFile("testdata/dump.json"));
+  await db.import(await Runtime.readTextFile("testdata/dump.json"));
 
   await db.commit();
 
