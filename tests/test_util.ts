@@ -1,4 +1,4 @@
-import { Database } from "../mod.ts";
+import { Database, InMemoryData } from "../mod.ts";
 import { PAGESIZE } from "../src/page.ts";
 import { Runtime, RuntimeInspectOptions } from "../src/runtime.ts";
 import { assertEquals } from "./test.dep.ts";
@@ -7,6 +7,9 @@ const testFile = "testdata/testdb.db";
 
 export const ignoreMassiveTests: boolean | "ignore" = false as any;
 const recreate: boolean = true;
+
+const inmemory = globalThis.Deno?.args?.includes("--in-memory");
+const memoryData = new InMemoryData();
 
 const databaseTests: {
   func: (db: Database) => Promise<void>;
@@ -40,7 +43,7 @@ export function runWithDatabase(
   only?: boolean | "ignore",
 ) {
   Runtime.test({
-    name: func.name,
+    name: (inmemory ? "(in memory) " : "") + func.name,
     fn: () => runDbTest(func),
     only: only === true,
     ignore: only === "ignore",
@@ -52,7 +55,11 @@ export function runWithDatabase(
 export async function runDbTest(func: (db: Database) => Promise<void>) {
   console.time("open");
   const db = new Database();
-  await db.openFile(testFile, { fsync: false });
+  if (inmemory) {
+    await db.openMemory(memoryData);
+  } else {
+    await db.openFile(testFile, { fsync: false });
+  }
   console.timeEnd("open");
 
   console.time("run");
@@ -60,9 +67,12 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
   console.timeEnd("run");
   db.close();
 
-  const file = await Runtime.open(testFile);
-  const size = (await file.stat()).size;
-  console.info("file size:", size, `(${size / PAGESIZE} pages)`);
+  if (!inmemory) {
+    const file = await Runtime.open(testFile);
+    const size = (await file.stat()).size;
+    file.close();
+    console.info("file size:", size, `(${size / PAGESIZE} pages)`);
+  }
   const counter = (db as any).storage.perfCounter;
   if (counter.pageWrites) {
     console.info(
@@ -81,7 +91,6 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
   );
   console.info("dataReads:", counter.dataReads, "dataAdds:", counter.dataAdds);
   if (counter.cacheCleans) console.info("cacheCleans:", counter.cacheCleans);
-  file.close();
 }
 
 export async function run() {
@@ -94,7 +103,7 @@ export async function run() {
     if (only != "ignore" && (!useOnly || only)) {
       console.info("");
       console.info("=============================");
-      console.info("==> test " + func.name);
+      console.info("==> test " + (inmemory ? "(in memory) " : "") + func.name);
       console.info("=============================");
       try {
         await runDbTest(func);

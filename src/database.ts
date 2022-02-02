@@ -1,7 +1,12 @@
 import { DbDocSet } from "./DbDocSet.ts";
 import { DbSet } from "./DbSet.ts";
 import { DocSetPage, SetPage, SuperPage } from "./page.ts";
-import { InFileStorage, PageStorage } from "./storage.ts";
+import {
+  InFileStorage,
+  InMemoryData,
+  InMemoryStorage,
+  PageStorage,
+} from "./storage.ts";
 import { OneWriterLock } from "./util.ts";
 import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 import { BugError } from "./errors.ts";
@@ -45,9 +50,21 @@ export class DatabaseEngine implements EngineContext, IDB {
     // console.log('openFile():', this.superPage);
   }
 
+  async openMemory(data?: InMemoryData) {
+    const stor = new InMemoryStorage(data ?? new InMemoryData());
+    await stor.init();
+    this.storage = stor;
+  }
+
   static async openFile(...args: Parameters<DatabaseEngine["openFile"]>) {
     const db = new DatabaseEngine();
     await db.openFile(...args);
+    return db;
+  }
+
+  static async openMemory(data: InMemoryData) {
+    const db = new DatabaseEngine();
+    await db.openMemory(data);
     return db;
   }
 
@@ -295,29 +312,48 @@ export class DatabaseEngine implements EngineContext, IDB {
     let lockWriter = false;
     await this.commitLock.enterReader();
     try {
-      // Create temp database file
-      const dbPath = (this.storage as InFileStorage).filePath!;
-      const tempPath = dbPath + ".tmp";
-      try {
-        await Runtime.remove(tempPath);
-      } catch {}
-      const tempdb = new DatabaseEngine();
-      await tempdb.openFile(tempPath);
+      if (this.storage instanceof InFileStorage) {
+        // Create temp database file
+        const dbPath = (this.storage as InFileStorage).filePath!;
+        const tempPath = dbPath + ".tmp";
+        try {
+          await Runtime.remove(tempPath);
+        } catch {}
+        const tempdb = await DatabaseEngine.openFile(tempPath);
 
-      // Clone to temp database
-      await this._cloneToNoLock(tempdb);
-      await tempdb.commit(true);
+        // Clone to temp database
+        await this._cloneToNoLock(tempdb);
+        await tempdb.commit(true);
 
-      // Close current storage
-      // Acquire the writer lock to ensure no one reading from the closed storage.
-      await this.waitWriting();
-      await this.commitLock.enterWriterFromReader();
-      lockWriter = true;
-      this.storage.close();
+        // Close current storage
+        // Acquire the writer lock to ensure no one reading from the closed storage.
+        await this.waitWriting();
+        await this.commitLock.enterWriterFromReader();
+        lockWriter = true;
+        this.storage.close();
 
-      // Replace the file and the storage instance.
-      await Runtime.rename(tempPath, dbPath);
-      this.storage = tempdb.storage;
+        // Replace the file and the storage instance.
+        await Runtime.rename(tempPath, dbPath);
+        this.storage = tempdb.storage;
+      } else if (this.storage instanceof InMemoryStorage) {
+        // Create temp database file
+        const tempData = new InMemoryData();
+        const tempdb = await DatabaseEngine.openMemory(tempData);
+
+        // Clone to temp database
+        await this._cloneToNoLock(tempdb);
+        await tempdb.commit(true);
+
+        // Close current storage
+        // Acquire the writer lock to ensure no one reading from the closed storage.
+        await this.waitWriting();
+        await this.commitLock.enterWriterFromReader();
+        lockWriter = true;
+        this.storage.close();
+
+        this.storage.data.pageBuffers = tempData.pageBuffers;
+        this.storage = tempdb.storage;
+      }
     } finally {
       if (lockWriter) this.commitLock.exitWriter();
       else this.commitLock.exitReader();

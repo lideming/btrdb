@@ -38,6 +38,36 @@ jobs:
           file: ./testdata/coverage.lcov
           fail_ci_if_error: true
 
+  test-in-memory:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 1.x
+
+      - name: Run test.ts
+        run: |
+          mkdir -p testdata
+          deno test \
+            --allow-read=testdata --allow-write=testdata \
+            --allow-env \
+            --coverage=testdata/coverage \
+            tests/test.ts -- --in-memory
+
+      - name: Analyze coverage
+        run: |
+          deno coverage testdata/coverage --lcov > testdata/coverage.lcov
+
+      - name: Codecov
+        uses: codecov/codecov-action@v1.5.2
+        with:
+          file: ./testdata/coverage.lcov
+          fail_ci_if_error: true
+
   fmt:
     runs-on: ubuntu-latest
 

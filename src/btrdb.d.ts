@@ -26,8 +26,12 @@ export class Database {
     options?: { fsync?: "final-only" | "strict" | boolean },
   ): Promise<void>;
 
+  openMemory(data?: InMemoryData): Promise<void>;
+
   /** Open a database file as a new database instance. Create a new file if not exists. */
   static openFile(...args: Parameters<Database["openFile"]>): Promise<Database>;
+
+  static openMemory(data?: InMemoryData): Promise<Database>;
 
   createSet(name: string, type?: "kv"): Promise<IDbSet>;
   createSet<T extends IDocument>(
@@ -84,6 +88,10 @@ export class Database {
 
   /** Import sets from a JSON string. */
   import(data: string): Promise<void>;
+}
+
+export class InMemoryData {
+  pageBuffers: Uint8Array[];
 }
 
 export type DbSetType = "kv" | "doc";

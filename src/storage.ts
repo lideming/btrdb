@@ -551,3 +551,37 @@ export class InFileStorage extends PageStorage {
   }
   private static readonly emptyBuffer = new Uint8Array(PAGESIZE * MAX_COMBINED);
 }
+
+export class InMemoryData {
+  pageBuffers: Uint8Array[] = [];
+}
+
+export class InMemoryStorage extends PageStorage {
+  data: InMemoryData;
+  constructor(data: InMemoryData) {
+    super();
+    this.data = data;
+  }
+  protected async _commit(pages: Page[]): Promise<void> {
+    var buf = new Buffer(null!, 0);
+    for (const page of pages) {
+      buf.buffer = new Uint8Array(PAGESIZE);
+      buf.pos = 0;
+      page.writeTo(buf);
+      this.data.pageBuffers.push(buf.buffer);
+      this.perfCounter.pageWrites++;
+      this.perfCounter.pageFreebyteWrites += page.freeBytes;
+    }
+  }
+  protected async _readPageBuffer(
+    addr: number,
+    buffer: Uint8Array,
+  ): Promise<void> {
+    buffer.set(this.data.pageBuffers[addr]);
+  }
+  protected _getLastAddr(): Promise<number> {
+    return Promise.resolve(this.data.pageBuffers.length);
+  }
+  protected _close(): void {
+  }
+}
