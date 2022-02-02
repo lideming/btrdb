@@ -120,13 +120,15 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
   }
 
   compareTo(other: this) {
-    return this.val < other.val
+    var left = this.val;
+    var right = other.val;
+    return left < right
       ? -1
-      : this.val > other.val
+      : left > right
       ? 1
-      : typeof this.val !== "object"
+      : left === right
       ? 0
-      : compareObject(this.val, other.val);
+      : compareObject(left, right);
   }
 
   get byteLength(): number {
@@ -152,23 +154,25 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
 }
 
 export function compareJSValue(a: JSValue, b: JSValue): -1 | 0 | 1 {
-  return a.val < b.val
+  var left = a.val;
+  var right = b.val;
+  return left < right
     ? -1
-    : a.val > b.val
+    : left > right
     ? 1
-    : typeof a.val !== "object"
+    : left === right
     ? 0
-    : compareObject(a.val, b.val);
+    : compareObject(left, right);
 }
 
-function compareValueOrObject(a: any, b: any) {
-  return a < b
+function compareValueOrObject(left: any, right: any) {
+  return left < right
     ? -1
-    : a > b
+    : left > right
     ? 1
-    : typeof a !== "object"
+    : left === right
     ? 0
-    : compareObject(a, b);
+    : compareObject(left, right);
 }
 
 function compareValue(a: any, b: any) {
@@ -176,7 +180,6 @@ function compareValue(a: any, b: any) {
 }
 
 function compareObject(a: any, b: any): -1 | 0 | 1 {
-  if (a === b) return 0;
   if (typeof a !== typeof b) {
     return compareValue(typeof a, typeof b);
   }
