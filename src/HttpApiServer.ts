@@ -63,11 +63,11 @@ export class HttpApiServer {
       1,
       url.pathname.endsWith("/") ? -1 : undefined,
     );
-    console.info(path);
-    if (path[0] == "sets") {
-      if (path.length >= 2) {
-        const [settype, setname] = decodeSetId(path[1]);
-        if (path.length === 2) {
+    // console.debug(req.method, path);
+    if (path.length >= 2) {
+      const [settype, setname] = decodeSetId(path[1]);
+      if (path[0] == "sets") {
+        if (path.length === 2 && url.search == "") {
           if (req.method == "POST") {
             // Create a set
             await this.db.createSet(setname, settype as any);
@@ -81,7 +81,7 @@ export class HttpApiServer {
         if (settype == "kv") {
           // Key-value Sets
           if (path[2]) {
-            const key = JSON.parse(path[2]);
+            const key = JSON.parse(decodeURIComponent(path[2]));
             if (req.method == "GET") {
               // Get a value by key
               const set = await this.getSet(setname, settype);
@@ -114,7 +114,7 @@ export class HttpApiServer {
           }
         } else if (settype == "doc") {
           if (path[2]) {
-            const id = JSON.parse(path[2]);
+            const id = JSON.parse(decodeURIComponent(path[2]));
             if (req.method == "GET") {
               // Get a document by id
               const set = await this.getSet(setname, settype);
@@ -157,8 +157,8 @@ export class HttpApiServer {
               if (url.search == "?query") {
                 // Query documents (POST)
                 const set = await this.getSet(setname, settype);
-                const { querystr, values } = await req.json() as {
-                  querystr: string;
+                const { query: querystr, values } = await req.json() as {
+                  query: string;
                   values: any[];
                 };
                 const q = query(querystr.split("{}") as any, ...values);
@@ -221,5 +221,5 @@ function decodeSetId(setid: string) {
 }
 
 function propNameToKeySelector(name: string): KeySelector<any> {
-  return new Function("x", `x[${JSON.stringify(name)}]`) as any;
+  return (0, eval)(`x => x[${JSON.stringify(name)}]`) as any;
 }
