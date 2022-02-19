@@ -83,7 +83,7 @@ export abstract class Page {
    * @param addDirty {boolean} whether to assign the page address
    */
   getDirty(addDirty: boolean): this {
-    if (this._newerCopy && !this._newerCopy._discard) {
+    if (this.hasNewerCopy()) {
       throw new BugError("getDirty on out-dated page");
     }
     if (this.dirty) {
@@ -100,12 +100,24 @@ export abstract class Page {
   }
 
   removeDirty() {
-    if (this._newerCopy && !this._newerCopy._discard) {
+    if (this.hasNewerCopy()) {
       throw new BugError("removeDirty on out-dated page");
     }
     if (!this.dirty) throw new BugError("removeDirty on non-dirty page");
     this._discard = true;
     // TODO
+  }
+
+  hasNewerCopy() {
+    if (this._newerCopy) {
+      if (this._newerCopy._discard) {
+        this._newerCopy = null;
+        return false;
+      } else {
+        return true;
+      }
+    }
+    return false;
   }
 
   getLatestCopy(): this {

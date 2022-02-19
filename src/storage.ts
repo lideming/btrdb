@@ -331,7 +331,7 @@ export abstract class PageStorage {
     if (this.dirtySets.length) {
       const rootTree = new Node(this.superPage);
       for (const set of this.dirtySets) {
-        if (set._newerCopy) {
+        if (set.hasNewerCopy()) {
           console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
           console.info("dirtySets length", this.dirtySets.length);
           throw new Error("non-latest page in dirtySets");

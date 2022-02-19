@@ -121,10 +121,10 @@ export class Node<T extends IKey<unknown>> {
     );
     let action: "added" | "removed" | "changed" | "noop" = "noop";
 
-    if (node.page._newerCopy) {
+    if (node.page.hasNewerCopy()) {
       console.info({
         cur: node.page._debugView(),
-        new: node.page._newerCopy._debugView(),
+        new: node.page._newerCopy!._debugView(),
       });
       throw new BugError("BUG: set() -> findIndex() returns old copy.");
     }
@@ -209,7 +209,7 @@ export class Node<T extends IKey<unknown>> {
    * Also split this node if the node is overflow.
    */
   postChange() {
-    if (this.page._newerCopy) {
+    if (this.page.hasNewerCopy()) {
       throw new BugError("BUG: postChange() on old copy.");
     }
     if (!this.page.dirty) {
