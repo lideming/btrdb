@@ -12,7 +12,13 @@ import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { Node } from "./tree.ts";
-import type { Database as IDB, DbObjectType, DbSetType } from "./btrdb.d.ts";
+import type {
+  Database as IDB,
+  DbObjectType,
+  DbSetType,
+  Transaction,
+} from "./btrdb.d.ts";
+import { TransactionService } from "./transaction.ts";
 export type Database = IDB;
 
 export interface EngineContext {
@@ -26,7 +32,9 @@ const _setTypeInfo = {
 
 export class DatabaseEngine implements EngineContext, IDB {
   storage: PageStorage = undefined as any;
+  transaction: TransactionService = new TransactionService(this);
   private snapshot: SuperPage | null = null;
+
   autoCommit = false;
   autoCommitWaitWriting = true;
   defaultWaitWriting = true;
@@ -229,6 +237,10 @@ export class DatabaseEngine implements EngineContext, IDB {
     }
   }
 
+  runTransaction<T>(fn: Transaction<T>) {
+    return this.transaction.run(fn);
+  }
+
   async commit(waitWriting?: boolean) {
     await this.commitLock.enterWriter();
     try {
@@ -291,6 +303,15 @@ export class DatabaseEngine implements EngineContext, IDB {
 
   waitWriting() {
     return this.storage.waitDeferWriting();
+  }
+
+  async rollback() {
+    await this.commitLock.enterWriter();
+    try {
+      this.storage.rollback();
+    } finally {
+      this.commitLock.exitWriter();
+    }
   }
 
   close() {

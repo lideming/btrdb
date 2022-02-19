@@ -740,6 +740,85 @@ runWithDatabase(async function checkSnap2(db) {
   assertEquals(await db.commit(), false);
 });
 
+// transaction
+
+runWithDatabase(async function transaction(db) {
+  (db as any).transaction.debug = true;
+
+  function getSet() {
+    return db.getSet<any>("transaction", "doc");
+  }
+
+  function runTransactionDeleteAll() {
+    return db.runTransaction(async () => {
+      const set = (await getSet())!;
+      for (const id of await set.getIds()) {
+        await set.delete(id);
+      }
+    });
+  }
+
+  await db.runTransaction(async () => {
+    await db.createSet("transaction", "doc");
+  });
+
+  await db.runTransaction(async () => {
+    const set = (await getSet())!;
+    await set.useIndexes({
+      val: { key: (x) => x.val, unique: true },
+    });
+  });
+
+  // some concurrent transactions
+  await Promise.all([
+    db.runTransaction(async () => {
+      const set = (await getSet())!;
+      await set.insert({ val: 1 });
+    }),
+    db.runTransaction(async () => {
+      const set = (await getSet())!;
+      await set.insert({ val: 2 });
+    }),
+    db.runTransaction(async () => {
+      const set = (await getSet())!;
+      await set.insert({ val: 3 });
+    }),
+  ]);
+
+  assertEquals(
+    (await (await getSet())!.getAll()).map((x) => x.val).sort(),
+    [1, 2, 3],
+  );
+
+  await runTransactionDeleteAll();
+
+  // some concurrent transactions, some will fail
+  const testValues = new Array(100).fill(0).map((x, i) => i);
+  const failedValues = [13, 36, 45, 46, 49, 90];
+  await Promise.all(
+    testValues.map(async (x) => {
+      try {
+        await db.runTransaction(async () => {
+          if (failedValues.includes(x)) {
+            throw new Error("just failed");
+          }
+          const set = (await getSet())!;
+          await set.insert({ val: x });
+        });
+      } catch (err) {
+        if (err.message != "just failed") {
+          throw err;
+        }
+      }
+    }),
+  );
+
+  assertEquals(
+    (await (await getSet())!.getAll()).map((x) => x.val).sort((a, b) => a - b),
+    testValues.filter((x) => !failedValues.includes(x)),
+  );
+});
+
 // dump/import
 
 runWithDatabase(async function dumpAndImport(db) {

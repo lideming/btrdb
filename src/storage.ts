@@ -7,6 +7,7 @@ import {
   PageAddr,
   PageClass,
   PAGESIZE,
+  PageType,
   SetPage,
   SuperPage,
 } from "./page.ts";
@@ -399,6 +400,34 @@ export abstract class PageStorage {
       await this.waitDeferWriting();
     }
     return pages.length > 0;
+  }
+
+  rollback() {
+    if (this.superPage!.dirty) {
+      this.metaCache.delete(this.superPage!.addr);
+      this.superPage = this.cleanSuperPage;
+      this.cleanSuperPage!._newerCopy = null;
+    }
+    if (this.dirtySets.length > 0) {
+      for (const page of this.dirtySets) {
+        page._discard = true;
+      }
+      this.dirtySets = [];
+    }
+    if (this.dirtyPages.length > 0) {
+      for (const page of this.dirtyPages) {
+        page._discard = true;
+        if (page.type == PageType.Data) {
+          this.dataCache.delete(page.addr);
+        } else {
+          this.metaCache.delete(page.addr);
+        }
+      }
+      this.dirtyPages = [];
+      this.nextAddr = this.cleanAddr + 1;
+    }
+    this.dataPage = undefined;
+    this.dataPageBuffer = undefined;
   }
 
   waitDeferWriting() {

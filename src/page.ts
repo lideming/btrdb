@@ -71,6 +71,7 @@ export abstract class Page {
   }
 
   _newerCopy: this | null = null;
+  _discard = false;
 
   /** Should be maintained by the page when changing data */
   freeBytes: number = PAGESIZE - 4;
@@ -82,7 +83,9 @@ export abstract class Page {
    * @param addDirty {boolean} whether to assign the page address
    */
   getDirty(addDirty: boolean): this {
-    if (this._newerCopy) throw new BugError("getDirty on out-dated page");
+    if (this._newerCopy && !this._newerCopy._discard) {
+      throw new BugError("getDirty on out-dated page");
+    }
     if (this.dirty) {
       if (addDirty && !this.hasAddr) this.storage.addDirty(this);
       return this;
@@ -97,14 +100,17 @@ export abstract class Page {
   }
 
   removeDirty() {
-    if (this._newerCopy) throw new BugError("removeDirty on out-dated page");
+    if (this._newerCopy && !this._newerCopy._discard) {
+      throw new BugError("removeDirty on out-dated page");
+    }
     if (!this.dirty) throw new BugError("removeDirty on non-dirty page");
+    this._discard = true;
     // TODO
   }
 
   getLatestCopy(): this {
     let p = this;
-    while (p._newerCopy) p = p._newerCopy;
+    while (p._newerCopy && !p._newerCopy._discard) p = p._newerCopy;
     return p;
   }
 

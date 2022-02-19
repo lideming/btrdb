@@ -67,6 +67,17 @@ export class Database {
   getPrevCommit(): Promise<Database | null>;
 
   /**
+   *  Run a transaction. The transaction function might be re-run in case of replaying.
+   *
+   *  It guarantees:
+   *  - The promise is resolved when it committed.
+   *  - Other transactions could be concurrently executed.
+   *  - Only commits when all transactions are completed.
+   *  - Rollback when any transaction is failed, and rerun other successful transactions.
+   */
+  runTransaction<T>(fn: Transaction<T>): Promise<T>;
+
+  /**
    * Commit and write the changes to the disk.
    * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resoving. If false, "deferred writing" is used.
    */
@@ -74,6 +85,9 @@ export class Database {
 
   /** Wait for previous deferred writing tasks. */
   waitWriting(): Promise<void>;
+
+  /** Discard uncommited changes. */
+  rollback(): Promise<void>;
 
   /**
    * Close the opened database file.
@@ -216,3 +230,7 @@ export function BETWEEN(
   maxInclusive: boolean,
 ): Query;
 export function AND(...queries: Query[]): Query;
+
+export type Transaction<T> = (
+  ctx: { db: Database; replaying: boolean },
+) => (Promise<T> | T);
