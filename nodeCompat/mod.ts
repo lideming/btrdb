@@ -3,11 +3,17 @@ import {
   RuntimeFile,
   setRuntimeImplementaion,
 } from "../src/runtime.ts";
-export * from "../mod.ts";
+import * as btrdb from "../mod.ts";
 
-import * as util from "util";
-import * as fs from "fs";
-import * as fsPromises from "fs/promises";
+// @ts-expect-error
+module.exports = btrdb;
+
+// @ts-expect-error
+const util = require("util");
+// @ts-expect-error
+const fs = require("fs");
+// @ts-expect-error
+const fsPromises = require("fs/promises");
 
 const global = globalThis as any;
 if (!global["Deno"]) {

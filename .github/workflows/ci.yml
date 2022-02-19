@@ -125,7 +125,6 @@ jobs:
         run: |
           mkdir -p testdata
           node nodeCompat/example.js && \
-          node nodeCompat/example.mjs && \
             pnpm run nodetest
 
   perf:
