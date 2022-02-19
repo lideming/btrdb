@@ -7,7 +7,6 @@ import {
   PageAddr,
   PageClass,
   PAGESIZE,
-  PageType,
   SetPage,
   SuperPage,
 } from "./page.ts";
@@ -417,7 +416,7 @@ export abstract class PageStorage {
     if (this.dirtyPages.length > 0) {
       for (const page of this.dirtyPages) {
         page._discard = true;
-        if (page.type == PageType.Data) {
+        if (Object.getPrototypeOf(page) == DataPage.prototype) {
           this.dataCache.delete(page.addr);
         } else {
           this.metaCache.delete(page.addr);
