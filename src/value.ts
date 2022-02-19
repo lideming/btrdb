@@ -132,7 +132,10 @@ export class JSValue<T = any> implements Key<JSValue<T>> {
   }
 
   get byteLength(): number {
-    return this._byteLength ??= calcEncodedLength(this.val);
+    if (this._byteLength === undefined) {
+      this._byteLength = calcEncodedLength(this.val);
+    }
+    return this._byteLength;
   }
   writeTo(buf: Buffer): void {
     writeValue(this.val, buf);
