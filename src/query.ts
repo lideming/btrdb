@@ -19,20 +19,7 @@ export interface Query {
 }
 
 export function EQ(index: string, val: any): Query {
-  return {
-    eq: [index, val],
-    async *run(page) {
-      const keyv = new JSValue(val);
-      const result = await findIndexKey(page, index, keyv, false);
-      for await (const it of iterateNode(result.node, result.pos, false)) {
-        if (compareJSValue(keyv, it.key) === 0) {
-          yield it.value;
-        } else {
-          break;
-        }
-      }
-    },
-  };
+  return new QueryEq(index, val);
 }
 
 export function NE(index: string, val: any): Query {
@@ -62,98 +49,139 @@ export function BETWEEN(
   minInclusive: boolean,
   maxInclusive: boolean,
 ): Query {
-  return {
-    between: [index, min, max, minInclusive, maxInclusive],
-    async *run(page) {
-      const vMin = min == null ? null : new JSValue(min);
-      const vMax = max == null ? null : new JSValue(max);
-      let keyIterator: AsyncIterable<IndexNodeType>;
-      if (vMin) {
-        const begin = await findIndexKey(page, index, vMin, !minInclusive);
-        keyIterator = iterateNode(begin.node, begin.pos, false);
-      } else {
-        keyIterator = page.iterateKeys() as AsyncIterable<IndexNodeType>;
-      }
-      for await (const key of keyIterator) {
-        let _c;
-        if (
-          vMax == null || (_c = compareJSValue(vMax, key.key)) > 0 ||
-          (_c === 0 && maxInclusive)
-        ) {
-          yield key.value;
-        } else {
-          break;
-        }
-      }
-    },
-  };
+  return new QueryBetween(index, min, max, minInclusive, maxInclusive);
 }
 
 export function AND(...queries: Query[]): Query {
-  if (queries.length == 0) throw new Error("No queries");
-  return {
-    and: queries,
-    async *run(page) {
-      let set = new Set<number>();
-      let nextSet = new Set<number>();
-      for await (const val of queries[0].run(page)) {
-        set.add(val.encode());
-      }
-      for (let i = 1; i < queries.length; i++) {
-        const qResult = queries[i].run(page);
-        for await (const val of qResult) {
-          const valEncoded = val.encode();
-          if (set.has(valEncoded)) {
-            nextSet.add(valEncoded);
-          }
-        }
-        set.clear();
-        [set, nextSet] = [nextSet, set];
-      }
-      for (const val of set) {
-        yield PageOffsetValue.fromEncoded(val);
-      }
-    },
-  };
+  return new QueryAnd(queries);
 }
 
 export function OR(...queries: Query[]): Query {
-  if (queries.length == 0) throw new Error("No queries");
-  return {
-    or: queries,
-    async *run(page) {
-      let set = new Set<number>();
-      for (const sub of queries) {
-        const subResult = sub.run(page);
-        for await (const val of subResult) {
-          const valEncoded = val.encode();
-          if (!set.has(valEncoded)) {
-            set.add(valEncoded);
-            yield val;
-          }
-        }
-      }
-    },
-  };
+  return new QueryOr(queries);
 }
 
 export function NOT(query: Query): Query {
-  return {
-    not: query,
-    async *run(page) {
-      let set = new Set<number>();
-      const subResult = query.run(page);
-      for await (const val of subResult) {
-        const valEncoded = val.encode();
-        set.add(valEncoded);
+  return new QueryNot(query);
+}
+
+export class QueryEq implements Query {
+  constructor(
+    readonly index: string,
+    readonly val: any,
+  ) {}
+
+  async *run(page: Node<DocNodeType>) {
+    const keyv = new JSValue(this.val);
+    const result = await findIndexKey(page, this.index, keyv, false);
+    for await (const it of iterateNode(result.node, result.pos, false)) {
+      if (compareJSValue(keyv, it.key) === 0) {
+        yield it.value;
+      } else {
+        break;
       }
-      for await (const key of page.iterateKeys()) {
-        if (!set.has((key as DocNodeType).value.encode())) {
-          yield (key as DocNodeType).value;
+    }
+  }
+}
+
+export class QueryBetween implements Query {
+  constructor(
+    readonly index: string,
+    readonly min: any,
+    readonly max: any,
+    readonly minInclusive: boolean,
+    readonly maxInclusive: boolean,
+  ) {}
+
+  async *run(page: Node<DocNodeType>) {
+    const vMin = this.min == null ? null : new JSValue(this.min);
+    const vMax = this.max == null ? null : new JSValue(this.max);
+    let keyIterator: AsyncIterable<IndexNodeType>;
+    if (vMin) {
+      const begin = await findIndexKey(
+        page,
+        this.index,
+        vMin,
+        !this.minInclusive,
+      );
+      keyIterator = iterateNode(begin.node, begin.pos, false);
+    } else {
+      keyIterator = page.iterateKeys() as AsyncIterable<IndexNodeType>;
+    }
+    for await (const key of keyIterator) {
+      let _c;
+      if (
+        vMax == null || (_c = compareJSValue(vMax, key.key)) > 0 ||
+        (_c === 0 && this.maxInclusive)
+      ) {
+        yield key.value;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+export class QueryAnd implements Query {
+  constructor(readonly queries: Query[]) {
+    if (queries.length == 0) throw new Error("No queries");
+  }
+  async *run(page: Node<DocNodeType>) {
+    let set = new Set<number>();
+    let nextSet = new Set<number>();
+    for await (const val of this.queries[0].run(page)) {
+      set.add(val.encode());
+    }
+    for (let i = 1; i < this.queries.length; i++) {
+      const qResult = this.queries[i].run(page);
+      for await (const val of qResult) {
+        const valEncoded = val.encode();
+        if (set.has(valEncoded)) {
+          nextSet.add(valEncoded);
         }
       }
-    },
-  };
+      set.clear();
+      [set, nextSet] = [nextSet, set];
+    }
+    for (const val of set) {
+      yield PageOffsetValue.fromEncoded(val);
+    }
+  }
+}
+
+export class QueryOr implements Query {
+  constructor(readonly queries: Query[]) {
+    if (queries.length == 0) throw new Error("No queries");
+  }
+  async *run(page: Node<DocNodeType>) {
+    let set = new Set<number>();
+    for (const sub of this.queries) {
+      const subResult = sub.run(page);
+      for await (const val of subResult) {
+        const valEncoded = val.encode();
+        if (!set.has(valEncoded)) {
+          set.add(valEncoded);
+          yield val;
+        }
+      }
+    }
+  }
+}
+
+export class QueryNot implements Query {
+  constructor(readonly query: Query) {}
+  async *run(page: Node<DocNodeType>) {
+    let set = new Set<number>();
+    const subResult = this.query.run(page);
+    for await (const val of subResult) {
+      const valEncoded = val.encode();
+      set.add(valEncoded);
+    }
+    for await (const key of page.iterateKeys()) {
+      if (!set.has((key as DocNodeType).value.encode())) {
+        yield (key as DocNodeType).value;
+      }
+    }
+  }
 }
 
 export async function findIndexKey(
