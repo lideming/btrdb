@@ -230,6 +230,8 @@ export function BETWEEN(
   maxInclusive: boolean,
 ): Query;
 export function AND(...queries: Query[]): Query;
+export function NOT(query: Query): Query;
+export function SLICE(query: Query, skip: number, take: number): Query;
 
 export type Transaction<T> = (
   ctx: { db: Database; replaying: boolean },

@@ -1,4 +1,17 @@
-import { AND, EQ, GE, GT, LE, LT, NE, NOT, OR } from "./query.ts";
+import {
+  AND,
+  EQ,
+  GE,
+  GT,
+  LE,
+  LIMIT,
+  LT,
+  NE,
+  NOT,
+  OR,
+  SKIP,
+  SLICE,
+} from "./query.ts";
 
 const cache = globalThis.WeakMap
   ? new WeakMap<TemplateStringsArray, AST>()
@@ -33,19 +46,21 @@ type OpInfo = {
   func: (...args: any) => any;
   prec: number;
   bin: boolean;
-  type: "name-value" | "bool";
+  type: "name-value" | "bool" | "slice";
 };
 
 const Operators: Record<string, OpInfo> = {
-  "==": { func: EQ, bin: true, prec: 2, type: "name-value" },
-  "!=": { func: NE, bin: true, prec: 2, type: "name-value" },
-  "<": { func: LT, bin: true, prec: 2, type: "name-value" },
-  ">": { func: GT, bin: true, prec: 2, type: "name-value" },
-  "<=": { func: LE, bin: true, prec: 2, type: "name-value" },
-  ">=": { func: GE, bin: true, prec: 2, type: "name-value" },
-  "NOT": { func: NOT, bin: false, prec: 1, type: "bool" },
-  "AND": { func: AND, bin: true, prec: 0, type: "bool" },
-  "OR": { func: OR, bin: true, prec: 0, type: "bool" },
+  "==": { func: EQ, bin: true, prec: 3, type: "name-value" },
+  "!=": { func: NE, bin: true, prec: 3, type: "name-value" },
+  "<": { func: LT, bin: true, prec: 3, type: "name-value" },
+  ">": { func: GT, bin: true, prec: 3, type: "name-value" },
+  "<=": { func: LE, bin: true, prec: 3, type: "name-value" },
+  ">=": { func: GE, bin: true, prec: 3, type: "name-value" },
+  "NOT": { func: NOT, bin: false, prec: 2, type: "bool" },
+  "AND": { func: AND, bin: true, prec: 1, type: "bool" },
+  "OR": { func: OR, bin: true, prec: 1, type: "bool" },
+  "SKIP": { func: SKIP, bin: true, prec: 0, type: "slice" },
+  "LIMIT": { func: LIMIT, bin: true, prec: 0, type: "slice" },
 };
 
 const hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -93,7 +108,7 @@ class Parser {
   ensure(pos: number) {
     while (pos >= this.buffer.length) {
       const result = this.gen.next();
-      // console.info("token", result.value)
+      // console.info("token", result.value);
       if (result.done) {
         this.buffer.push({ type: "end" });
       } else {
@@ -248,12 +263,66 @@ class OpAST extends AST {
       } else {
         throw new Error("Wrong type of operands");
       }
+    } else if (this.op.type == "slice") {
+      // Checking for SKIP/LIMIT
+      if (optimizedChildren.length !== 2) {
+        throw new Error("Wrong count of operands");
+      }
+      const parameter = optimizedChildren[1];
+      if (!(parameter instanceof ArgAST)) {
+        throw new Error(
+          `Thr right side of ${this.op.func.name} should be a number value`,
+        );
+      }
+
+      // (query SKIP 1) LIMIT 2 => SLICE(query, 1, 2)
+      let child = optimizedChildren[0];
+      if (child instanceof OpAST && child.op.type == "slice") {
+        let skip: ArgAST;
+        let limit: ArgAST;
+        if (this.op.func === SKIP) {
+          skip = parameter;
+        } else {
+          limit = parameter;
+        }
+        if (child.op.func === this.op.func) {
+          throw new Error(`Two nested ${this.op.func.name}`);
+        }
+        if (child.op.func === SKIP) {
+          skip = child.children[1] as ArgAST;
+        } else {
+          limit = child.children[1] as ArgAST;
+        }
+        return new SliceAST(child.children[0], skip!, limit!);
+      }
     }
+
     // TODO: more transforms
     //
     // name > min AND name < max
     //    => BETWEEN(name, min, max, false, false)
 
     return new OpAST(this.op, optimizedChildren);
+  }
+}
+
+class SliceAST extends AST {
+  constructor(
+    readonly queryChild: AST,
+    readonly skip: ArgAST,
+    readonly limit: ArgAST,
+  ) {
+    super();
+  }
+
+  compute(args: any[]) {
+    return SLICE(
+      this.queryChild.compute(args),
+      this.skip.compute(args),
+      this.limit.compute(args),
+    );
+  }
+  optimize() {
+    return this;
   }
 }

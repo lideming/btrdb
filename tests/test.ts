@@ -11,10 +11,11 @@ import {
   OptionalId,
   OR,
   query,
+  SLICE,
 } from "../mod.ts";
 import { encoder } from "../src/buffer.ts";
 import { Runtime } from "../src/runtime.ts";
-import { assert, assertEquals } from "./test.dep.ts";
+import { assert, assertEquals, assertThrows } from "./test.dep.ts";
 import {
   assertQueryEquals,
   dumpObjectToFile,
@@ -700,6 +701,57 @@ async function checkQuery(userSet: IDbDocSet<User>) {
     ),
     users.filter((x) => x.id <= 5),
   );
+
+  // SLICE (SKIP/LIMIT)
+  assertEquals(
+    await userSet.query(
+      SLICE(
+        GT("id", 1),
+        1,
+        2,
+      ),
+    ),
+    users.filter((x) => x.id > 1).slice(1, 1 + 2),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      id > ${1} SKIP ${1}
+    `),
+    users.filter((x) => x.id > 1).slice(1),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      id > ${1} LIMIT ${2}
+    `),
+    users.filter((x) => x.id > 1).slice(0, 0 + 2),
+  );
+
+  assertEquals(
+    await userSet.query(query`
+      id > ${1} SKIP ${1} LIMIT ${2}
+    `),
+    users.filter((x) => x.id > 1).slice(1, 1 + 2),
+  );
+
+  assertThrows(() => {
+    query`
+      id > ${1} SKIP ${1} SKIP ${2}
+    `;
+  });
+
+  assertThrows(() => {
+    query`
+      id > ${1} LIMIT ${1} LIMIT ${2}
+    `;
+  });
+
+  assertThrows(() => {
+    query`
+      id > ${1} LIMIT not_a_value
+    `;
+  });
 }
 
 // get prev commit

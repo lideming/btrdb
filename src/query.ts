@@ -64,6 +64,18 @@ export function NOT(query: Query): Query {
   return new QueryNot(query);
 }
 
+export function SLICE(query: Query, skip: number, limit: number) {
+  return new QuerySlice(query, skip, limit);
+}
+
+export function SKIP(query: Query, skip: number) {
+  return SLICE(query, skip, -1);
+}
+
+export function LIMIT(query: Query, limit: number) {
+  return SLICE(query, 0, limit);
+}
+
 export class QueryEq implements Query {
   constructor(
     readonly index: string,
@@ -179,6 +191,32 @@ export class QueryNot implements Query {
     for await (const key of page.iterateKeys()) {
       if (!set.has((key as DocNodeType).value.encode())) {
         yield (key as DocNodeType).value;
+      }
+    }
+  }
+}
+
+export class QuerySlice implements Query {
+  constructor(
+    readonly query: Query,
+    readonly skip: number,
+    readonly limit: number,
+  ) {
+    if (skip < 0) throw new Error("skip must be >= 0");
+  }
+  async *run(page: Node<DocNodeType>) {
+    const subResult = this.query.run(page);
+    let skip = this.skip;
+    let limit = this.limit;
+    if (limit == 0) return;
+    for await (const it of subResult) {
+      if (skip) {
+        skip--;
+        continue;
+      }
+      yield it;
+      if (limit > 0) {
+        if (--limit == 0) break;
       }
     }
   }
