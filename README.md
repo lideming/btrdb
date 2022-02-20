@@ -202,7 +202,8 @@ Querying on indexes is supported.
 Queries can be created from the `query` tagged template parser for better
 readability.
 
-Operators: `==`, `!=`, `>`, `<`, `<=`, `>=`, `AND`, `OR`, `NOT`, `(`, `)`
+Operators: `==`, `!=`, `>`, `<`, `<=`, `>=`, `AND`, `OR`, `NOT`, `SKIP`,
+`LIMIT`, `(`, `)`
 
 Always use `${}` to pass values.
 
@@ -229,7 +230,7 @@ console.info(
 ### Query (functions)
 
 Query functions: `EQ` (==), `NE` (!=), `LT` (<), `GT` (>), `LE` (<=), `GE` (>=),
-`AND`, `OR`, `NOT`.
+`AND`, `OR`, `NOT`, `SLICE`.
 
 ```ts
 // Get all offline admins
@@ -254,6 +255,21 @@ console.info(
 );
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
+
+## Transactions
+
+`Database.runTransaction(async () => { ... })` could be used for auto commiting
+and rolling back.
+
+It guarantees:
+
+- The promise is resolved when it committed.
+- Other transactions could be concurrently executed.
+- Only commits when all transactions are completed.
+- Rollback when any transaction is failed, and rerun other successful concurrent
+  transactions.
+
+The transaction function might be re-run in case of replaying.
 
 ## Snapshots
 

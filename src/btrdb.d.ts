@@ -73,7 +73,7 @@ export class Database {
    *  - The promise is resolved when it committed.
    *  - Other transactions could be concurrently executed.
    *  - Only commits when all transactions are completed.
-   *  - Rollback when any transaction is failed, and rerun other successful transactions.
+   *  - Rollback when any transaction is failed, and rerun other successful concurrent transactions.
    */
   runTransaction<T>(fn: Transaction<T>): Promise<T>;
 
