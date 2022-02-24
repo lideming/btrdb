@@ -16,7 +16,6 @@
     "url": "https://github.com/lideming/btrdb.git"
   },
   "files": [
-    "dist/btrdb.mjs",
     "dist/btrdb.js",
     "src/btrdb.d.ts"
   ],
