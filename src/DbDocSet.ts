@@ -397,6 +397,7 @@ export class DbDocSet implements IDbDocSet {
     other.page.setIndexes(newIndexes, newAddrs);
     other.node.postChange();
     other.page.count = this.page.count;
+    other.page.lastId = this.page.lastId;
   }
 
   async _dump() {
