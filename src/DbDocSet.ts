@@ -14,7 +14,7 @@ import {
   KValue,
   PageOffsetValue,
 } from "./value.ts";
-import { BugError } from "./errors.ts";
+import { AlreadyExistError, BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { EQ, Query } from "./query.ts";
 import { Node } from "./tree.ts";
@@ -151,33 +151,58 @@ export class DbDocSet implements IDbDocSet {
     await lockpage.lock.enterWriter();
     const thisnode = this.node;
     try { // BEGIN WRITE LOCK
-      if (op === Op.insert) {
-        if (key == null) {
-          key = doc.id = this.idGenerator(lockpage.lastId.val);
+      let dataPos;
+      let vKey;
+      let vPair;
+      let action, oldDoc;
+      let retryCount = 0;
+      let autoId = false;
+      while (true) { // retry in case of duplicated auto id
+        if (op === Op.insert) {
+          if (key == null) {
+            autoId = true;
+            key = doc.id = this.idGenerator(lockpage.lastId.val);
+          }
         }
+        vKey = new JSValue(key);
+        if (vKey.byteLength > KEYSIZE_LIMIT) {
+          throw new Error(
+            `The id size is too large (${vKey.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+          );
+        }
+        dataPos = !doc
+          ? null
+          : await lockpage.storage.addData(new DocumentValue(doc));
+        vPair = !doc ? null : new KValue(vKey, dataPos!);
+        try {
+          ({ action, oldValue: oldDoc } = await thisnode.set(
+            new KeyComparator(vKey),
+            vPair,
+            op === Op.insert
+              ? "no-change"
+              : op === Op.update
+              ? "change-only"
+              : "can-change",
+          ));
+        } catch (err) {
+          if (autoId && err instanceof AlreadyExistError) {
+            if (++retryCount > 10) {
+              throw new Error(
+                `Duplicated auto id after 10 retries, last id attempted: ${
+                  Runtime.inspect(key)
+                }`,
+              );
+            }
+            key = doc.id = null;
+            continue; // retry with another key
+          }
+          throw err;
+        }
+        break;
       }
-      const dataPos = !doc
-        ? null
-        : await lockpage.storage.addData(new DocumentValue(doc));
-      const keyv = new JSValue(key);
-      if (keyv.byteLength > KEYSIZE_LIMIT) {
-        throw new Error(
-          `The id size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
-        );
-      }
-      const valv = !doc ? null : new KValue(keyv, dataPos!);
-      const { action, oldValue: oldDoc } = await thisnode.set(
-        new KeyComparator(keyv),
-        valv,
-        op === Op.insert
-          ? "no-change"
-          : op === Op.update
-          ? "change-only"
-          : "can-change",
-      );
       if (action == "added") {
-        if (keyv.compareTo(lockpage.lastId) > 0) {
-          lockpage.lastId = keyv;
+        if (vKey.compareTo(lockpage.lastId) > 0) {
+          lockpage.lastId = vKey;
         }
         lockpage.count += 1;
       } else if (action == "removed") {
@@ -251,7 +276,7 @@ export class DbDocSet implements IDbDocSet {
       if (action !== "noop") {
         if (this._db.autoCommit) await this._db._autoCommit();
       }
-      return { action, key: keyv };
+      return { action, key: vKey };
     } finally { // END WRITE LOCK
       lockpage.lock.exitWriter();
       this._db.commitLock.exitWriter();
