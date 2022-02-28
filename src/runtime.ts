@@ -17,6 +17,7 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,
   File: _Deno.File,
+  getRandomValues: crypto.getRandomValues,
 };
 
 if (!Runtime) {

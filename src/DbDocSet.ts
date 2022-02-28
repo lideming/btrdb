@@ -19,10 +19,19 @@ import { Runtime } from "./runtime.ts";
 import { EQ, Query } from "./query.ts";
 import { Node } from "./tree.ts";
 import type { IDbDocSet, IndexDef } from "./btrdb.d.ts";
+import { nanoid } from "./nanoid.ts";
 
-export function numberIdGenerator(lastId: number | null) {
+function _numberIdGenerator(lastId: number | null) {
   if (lastId == null) return 1;
   return lastId + 1;
+}
+
+export function numberIdGenerator() {
+  return _numberIdGenerator;
+}
+
+export function nanoIdGenerator(size = 21) {
+  return (_lastId: number | null) => nanoid(size);
 }
 
 const enum Op {
@@ -57,7 +66,7 @@ export class DbDocSet implements IDbDocSet {
     return this.page.count;
   }
 
-  idGenerator: (lastId: any) => any = numberIdGenerator;
+  idGenerator: (lastId: any) => any = numberIdGenerator();
 
   async get(key: string): Promise<any | null> {
     const { found, val } = await this.node.findKeyRecursive(

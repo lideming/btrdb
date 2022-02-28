@@ -94,4 +94,6 @@ if (!global["Deno"]) {
       });
     });
   };
+
+  Runtime.getRandomValues = (crypto as any).webcrypto.getRandomValues;
 }
