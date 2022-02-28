@@ -8,15 +8,17 @@ import * as btrdb from "../mod.ts";
 // @ts-expect-error
 module.exports = btrdb;
 
-// @ts-expect-error
-const util = require("util");
-// @ts-expect-error
-const fs = require("fs");
-// @ts-expect-error
-const fsPromises = require("fs/promises");
-
 const global = globalThis as any;
 if (!global["Deno"]) {
+  // @ts-expect-error
+  const util = require("util");
+  // @ts-expect-error
+  const fs = require("fs");
+  // @ts-expect-error
+  const fsPromises = require("fs/promises");
+  // @ts-expect-error
+  const crypto = require("crypto");
+
   const Runtime: typeof orignalRuntime = {} as any;
   setRuntimeImplementaion(Runtime);
 
@@ -95,5 +97,5 @@ if (!global["Deno"]) {
     });
   };
 
-  Runtime.getRandomValues = (crypto as any).webcrypto.getRandomValues;
+  Runtime.getRandomValues = crypto.randomFillSync;
 }
