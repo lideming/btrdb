@@ -144,7 +144,7 @@ export interface IDbDocSet<
 
   /**
    * Get/set a function used to generate next id when inserting document.
-   * `numberIdGenerator` is used by default.
+   * `numberIdGenerator()` is used by default.
    */
   idGenerator: (lastId: IdType<T> | null) => IdType<T>;
 
@@ -189,7 +189,17 @@ export interface IDbDocSet<
   query(query: Query): Promise<T[]>;
 }
 
-export function numberIdGenerator(lastId: number | null): number;
+export function numberIdGenerator(): (lastId: number | null) => number;
+
+/**
+ * Get a nanoid generator.
+ * @param size the string length of generated id. Default to 21.
+ * @example
+ * ```ts
+ * docSet.idGenerator = nanoidGenerator(10);
+ * ```
+ */
+export function nanoIdGenerator(size?: number): (_unused: any) => string;
 
 export type IndexDef<T> = Record<
   string,
