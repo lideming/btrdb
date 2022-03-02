@@ -74,6 +74,8 @@ export abstract class PageStorage {
   /** The last addr commited and written to the file. */
   writtenAddr: number = 0;
 
+  pendingRefChange = new Map<PageAddr, number>();
+
   perfCounter = new PageStorageCounter();
 
   /** Read the super page of existing database. Or create a empty database. */
@@ -215,6 +217,12 @@ export abstract class PageStorage {
     page.addr = this.nextAddr++;
     this.dirtyPages.push(page);
     this.getCacheForPage(page).set(page.addr, page);
+  }
+
+  /** Change ref count on a page address (delayed ref tree operation before commit) */
+  changeRefCount(addr: PageAddr, delta: number) {
+    const refcount = this.pendingRefChange.get(addr) ?? 0;
+    this.pendingRefChange.set(addr, refcount + delta);
   }
 
   /** Add a value into data pages and return its address (PageOffsetValue). */
