@@ -138,9 +138,11 @@ export class Node<T extends IKey<unknown>> {
           // TODO: omit key on appended value
           dirtyNode.insertAt(pos, val, dirtyNode.children[pos]);
           dirtyNode.setChild(pos + 1, 0);
+          dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
           action = "added";
         } else {
           dirtyNode.setKey(pos, val);
+          dirtyNode.postChange();
           action = "changed";
         }
       } else {
@@ -148,9 +150,9 @@ export class Node<T extends IKey<unknown>> {
           throw new NotExistError("key doesn't exists");
         }
         dirtyNode.insertAt(pos, val);
+        dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
         action = "added";
       }
-      dirtyNode.postChange();
     } else {
       if (found) {
         await node.deleteAt(pos);
@@ -208,7 +210,7 @@ export class Node<T extends IKey<unknown>> {
    * Finish copy-on-write on this node and parent nodes.
    * Also split this node if the node is overflow.
    */
-  postChange() {
+  postChange(appending = false) {
     if (this.page.hasNewerCopy()) {
       throw new BugError("BUG: postChange() on old copy.");
     }
@@ -227,7 +229,10 @@ export class Node<T extends IKey<unknown>> {
 
       // split this node
       const leftSib = this.page.createChildPage();
-      const leftCount = Math.floor(this.keys.length / 2);
+      // when appending, make the left sibling larger for space efficiency
+      const leftCount = appending
+        ? Math.floor(this.keys.length * 0.9)
+        : Math.floor(this.keys.length / 2);
       const leftKeys = this.page.spliceKeys(0, leftCount);
       leftKeys[1].push(0);
       leftSib.setKeys(leftKeys[0], leftKeys[1]);
@@ -240,7 +245,9 @@ export class Node<T extends IKey<unknown>> {
         this.getParentDirty();
         this.parent.setChild(this.posInParent!, this.addr);
         this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
-        this.parent.postChange();
+        this.parent.postChange(
+          this.posInParent! == this.parent.keys.length - 1,
+        );
         //          ^^^^^^^^^^ makeDirtyToRoot() inside
       } else {
         // make this node a parent of two nodes...
