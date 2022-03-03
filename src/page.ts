@@ -37,8 +37,8 @@ export type PageAddr = number;
 export type InlinablePage<T> = PageAddr | T;
 
 export const enum PageType {
-  None,
-  Super = 1,
+  Zero = 0,
+  Super,
   RootTreeNode,
   Set,
   Records,
@@ -669,24 +669,35 @@ export class SuperPage extends RootTreeNode {
   rev: number = 1;
   prevSuperPageAddr: PageAddr = 0;
   setCount: number = 0;
+  refTreeAddr: PageAddr = 0;
+  freeTreeAddr: PageAddr = 0;
 
   override init() {
     super.init();
-    this.freeBytes -= 4 * 4;
+    this.freeBytes -= 12 + 5 * 4;
   }
   override _writeContent(buf: Buffer) {
-    super._writeContent(buf);
+    buf.writeString("BtrdbSuper_");
     buf.writeU32(this.version);
     buf.writeU32(this.rev);
     buf.writeU32(this.prevSuperPageAddr);
     buf.writeU32(this.setCount);
+    buf.writeU32(this.refTreeAddr);
+    super._writeContent(buf);
   }
   override _readContent(buf: Buffer) {
-    super._readContent(buf);
+    if (buf.readString() != "BtrdbSuper_") {
+      throw new Error("Invalid SuperPage signature");
+    }
     this.version = buf.readU32();
+    if (this.version != 1) {
+      throw new Error(`Unsupported SuperPage version ${this.version}`);
+    }
     this.rev = buf.readU32();
     this.prevSuperPageAddr = buf.readU32();
     this.setCount = buf.readU32();
+    this.refTreeAddr = buf.readU32();
+    super._readContent(buf);
   }
   protected override _copyTo(other: this) {
     super._copyTo(other);
@@ -706,5 +717,30 @@ export class SuperPage extends RootTreeNode {
       version: this.version,
       setCount: this.setCount,
     };
+  }
+}
+
+export class ZeroPage extends Page {
+  get type(): PageType {
+    return PageType.Zero;
+  }
+
+  superPageAddr: PageAddr = 0;
+  prevSuperPageAddr: PageAddr = 0;
+
+  init() {
+    this.freeBytes -= 31 + 2 * 4;
+  }
+  _writeContent(buf: Buffer) {
+    buf.writeString("This is btrdb file version 1.\n");
+    buf.writeU32(this.superPageAddr);
+    buf.writeU32(this.prevSuperPageAddr);
+  }
+  _readContent(buf: Buffer) {
+    if (buf.readString() != "This is btrdb file version 1.\n") {
+      throw new Error("Invalid file signature");
+    }
+    this.superPageAddr = buf.readU32();
+    this.prevSuperPageAddr = buf.readU32();
   }
 }

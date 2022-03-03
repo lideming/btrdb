@@ -9,6 +9,7 @@ import {
   PAGESIZE,
   SetPage,
   SuperPage,
+  ZeroPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
 import { Node } from "./tree.ts";
@@ -50,6 +51,8 @@ export abstract class PageStorage {
   /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */
   nextAddr: number = 0;
 
+  zeroPage: ZeroPage | undefined = undefined;
+
   /** The latest SuperPage, might be dirty. */
   superPage: SuperPage | undefined = undefined;
 
@@ -82,33 +85,32 @@ export abstract class PageStorage {
   async init() {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
+      this.zeroPage = new ZeroPage(this).getDirty(true);
       this.superPage = new SuperPage(this).getDirty(true);
       await this.commit(true);
     } else {
       this.nextAddr = lastAddr;
-      // try read the last page as super page
-      let rootAddr = lastAddr - 1;
-      while (rootAddr >= 0) {
-        try {
-          const page = await this.readPage(rootAddr, SuperPage, true);
-          if (!page) {
-            rootAddr--;
-            continue;
-          }
-          this.superPage = page;
-          this.cleanSuperPage = page;
-          this.writtenAddr = page.addr;
-          break;
-        } catch (error) {
-          console.error(error);
-          console.info(
-            "[RECOVERY] trying read super page from addr " + (--rootAddr),
-          );
-        }
+      this.zeroPage = await this.readPage(0, ZeroPage, false);
+      try {
+        this.superPage = await this.readPage(
+          this.zeroPage.superPageAddr,
+          SuperPage,
+          false,
+        );
+      } catch (error) {
+        console.error(error);
+        console.info(
+          "[RECOVERY] trying read another super page from addr " +
+            (this.zeroPage.prevSuperPageAddr),
+        );
+        this.superPage = await this.readPage(
+          this.zeroPage.prevSuperPageAddr,
+          SuperPage,
+          false,
+        );
       }
-      if (rootAddr < 0) {
-        throw new Error("Failed to open database");
-      }
+      this.cleanSuperPage = this.superPage;
+      this.writtenAddr = this.superPage.addr;
     }
   }
 
@@ -379,6 +381,12 @@ export abstract class PageStorage {
       this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
     this.addDirty(this.superPage);
+    this.zeroPage!.prevSuperPageAddr = this.zeroPage!.superPageAddr;
+    this.zeroPage!.superPageAddr = this.superPage.addr;
+    if (!this.zeroPage!.dirty) {
+      this.zeroPage!.dirty = true;
+      this.dirtyPages.push(this.zeroPage!);
+    }
     // console.log(
     //   "commit",
     //   this.dirtyPages
