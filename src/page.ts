@@ -47,6 +47,8 @@ export const enum PageType {
   IndexTop,
   Index,
   Data,
+  Ref,
+  FreeSpaceRef,
 }
 
 export interface PageClass<T extends Page> {
@@ -654,6 +656,32 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
   }
   protected override get _childCtor() {
     return RootTreeNode;
+  }
+}
+
+// For refcount >= 2, map (addr -> refcount)
+export class RefPage extends NodePage<KValue<UIntValue, UIntValue>> {
+  get type(): PageType {
+    return PageType.Ref;
+  }
+  protected _readValue(buf: Buffer): KValue<UIntValue, UIntValue> {
+    return KValue.readFrom(buf, UIntValue.readFrom, UIntValue.readFrom);
+  }
+  protected override get _childCtor() {
+    return RefPage;
+  }
+}
+
+// For refcount == 0 (free space)
+export class FreeSpacePage extends NodePage<UIntValue> {
+  get type(): PageType {
+    return PageType.FreeSpaceRef;
+  }
+  protected _readValue(buf: Buffer): UIntValue {
+    return UIntValue.readFrom(buf);
+  }
+  protected override get _childCtor() {
+    return FreeSpacePage;
   }
 }
 

@@ -3,10 +3,12 @@ import { BugError, NotExistError } from "./errors.ts";
 import { LRUMap } from "./lru.ts";
 import {
   DataPage,
+  FreeSpacePage,
   Page,
   PageAddr,
   PageClass,
   PAGESIZE,
+  RefPage,
   SetPage,
   SuperPage,
   ZeroPage,
@@ -79,6 +81,8 @@ export abstract class PageStorage {
 
   pendingRefChange = new Map<PageAddr, number>();
 
+  freeSpace = new Set<number>();
+
   perfCounter = new PageStorageCounter();
 
   /** Read the super page of existing database. Or create a empty database. */
@@ -111,6 +115,15 @@ export abstract class PageStorage {
       }
       this.cleanSuperPage = this.superPage;
       this.writtenAddr = this.superPage.addr;
+      if (this.superPage.freeTreeAddr) {
+        const freeTree = await this.readPage(
+          this.superPage.freeTreeAddr,
+          FreeSpacePage,
+        );
+        for await (const addr of new Node(freeTree).iterateKeys()) {
+          this.freeSpace.add(addr.val);
+        }
+      }
     }
   }
 
@@ -223,8 +236,12 @@ export abstract class PageStorage {
 
   /** Change ref count on a page address (delayed ref tree operation before commit) */
   changeRefCount(addr: PageAddr, delta: number) {
-    const refcount = this.pendingRefChange.get(addr) ?? 0;
-    this.pendingRefChange.set(addr, refcount + delta);
+    const refcount = (this.pendingRefChange.get(addr) ?? 0) + delta;
+    if (refcount == 0) {
+      this.pendingRefChange.delete(addr);
+    } else {
+      this.pendingRefChange.set(addr, refcount + delta);
+    }
   }
 
   /** Add a value into data pages and return its address (PageOffsetValue). */
@@ -375,12 +392,76 @@ export abstract class PageStorage {
         throw new Error("super page is not dirty");
       }
     }
+
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
+
     if (this.cleanSuperPage) {
       this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
     this.addDirty(this.superPage);
+
+    // update Ref tree and FreeSpace tree
+    if (this.pendingRefChange.size) {
+      let refTree = this.superPage.refTreeAddr
+        ? new Node(await this.readPage(this.superPage.refTreeAddr, RefPage))
+        : new Node(new RefPage(this));
+      let freeTree = this.superPage.freeTreeAddr
+        ? new Node(
+          await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
+        )
+        : new Node(new FreeSpacePage(this));
+      refTree = refTree.getDirty(false);
+      freeTree = freeTree.getDirty(false);
+      const pendingFreeSpace: PageAddr[] = [];
+      for (const [addr, delta] of this.pendingRefChange) {
+        this.pendingRefChange.delete(addr);
+        const vAddr = new UIntValue(addr);
+        const { found: freefound, node: freenode, pos: freepos, val } =
+          await freeTree.findKeyRecursive(vAddr);
+        if (freefound) {
+          const refcount = 0 + delta;
+          await freenode.deleteAt(freepos);
+          if (refcount > 1) {
+            await refTree.set(
+              new KeyComparator(vAddr),
+              new KValue(vAddr, new UIntValue(refcount)),
+              "no-change",
+            );
+          }
+        } else {
+          const vKey = new KeyComparator(vAddr);
+          const { found, node, pos, val } = await refTree.findKeyRecursive(
+            vKey,
+          );
+          const refcount = (val?.value.val ?? 1) + delta;
+          if (refcount < 2 && found) {
+            await node.deleteAt(pos);
+          }
+          if (refcount > 1) {
+            if (found) {
+              node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
+              node.postChange();
+            } else {
+              node.insertAt(pos, new KValue(vAddr, new UIntValue(refcount)));
+              node.postChange();
+            }
+          }
+          if (refcount == 0) {
+            freenode.insertAt(freepos, vAddr);
+            freenode.postChange();
+            pendingFreeSpace.push(addr);
+          }
+        }
+      }
+      // update free space cache after tree update,
+      // otherwise the free space may be used by the tree immediately.
+      for (const addr of pendingFreeSpace) {
+        this.freeSpace.add(addr);
+        this.metaCache.delete(addr);
+      }
+    }
+
     this.zeroPage!.prevSuperPageAddr = this.zeroPage!.superPageAddr;
     this.zeroPage!.superPageAddr = this.superPage.addr;
     if (!this.zeroPage!.dirty) {
