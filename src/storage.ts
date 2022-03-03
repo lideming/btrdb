@@ -397,7 +397,7 @@ export abstract class PageStorage {
     this.dataPageBuffer = undefined;
 
     if (this.cleanSuperPage) {
-      this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
+      // this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
     this.addDirty(this.superPage);
 
