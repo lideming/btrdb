@@ -111,6 +111,7 @@ export async function run() {
       } catch (error) {
         console.error("error in test", error);
         failed++;
+        throw error;
       }
     } else {
       ignored++;

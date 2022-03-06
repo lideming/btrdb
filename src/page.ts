@@ -110,6 +110,12 @@ export abstract class Page {
     // TODO
   }
 
+  /** It is called when the refcount decreased to 0 */
+  unref() {}
+
+  /** It is called when the refcount increased to 1 */
+  beref() {}
+
   hasNewerCopy() {
     if (this._newerCopy) {
       if (this._newerCopy._discard) {
@@ -218,7 +224,13 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
     }
     this.keys = newKeys;
+    // for (const child of this.children) {
+    //   if (child) this.storage.changeRefCount(child, -1);
+    // }
     this.children = newChildren;
+    // for (const child of this.children) {
+    //   if (child) this.storage.changeRefCount(child, 1);
+    // }
   }
 
   /**
@@ -277,6 +289,26 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       this._childCtor,
     );
     return childPage;
+  }
+
+  unref() {
+    super.unref();
+    // console.info("[node unref]", this.addr, this.children.filter(x => !!x));
+    for (const childAddr of this.children) {
+      if (childAddr) {
+        this.storage.changeRefCount(childAddr, -1);
+      }
+    }
+  }
+
+  beref() {
+    super.beref();
+    // console.info("[node beref]", this.addr, this.children.filter(x => !!x));
+    for (const childAddr of this.children) {
+      if (childAddr) {
+        this.storage.changeRefCount(childAddr, 1);
+      }
+    }
   }
 
   createChildPage() {
@@ -345,6 +377,22 @@ function buildTreePageClasses<TKey extends IKey<any>>(options: {
     }
     get type(): PageType {
       return options.childPageType;
+    }
+    beref() {
+      super.beref();
+      for (
+        const v of this.keys as unknown as Array<KValue<any, PageOffsetValue>>
+      ) {
+        this.storage.changeRefCount(v.value.addr, 1);
+      }
+    }
+    unref() {
+      super.unref();
+      for (
+        const v of this.keys as unknown as Array<KValue<any, PageOffsetValue>>
+      ) {
+        this.storage.changeRefCount(v.value.addr, -1);
+      }
     }
     protected _readValue(buf: Buffer): TKey {
       return options.valueReader(buf);
@@ -502,6 +550,26 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= 1 + 1 + 6;
   }
 
+  beref() {
+    super.beref();
+    if (this.indexesInfoAddr.addr) {
+      this.storage.changeRefCount(this.indexesInfoAddr.addr, 1);
+    }
+    for (const addr of this.indexesAddrs) {
+      this.storage.changeRefCount(addr, 1);
+    }
+  }
+
+  unref() {
+    super.unref();
+    if (this.indexesInfoAddr.addr) {
+      this.storage.changeRefCount(this.indexesInfoAddr.addr, -1);
+    }
+    for (const addr of this.indexesAddrs) {
+      this.storage.changeRefCount(addr, -1);
+    }
+  }
+
   override _writeContent(buf: Buffer) {
     super._writeContent(buf);
     this._lastId.writeTo(buf);
@@ -631,6 +699,16 @@ export class DataPage extends Page {
     this.freeBytes -= len;
   }
 
+  beref() {
+    super.beref();
+    if (this.next) this.storage.changeRefCount(this.next, 1);
+  }
+
+  unref() {
+    super.unref();
+    if (this.next) this.storage.changeRefCount(this.next, -1);
+  }
+
   _writeContent(buf: Buffer) {
     super._writeContent(buf);
     buf.writeU32(this.next);
@@ -656,6 +734,22 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
   }
   protected override get _childCtor() {
     return RootTreeNode;
+  }
+
+  unref() {
+    super.unref();
+    // console.info("[root tree unref]", this.addr, this.keys.map(x => x.value.val));
+    for (const key of this.keys) {
+      this.storage.changeRefCount(key.value.val, -1);
+    }
+  }
+
+  beref() {
+    super.beref();
+    // console.info("[root tree beref]", this.addr, this.keys.map(x => x.value.val));
+    for (const key of this.keys) {
+      this.storage.changeRefCount(key.value.val, 1);
+    }
   }
 }
 
@@ -699,10 +793,11 @@ export class SuperPage extends RootTreeNode {
   setCount: number = 0;
   refTreeAddr: PageAddr = 0;
   freeTreeAddr: PageAddr = 0;
+  size: number = 0;
 
   override init() {
     super.init();
-    this.freeBytes -= 12 + 5 * 4;
+    this.freeBytes -= 12 + 7 * 4;
   }
   override _writeContent(buf: Buffer) {
     buf.writeString("BtrdbSuper_");
@@ -711,6 +806,8 @@ export class SuperPage extends RootTreeNode {
     buf.writeU32(this.prevSuperPageAddr);
     buf.writeU32(this.setCount);
     buf.writeU32(this.refTreeAddr);
+    buf.writeU32(this.freeTreeAddr);
+    buf.writeU32(this.size);
     super._writeContent(buf);
   }
   override _readContent(buf: Buffer) {
@@ -725,6 +822,8 @@ export class SuperPage extends RootTreeNode {
     this.prevSuperPageAddr = buf.readU32();
     this.setCount = buf.readU32();
     this.refTreeAddr = buf.readU32();
+    this.freeTreeAddr = buf.readU32();
+    this.size = buf.readU32();
     super._readContent(buf);
   }
   protected override _copyTo(other: this) {
@@ -733,6 +832,9 @@ export class SuperPage extends RootTreeNode {
     other.version = this.version;
     other.prevSuperPageAddr = this.prevSuperPageAddr;
     other.setCount = this.setCount;
+    other.refTreeAddr = this.refTreeAddr;
+    other.freeTreeAddr = this.freeTreeAddr;
+    other.size = this.size;
   }
   override getDirty(addDirty: boolean) {
     var dirty = this.storage.superPage = super.getDirty(false);
@@ -772,3 +874,18 @@ export class ZeroPage extends Page {
     this.prevSuperPageAddr = buf.readU32();
   }
 }
+
+export const pageTypeMap = [
+  ZeroPage,
+  SuperPage,
+  RootTreeNode,
+  SetPage,
+  RecordsPage,
+  DocSetPage,
+  DocsPage,
+  IndexTopPage,
+  IndexPage,
+  DataPage,
+  RefPage,
+  FreeSpacePage,
+];

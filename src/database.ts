@@ -211,6 +211,7 @@ export class DatabaseEngine implements EngineContext, IDB {
         new StringValue(prefixedName),
         new UIntValue(this.storage.cleanSuperPage!.addr),
       );
+      // console.info("[createSnapshot]", kv);
       await this.getTree().set(
         new KeyComparator(kv.key),
         kv,
@@ -251,10 +252,16 @@ export class DatabaseEngine implements EngineContext, IDB {
   }
 
   async _commitNoLock(waitWriting: boolean) {
-    // console.log('==========COMMIT==========');
-    const r = await this.storage.commit(waitWriting);
-    // console.log('========END COMMIT========');
-    return r;
+    console.log("==========COMMIT==========");
+    try {
+      const r = await this.storage.commit(waitWriting);
+      return r;
+    } catch (err) {
+      console.error("[commit error]", err);
+      throw err;
+    } finally {
+      console.log("========END COMMIT========");
+    }
   }
 
   _autoCommit() {

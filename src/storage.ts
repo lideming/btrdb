@@ -8,6 +8,7 @@ import {
   PageAddr,
   PageClass,
   PAGESIZE,
+  pageTypeMap,
   RefPage,
   SetPage,
   SuperPage,
@@ -71,17 +72,14 @@ export abstract class PageStorage {
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
-  /** The last addr commited. */
-  get cleanAddr() {
-    return this.cleanSuperPage?.addr ?? 0;
-  }
-
   /** The last addr commited and written to the file. */
   writtenAddr: number = 0;
 
   pendingRefChange = new Map<PageAddr, number>();
 
   freeSpace = new Set<number>();
+
+  newAllocated = new Map<PageAddr, Page>();
 
   perfCounter = new PageStorageCounter();
 
@@ -91,6 +89,7 @@ export abstract class PageStorage {
     if (lastAddr == 0) {
       this.zeroPage = new ZeroPage(this).getDirty(true);
       this.superPage = new SuperPage(this).getDirty(true);
+      this.changeRefCount(this.zeroPage.addr, 1);
       await this.commit(true);
     } else {
       this.nextAddr = lastAddr;
@@ -115,21 +114,27 @@ export abstract class PageStorage {
       }
       this.cleanSuperPage = this.superPage;
       this.writtenAddr = this.superPage.addr;
-      if (this.superPage.freeTreeAddr) {
-        const freeTree = await this.readPage(
-          this.superPage.freeTreeAddr,
-          FreeSpacePage,
-        );
-        for await (const addr of new Node(freeTree).iterateKeys()) {
-          this.freeSpace.add(addr.val);
-        }
+      const freeTree = await this.readPage(
+        this.superPage.freeTreeAddr,
+        FreeSpacePage,
+      );
+      for await (const addr of new Node(freeTree).iterateKeys()) {
+        // console.info("[free tree]", addr.val);
+        this.freeSpace.add(addr.val);
       }
+      // const refTree = await this.readPage(
+      //   this.superPage.refTreeAddr,
+      //   RefPage,
+      // );
+      // for await (const { key, value } of new Node(refTree).iterateKeys()) {
+      //   console.info("[ref tree]", key.val, 'refcount', value.val);
+      // }
     }
   }
 
   readPage<T extends Page>(
     addr: PageAddr,
-    type: PageClass<T>,
+    type: PageClass<T> | null,
     nullOnTypeMismatch?: false,
   ): Promise<T>;
   readPage<T extends Page>(
@@ -150,16 +155,16 @@ export abstract class PageStorage {
     const cached = cache.get(addr);
     if (cached) {
       this.perfCounter.cachedPageReads++;
-      return Promise.resolve(cached as T);
-      // .then((cached) => {
-      //   if (Object.getPrototypeOf(cached) !== type.prototype) {
-      //     throw new BugError(
-      //       "BUG: page type from cached mismatched: " +
-      //         Runtime.inspect({ cached, type }),
-      //     );
-      //   }
-      //   return cached;
-      // });
+      return Promise.resolve(cached as T)
+        .then((cached) => {
+          if (type && Object.getPrototypeOf(cached) !== type.prototype) {
+            throw new BugError(
+              "BUG: page type from cached mismatched: " +
+                Runtime.inspect({ cached, type }),
+            );
+          }
+          return cached;
+        });
     }
     if (addr < 0 || addr >= this.nextAddr) {
       throw new Error("Invalid page addr " + addr);
@@ -167,7 +172,7 @@ export abstract class PageStorage {
     this.perfCounter.acutalPageReads++;
     const buffer = new Uint8Array(PAGESIZE);
     const promise = this._readPageBuffer(addr, buffer).then(() => {
-      const page = new type(this);
+      const page = new (type || pageTypeMap[buffer[0]])(this);
       page.dirty = false;
       page.addr = addr;
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
@@ -229,18 +234,36 @@ export abstract class PageStorage {
         throw new Error("Can't mark on-disk page as dirty");
       }
     }
-    page.addr = this.nextAddr++;
+    page.addr = this.allocate(page);
     this.dirtyPages.push(page);
     this.getCacheForPage(page).set(page.addr, page);
   }
 
+  allocate(page: Page) {
+    let addr: number;
+    if (this.freeSpace.size) {
+      // Allocate from free space
+      [addr] = this.freeSpace;
+      this.freeSpace.delete(addr);
+      console.info(`allocated type(${page.type}) (free space)`, addr);
+    } else {
+      // Grow the backed file
+      addr = this.nextAddr++;
+      // console.info(`allocated type(${page.type}) (growed)`, addr);
+    }
+    this.newAllocated.set(addr, page);
+    return addr;
+  }
+
   /** Change ref count on a page address (delayed ref tree operation before commit) */
   changeRefCount(addr: PageAddr, delta: number) {
-    const refcount = (this.pendingRefChange.get(addr) ?? 0) + delta;
-    if (refcount == 0) {
+    if (typeof addr != "number") throw new Error("Invalid addr: " + addr);
+    // console.info("changeRef():", addr, delta);
+    const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
+    if (newDelta == 0) {
       this.pendingRefChange.delete(addr);
     } else {
-      this.pendingRefChange.set(addr, refcount + delta);
+      this.pendingRefChange.set(addr, newDelta);
     }
   }
 
@@ -349,6 +372,7 @@ export abstract class PageStorage {
     this.dataPage.createBuffer();
     this.dataPageBuffer = new Buffer(this.dataPage.buffer!, 0);
     this.addDirty(this.dataPage);
+    // this.changeRefCount(this.dataPage.addr, 1);
     if (continued) prev!.next = this.dataPage.addr;
   }
 
@@ -396,71 +420,81 @@ export abstract class PageStorage {
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
 
-    if (this.cleanSuperPage) {
-      // this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
-    }
     this.addDirty(this.superPage);
 
-    // update Ref tree and FreeSpace tree
-    if (this.pendingRefChange.size) {
-      let refTree = this.superPage.refTreeAddr
-        ? new Node(await this.readPage(this.superPage.refTreeAddr, RefPage))
-        : new Node(new RefPage(this));
-      let freeTree = this.superPage.freeTreeAddr
-        ? new Node(
-          await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
-        )
-        : new Node(new FreeSpacePage(this));
-      refTree = refTree.getDirty(false);
-      freeTree = freeTree.getDirty(false);
-      const pendingFreeSpace: PageAddr[] = [];
-      for (const [addr, delta] of this.pendingRefChange) {
-        this.pendingRefChange.delete(addr);
-        const vAddr = new UIntValue(addr);
-        const { found: freefound, node: freenode, pos: freepos, val } =
-          await freeTree.findKeyRecursive(vAddr);
-        if (freefound) {
-          const refcount = 0 + delta;
-          await freenode.deleteAt(freepos);
-          if (refcount > 1) {
-            await refTree.set(
-              new KeyComparator(vAddr),
-              new KValue(vAddr, new UIntValue(refcount)),
-              "no-change",
-            );
-          }
-        } else {
-          const vKey = new KeyComparator(vAddr);
-          const { found, node, pos, val } = await refTree.findKeyRecursive(
-            vKey,
-          );
-          const refcount = (val?.value.val ?? 1) + delta;
-          if (refcount < 2 && found) {
-            await node.deleteAt(pos);
-          }
-          if (refcount > 1) {
-            if (found) {
-              node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
-              node.postChange();
-            } else {
-              node.insertAt(pos, new KValue(vAddr, new UIntValue(refcount)));
-              node.postChange();
-            }
-          }
-          if (refcount == 0) {
-            freenode.insertAt(freepos, vAddr);
-            freenode.postChange();
-            pendingFreeSpace.push(addr);
-          }
-        }
-      }
-      // update free space cache after tree update,
-      // otherwise the free space may be used by the tree immediately.
-      for (const addr of pendingFreeSpace) {
-        this.freeSpace.add(addr);
-        this.metaCache.delete(addr);
-      }
+    this.changeRefCount(this.superPage.addr, 1);
+
+    if (this.cleanSuperPage) {
+      this.changeRefCount(this.cleanSuperPage.addr, -1);
+      // this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
+
+    // Update Ref tree and FreeSpace tree
+    let refTree = this.superPage.refTreeAddr
+      ? new Node(await this.readPage(this.superPage.refTreeAddr, RefPage))
+      : new Node(new RefPage(this));
+    let freeTree = this.superPage.freeTreeAddr
+      ? new Node(
+        await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
+      )
+      : new Node(new FreeSpacePage(this));
+    refTree = refTree.getDirty(true);
+    freeTree = freeTree.getDirty(true);
+    const pendingFreeSpace = new Set<PageAddr>();
+
+    await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+
+    if (this.superPage.refTreeAddr) {
+      this.changeRefCount(this.superPage.refTreeAddr, -1);
+    }
+    this.changeRefCount(refTree.addr, 1);
+    if (this.superPage.freeTreeAddr) {
+      this.changeRefCount(this.superPage.freeTreeAddr, -1);
+    }
+    this.changeRefCount(freeTree.addr, 1);
+
+    await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+
+    if (this.newAllocated.size) {
+      // throw new BugError(`BUG: has allocated pages without ref, [${Array.from(this.newAllocated.keys()).join(",")
+      //   }]`);
+
+      // console.warn(`BUG: has allocated pages without ref, count=${this.newAllocated.size}, [${Array.from(this.newAllocated.keys()).join(",")
+      //   }]`);
+      // if (this.newAllocated.size == 262) debugger;
+      // for (const [addr] of this.newAllocated) {
+      //   this.changeRefCount(addr, 1);
+      // }
+      // continue;
+
+      console.warn(
+        `WARN: has allocated but unused pages, count=${this.newAllocated.size}, [${
+          Array.from(this.newAllocated.keys()).join(",")
+        }]`,
+      );
+      for (const [addr] of this.newAllocated) {
+        if (addr >= this.superPage.size) {
+          const vAddr = new UIntValue(addr);
+          await freeTree.set(vAddr, vAddr, "no-change");
+        } // else it should be already in the free tree
+        pendingFreeSpace.add(addr);
+      }
+      this.newAllocated.clear();
+      await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+    }
+
+    this.superPage.refTreeAddr = refTree.addr;
+    this.superPage.freeTreeAddr = freeTree.addr;
+
+    // update free space cache after tree update,
+    // otherwise the free space may be used by the tree immediately.
+    for (const addr of pendingFreeSpace) {
+      this.freeSpace.add(addr);
+      this.metaCache.delete(addr);
+      this.dataCache.delete(addr);
+    }
+
+    this.superPage.size = this.nextAddr;
 
     this.zeroPage!.prevSuperPageAddr = this.zeroPage!.superPageAddr;
     this.zeroPage!.superPageAddr = this.superPage.addr;
@@ -482,6 +516,76 @@ export abstract class PageStorage {
     this.dirtyPages = [];
     this.cleanSuperPage = this.superPage;
     return currentDirtyPages;
+  }
+
+  private async updateRefTree(
+    freeTree: Node<UIntValue>,
+    refTree: Node<KValue<UIntValue, UIntValue>>,
+    pendingFreeSpace: Set<number>,
+  ) {
+    for (const [addr, delta] of this.pendingRefChange) {
+      // console.info(`[update ref] addr ${addr} delta ${delta}`);
+      this.pendingRefChange.delete(addr);
+      const vAddr = new UIntValue(addr);
+      const isNewAllocated = this.newAllocated.get(addr);
+      if (isNewAllocated) {
+        this.newAllocated.delete(addr);
+        isNewAllocated.beref();
+      }
+      let { found: freefound, node: freenode, pos: freepos, val } =
+        await freeTree.findKeyRecursive(vAddr);
+      if (freefound) {
+        const refcount = 0 + delta;
+        if (refcount < 0) {
+          throw new BugError(`BUG: refcount ${refcount} < 0`);
+        }
+        await freenode.deleteAt(freepos);
+        // console.info("[free->ref]", addr, refcount);
+        pendingFreeSpace.delete(addr);
+        if (refcount > 1) {
+          await refTree.set(
+            new KeyComparator(vAddr),
+            new KValue(vAddr, new UIntValue(refcount)),
+            "no-change",
+          );
+        }
+      } else {
+        const vKey = new KeyComparator(vAddr);
+        let { found, node, pos, val } = await refTree.findKeyRecursive(
+          vKey,
+        );
+        const refcount = (isNewAllocated ? 0 : (val?.value.val ?? 1)) + delta;
+        // console.info("[ref]", addr, refcount);
+        if (refcount < 0) {
+          throw new BugError(`BUG: refcount ${refcount} < 0`);
+        }
+        if (refcount < 2 && found) {
+          await node.deleteAt(pos);
+        }
+        if (refcount > 1) {
+          // console.info("[shared]", addr, refcount);
+          node = node.getDirty(false);
+          if (found) {
+            node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
+            node.postChange();
+          } else {
+            node.insertAt(pos, new KValue(vAddr, new UIntValue(refcount)));
+            node.postChange();
+          }
+        }
+        if (refcount == 0) {
+          console.info("[free]", addr);
+          freenode = freenode.getDirty(false);
+          freenode.insertAt(freepos, vAddr);
+          freenode.postChange();
+          pendingFreeSpace.add(addr);
+          const page = await this.readPage(addr, null);
+          page.unref();
+        } else {
+          pendingFreeSpace.delete(addr);
+        }
+      }
+    }
   }
 
   /** Commit all current changes into disk. */
@@ -520,7 +624,7 @@ export abstract class PageStorage {
         }
       }
       this.dirtyPages = [];
-      this.nextAddr = this.cleanAddr + 1;
+      this.nextAddr = this.superPage!.size;
     }
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;

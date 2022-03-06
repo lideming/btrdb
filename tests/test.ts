@@ -1132,7 +1132,8 @@ runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
     await dumpObjectToFile("testdata/five_actual.txt", actualIndexResults);
     await dumpObjectToFile("testdata/five_expected.txt", expectedIndexResults);
     throw new Error(
-      "test failed, dump is created under 'testdata' folder: " + error,
+      "test failed, dump is created under 'testdata' folder: ",
+      { cause: error },
     );
   }
   assertEquals(set.count, fivesSet.length);
@@ -1156,6 +1157,40 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
       await set.delete(k);
     }
     assertEquals(await db.commit(), true);
+    actualIndexResults = (await Promise.all(
+      fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+    )).map((x) => x.map((x) => x.id).sort());
+    assertEquals(actualIndexResults, AD_expectedIndexResults);
+    assertEquals(set.count, fivesSet.length - AD_toDelete.length);
+  } catch (error) {
+    console.info(error);
+    console.info("generating dump...");
+    await dumpObjectToFile(
+      "testdata/five_delete_tree.txt",
+      await (set as any)._dump(),
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_actual.txt",
+      actualIndexResults,
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_expected.txt",
+      AD_expectedIndexResults,
+    );
+    throw new Error(
+      "test failed, dump is created under 'testdata' folder: " + error,
+    );
+  }
+}, ignoreMassiveTests);
+
+runWithDatabase(async function DocSet_deleteMassive_reopen_verify(db) {
+  var set = await db.createSet<TestDoc>("docMassive2", "doc");
+  // await dumpObjectToFile(
+  //   "testdata/five_before_delete_tree.txt",
+  //   await (set as any)._dump(),
+  // );
+  let actualIndexResults = null;
+  try {
     actualIndexResults = (await Promise.all(
       fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
     )).map((x) => x.map((x) => x.id).sort());
