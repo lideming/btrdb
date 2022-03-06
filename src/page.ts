@@ -47,8 +47,8 @@ export const enum PageType {
   IndexTop,
   Index,
   Data,
-  Ref,
-  FreeSpaceRef,
+  Ref = 0xfe,
+  FreeSpaceRef = 0xff,
 }
 
 export interface PageClass<T extends Page> {

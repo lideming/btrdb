@@ -245,7 +245,7 @@ export abstract class PageStorage {
       // Allocate from free space
       [addr] = this.freeSpace;
       this.freeSpace.delete(addr);
-      console.info(`allocated type(${page.type}) (free space)`, addr);
+      // console.info(`allocated type(${page.type}) (free space)`, addr);
     } else {
       // Grow the backed file
       addr = this.nextAddr++;
@@ -467,12 +467,15 @@ export abstract class PageStorage {
       // }
       // continue;
 
-      console.warn(
-        `WARN: has allocated but unused pages, count=${this.newAllocated.size}, [${
-          Array.from(this.newAllocated.keys()).join(",")
-        }]`,
-      );
-      for (const [addr] of this.newAllocated) {
+      // console.warn(
+      //   `WARN: has allocated but unused pages, count=${this.newAllocated.size}, [${
+      //     Array.from(this.newAllocated.keys()).join(",")
+      //   }]`,
+      // );
+      for (const [addr, page] of this.newAllocated) {
+        // FIXME: handle free tree ref update properly
+        if (page.type >= 0xfe) continue;
+
         if (addr >= this.superPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
@@ -480,7 +483,6 @@ export abstract class PageStorage {
         pendingFreeSpace.add(addr);
       }
       this.newAllocated.clear();
-      await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
     }
 
     this.superPage.refTreeAddr = refTree.addr;
@@ -574,7 +576,7 @@ export abstract class PageStorage {
           }
         }
         if (refcount == 0) {
-          console.info("[free]", addr);
+          // console.info("[free]", addr);
           freenode = freenode.getDirty(false);
           freenode.insertAt(freepos, vAddr);
           freenode.postChange();

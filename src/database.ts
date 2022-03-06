@@ -252,7 +252,7 @@ export class DatabaseEngine implements EngineContext, IDB {
   }
 
   async _commitNoLock(waitWriting: boolean) {
-    console.log("==========COMMIT==========");
+    // console.log("==========COMMIT==========");
     try {
       const r = await this.storage.commit(waitWriting);
       return r;
@@ -260,7 +260,7 @@ export class DatabaseEngine implements EngineContext, IDB {
       console.error("[commit error]", err);
       throw err;
     } finally {
-      console.log("========END COMMIT========");
+      // console.log("========END COMMIT========");
     }
   }
 
