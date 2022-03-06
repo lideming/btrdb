@@ -54,14 +54,23 @@ if (!global["Deno"]) {
     }
     constructor(readonly fh: any) {
     }
-    write(p: Uint8Array): Promise<number> {
-      return this.fh.write(p, 0, p.byteLength, this.pos);
+    async write(p: Uint8Array): Promise<number> {
+      const { bytesWritten } = await this.fh.write(
+        p,
+        0,
+        p.byteLength,
+        this.pos,
+      );
+      this.pos += bytesWritten;
+      return bytesWritten;
     }
     truncate(len?: number): Promise<void> {
       return this.fh.truncate(len);
     }
-    read(p: Uint8Array): Promise<number | null> {
-      return this.fh.read(p, 0, p.byteLength, this.pos);
+    async read(p: Uint8Array): Promise<number | null> {
+      const { bytesRead } = await this.fh.read(p, 0, p.byteLength, this.pos);
+      this.pos += bytesRead;
+      return bytesRead;
     }
     async seek(offset: number, whence: SeekMode): Promise<number> {
       if (whence == SeekMode.Start) {
@@ -81,11 +90,13 @@ if (!global["Deno"]) {
     }
   }
 
+  const { O_RDWR, O_CREAT } = fs.constants;
+
   Runtime.open = async function (
     path: string | URL,
     options?: Deno.OpenOptions,
   ): Promise<RuntimeFile> {
-    return new File(await fsPromises.open(path, "a+")) as any;
+    return new File(await fsPromises.open(path, O_RDWR | O_CREAT)) as any;
   };
 
   Runtime.fdatasync = function (fd: number) {
