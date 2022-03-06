@@ -875,17 +875,17 @@ export class ZeroPage extends Page {
   }
 }
 
-export const pageTypeMap = [
-  ZeroPage,
-  SuperPage,
-  RootTreeNode,
-  SetPage,
-  RecordsPage,
-  DocSetPage,
-  DocsPage,
-  IndexTopPage,
-  IndexPage,
-  DataPage,
-  RefPage,
-  FreeSpacePage,
-];
+export const pageTypeMap: Record<number, typeof Page> = {
+  0: ZeroPage,
+  1: SuperPage,
+  2: RootTreeNode,
+  3: SetPage,
+  4: RecordsPage,
+  5: DocSetPage,
+  6: DocsPage,
+  7: IndexTopPage,
+  8: IndexPage,
+  9: DataPage,
+  0xfe: RefPage,
+  0xff: FreeSpacePage,
+};
