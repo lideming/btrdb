@@ -799,7 +799,7 @@ export class InMemoryStorage extends PageStorage {
       buf.buffer = new Uint8Array(PAGESIZE);
       buf.pos = 0;
       page.writeTo(buf);
-      this.data.pageBuffers.push(buf.buffer);
+      this.data.pageBuffers[page.addr] = buf.buffer;
       this.perfCounter.pageWrites++;
       this.perfCounter.pageFreebyteWrites += page.freeBytes;
     }
