@@ -1,4 +1,4 @@
-export const PAGESIZE = getPageSize() || 4096;
+export const PAGESIZE = getPageSize() || 8192;
 
 export const KEYSIZE_LIMIT = Math.floor(PAGESIZE / 4);
 
