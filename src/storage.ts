@@ -564,9 +564,17 @@ export abstract class PageStorage {
           throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         if (refcount < 2 && found) {
-          console.info('before delete', node.keys.map(x => x.value.key), node.children);
+          console.info(
+            "before delete",
+            node.keys.map((x) => x.value.key),
+            node.children,
+          );
           await node.deleteAt(pos);
-          console.info('before delete', node.keys.map(x => x.value.key), node.children);
+          console.info(
+            "before delete",
+            node.keys.map((x) => x.value.key),
+            node.children,
+          );
         }
         if (refcount > 1) {
           // console.info("[shared]", addr, refcount);

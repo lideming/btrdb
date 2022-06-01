@@ -229,7 +229,7 @@ export class Node<T extends IKey<unknown>> {
       if (this.keys.length <= 2) {
         throw new Error(
           "Not implemented. freeBytes=" + this.page.freeBytes +
-          " keys=" + Runtime.inspect(this.keys),
+            " keys=" + Runtime.inspect(this.keys),
         );
       }
       // console.log('spliting node with key count:', this.keys.length);
