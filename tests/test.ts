@@ -795,7 +795,7 @@ runWithDatabase(async function checkSnap2(db) {
 // transaction
 
 runWithDatabase(async function transaction(db) {
-  // (db as any).transaction.debug = true;
+  (db as any).transaction.debug = true;
 
   function getSet() {
     return db.getSet<any>("transaction", "doc");
@@ -963,7 +963,8 @@ runWithDatabase(async function setGetCommitConcurrent(db) {
   var set = (await db.createSet("testConcurrent"))!;
   var tasks: Promise<void>[] = [];
   for (const k of concurrentKeys) {
-    tasks.push((async () => {
+    // tasks.push((async () => {
+    await ((async () => {
       await set.set("key" + k, "val" + k);
       const val = await set!.get("key" + k);
       assertEquals(val, "val" + k);
@@ -1043,6 +1044,7 @@ runWithDatabase(async function getMassive(db) {
     const val = await set!.get("key" + k);
     if (val != "val" + k) {
       errors.push("expect " + k + " got " + val);
+      await set!.get("key" + k);
     }
   }
   assertEquals(errors, []);

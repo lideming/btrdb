@@ -179,15 +179,23 @@ export class Node<T extends IKey<unknown>> {
       dirtyNode.postChange();
     } else {
       dirtyNode.page.spliceKeys(pos, 1);
-      if (dirtyNode.keys.length == 0 && dirtyNode.parent) {
-        const dirtyParent = dirtyNode.parent.getDirty(false);
-        dirtyParent.setChild(
-          dirtyNode.posInParent!,
-          dirtyNode.children[0],
-        );
-        dirtyParent!.postChange();
-        dirtyNode.parent = undefined;
-        dirtyNode.page.removeDirty();
+      if (dirtyNode.keys.length == 0) {
+        if (dirtyNode.parent) {
+          const dirtyParent = dirtyNode.parent.getDirty(false);
+          dirtyParent.setChild(
+            dirtyNode.posInParent!,
+            dirtyNode.children[0] ?? 0,
+          );
+          dirtyParent!.postChange();
+          dirtyNode.parent = undefined;
+          dirtyNode.page.removeDirty();
+        } else if (dirtyNode.children[0]) {
+          const child = await dirtyNode.readChildPage(0);
+          dirtyNode.page.setKeys(child.keys, child.children);
+          dirtyNode.postChange();
+        } else {
+          dirtyNode.postChange();
+        }
       } else {
         dirtyNode.postChange();
       }
@@ -221,7 +229,7 @@ export class Node<T extends IKey<unknown>> {
       if (this.keys.length <= 2) {
         throw new Error(
           "Not implemented. freeBytes=" + this.page.freeBytes +
-            " keys=" + Runtime.inspect(this.keys),
+          " keys=" + Runtime.inspect(this.keys),
         );
       }
       // console.log('spliting node with key count:', this.keys.length);
@@ -287,5 +295,34 @@ export class Node<T extends IKey<unknown>> {
       node = dirtyParent;
       if (parentWasDirty) break;
     }
+  }
+}
+
+export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
+  constructor(
+    page: NodePage<T>,
+    parent?: Node<T> | undefined,
+    posInParent?: number | undefined,
+  ) {
+    super(page, parent, posInParent);
+  }
+
+  async readChildPage(pos: number): Promise<NoRefcountNode<T>> {
+    const childPage = await this.page.readChildPage(pos);
+    return new NoRefcountNode(childPage, this, pos);
+  }
+
+  getDirty(addDirty: boolean): Node<T> {
+    const oldpage = this.page;
+    const wasOnDisk = this.page.hasAddr;
+    this.page = this.page.getDirty(addDirty);
+    if (oldpage !== this.page) {
+      this.page.storage.changeRefCount(oldpage.addr, -1);
+      this.page.storage.changeRefCount(this.page.addr, 1);
+    }
+    if (!wasOnDisk && this.page.hasAddr) {
+      this.page.storage.changeRefCount(this.page.addr, 1);
+    }
+    return this;
   }
 }

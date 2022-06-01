@@ -1,4 +1,4 @@
-export const PAGESIZE = getPageSize() || 8192;
+export const PAGESIZE = getPageSize() || 256;
 
 export const KEYSIZE_LIMIT = Math.floor(PAGESIZE / 4);
 
@@ -291,25 +291,25 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     return childPage;
   }
 
-  unref() {
-    super.unref();
-    // console.info("[node unref]", this.addr, this.children.filter(x => !!x));
-    for (const childAddr of this.children) {
-      if (childAddr) {
-        this.storage.changeRefCount(childAddr, -1);
-      }
-    }
-  }
+  // unref() {
+  //   super.unref();
+  //   console.info("[node unref]", this.addr, this.children.filter((x) => !!x));
+  //   for (const childAddr of this.children) {
+  //     if (childAddr) {
+  //       this.storage.changeRefCount(childAddr, -1);
+  //     }
+  //   }
+  // }
 
-  beref() {
-    super.beref();
-    // console.info("[node beref]", this.addr, this.children.filter(x => !!x));
-    for (const childAddr of this.children) {
-      if (childAddr) {
-        this.storage.changeRefCount(childAddr, 1);
-      }
-    }
-  }
+  // beref() {
+  //   super.beref();
+  //   console.info("[node beref]", this.addr, this.children.filter((x) => !!x));
+  //   for (const childAddr of this.children) {
+  //     if (childAddr) {
+  //       this.storage.changeRefCount(childAddr, 1);
+  //     }
+  //   }
+  // }
 
   createChildPage() {
     return new this._childCtor(this.storage).getDirty(true);

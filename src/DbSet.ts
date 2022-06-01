@@ -33,7 +33,7 @@ export class DbSet implements IDbSet {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     try { // BEGIN READ LOCK
-      const { found, val } = await this.node.findKeyRecursive(
+      const { found, val, node, pos } = await this.node.findKeyRecursive(
         new KeyComparator(new JSValue(key)),
       );
       if (!found) return null;
