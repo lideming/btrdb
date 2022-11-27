@@ -16,7 +16,7 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   customInspect: Symbol.for("Deno.customInspect"),
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,
-  File: _Deno.File,
+  File: _Deno.FsFile,
   getRandomValues: crypto.getRandomValues,
 };
 
@@ -26,7 +26,7 @@ if (!Runtime) {
   } as any;
 }
 
-export type RuntimeFile = Deno.File;
+export type RuntimeFile = Deno.FsFile;
 export type RuntimeInspectOptions = Deno.InspectOptions;
 
 // When running on Node.js, change the runtime API implementation.
