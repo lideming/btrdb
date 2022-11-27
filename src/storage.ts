@@ -582,9 +582,9 @@ export abstract class PageStorage {
         console.info("[ref]", addr, refcount);
         if (refcount < 0) {
           this.pendingRefChange.set(addr, delta);
-          console.warn(`BUG?: refcount ${refcount} < 0, moved to end of queue`);
-          continue;
-          // throw new BugError(`BUG: refcount ${refcount} < 0`);
+          // console.warn(`BUG?: refcount ${refcount} < 0, moved to end of queue`);
+          // continue;
+          throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         if (refcount < 2 && found) {
           console.info(
