@@ -36,7 +36,7 @@ export type PageAddr = number;
 
 export type InlinablePage<T> = PageAddr | T;
 
-export const enum PageType {
+export enum PageType {
   Zero = 0,
   Super,
   RootTreeNode,
@@ -55,9 +55,12 @@ export interface PageClass<T extends Page> {
   new (storage: PageStorage): T;
 }
 
+let instanceId = 1;
+
 export abstract class Page {
   storage: PageStorage;
   addr: PageAddr = -1;
+  _instanceId = instanceId++;
   abstract get type(): PageType;
 
   constructor(storage: PageStorage) {
@@ -111,10 +114,22 @@ export abstract class Page {
   }
 
   /** It is called when the refcount decreased to 0 */
-  unref() {}
+  unref() {
+    for (const it of this.getRefs()) {
+      this.storage.changeRefCount(it, -1);
+    }
+  }
 
   /** It is called when the refcount increased to 1 */
-  beref() {}
+  beref() {
+    for (const it of this.getRefs()) {
+      this.storage.changeRefCount(it, 1);
+    }
+  }
+
+  getRefs(): Iterable<PageAddr> {
+    return [];
+  }
 
   hasNewerCopy() {
     if (this._newerCopy) {
@@ -149,7 +164,7 @@ export abstract class Page {
         `BUG: buffer written (${buf.pos - beginPos}) != space used (${
           PAGESIZE -
           this.freeBytes
-        })`,
+        }), addr=${this.addr}`,
       );
     }
   }
@@ -176,7 +191,7 @@ export abstract class Page {
 
   _debugView(): any {
     return {
-      type: this.type,
+      type: PageType[this.type],
       addr: this.addr,
       dirty: this.dirty,
       newerCopy: this._newerCopy?._debugView(),
@@ -311,6 +326,14 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   //   }
   // }
 
+  *getRefs(): Iterable<number> {
+    for (const it of this.children) {
+      if (it) {
+        yield it;
+      }
+    }
+  }
+
   createChildPage() {
     return new this._childCtor(this.storage).getDirty(true);
   }
@@ -378,20 +401,12 @@ function buildTreePageClasses<TKey extends IKey<any>>(options: {
     get type(): PageType {
       return options.childPageType;
     }
-    beref() {
-      super.beref();
+    *getRefs(): Iterable<number> {
+      yield* super.getRefs();
       for (
         const v of this.keys as unknown as Array<KValue<any, PageOffsetValue>>
       ) {
-        this.storage.changeRefCount(v.value.addr, 1);
-      }
-    }
-    unref() {
-      super.unref();
-      for (
-        const v of this.keys as unknown as Array<KValue<any, PageOffsetValue>>
-      ) {
-        this.storage.changeRefCount(v.value.addr, -1);
+        yield v.value.addr;
       }
     }
     protected _readValue(buf: Buffer): TKey {
@@ -550,23 +565,13 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= 1 + 1 + 6;
   }
 
-  beref() {
-    super.beref();
+  *getRefs(): Iterable<number> {
+    yield* super.getRefs();
     if (this.indexesInfoAddr.addr) {
-      this.storage.changeRefCount(this.indexesInfoAddr.addr, 1);
+      yield this.indexesInfoAddr.addr;
     }
     for (const addr of this.indexesAddrs) {
-      this.storage.changeRefCount(addr, 1);
-    }
-  }
-
-  unref() {
-    super.unref();
-    if (this.indexesInfoAddr.addr) {
-      this.storage.changeRefCount(this.indexesInfoAddr.addr, -1);
-    }
-    for (const addr of this.indexesAddrs) {
-      this.storage.changeRefCount(addr, -1);
+      yield addr;
     }
   }
 
@@ -699,14 +704,8 @@ export class DataPage extends Page {
     this.freeBytes -= len;
   }
 
-  beref() {
-    super.beref();
-    if (this.next) this.storage.changeRefCount(this.next, 1);
-  }
-
-  unref() {
-    super.unref();
-    if (this.next) this.storage.changeRefCount(this.next, -1);
+  getRefs(): Iterable<number> {
+    return this.next ? [this.next] : [];
   }
 
   _writeContent(buf: Buffer) {
@@ -736,19 +735,11 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
     return RootTreeNode;
   }
 
-  unref() {
-    super.unref();
-    // console.info("[root tree unref]", this.addr, this.keys.map(x => x.value.val));
+  *getRefs() {
+    yield* super.getRefs();
+    // console.info("[root tree refs]", this.addr, this.keys.map(x => x.value.val));
     for (const key of this.keys) {
-      this.storage.changeRefCount(key.value.val, -1);
-    }
-  }
-
-  beref() {
-    super.beref();
-    // console.info("[root tree beref]", this.addr, this.keys.map(x => x.value.val));
-    for (const key of this.keys) {
-      this.storage.changeRefCount(key.value.val, 1);
+      yield key.value.val;
     }
   }
 }

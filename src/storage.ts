@@ -8,6 +8,7 @@ import {
   PageAddr,
   PageClass,
   PAGESIZE,
+  PageType,
   pageTypeMap,
   RefPage,
   SetPage,
@@ -160,7 +161,10 @@ export abstract class PageStorage {
           if (type && Object.getPrototypeOf(cached) !== type.prototype) {
             throw new BugError(
               "BUG: page type from cached mismatched: " +
-                Runtime.inspect({ cached, type }),
+                Runtime.inspect({
+                  cached,
+                  expected: PageType[new type(this).type],
+                }),
             );
           }
           return cached;
@@ -214,7 +218,7 @@ export abstract class PageStorage {
       let deleted = 0;
       for (const page of cache.valuesFromOldest()) {
         if (page instanceof Page && page.addr <= this.writtenAddr) {
-          // console.info('clean ' + page.type + ' ' + page.addr);
+          // console.info('clean ' + PageType[page.type] + ' ' + page.addr);
           this.perfCounter.cacheCleans++;
           // It's safe to remove on iterating.
           cache.delete(page.addr);
@@ -228,7 +232,7 @@ export abstract class PageStorage {
   addDirty(page: Page) {
     if (page.hasAddr) {
       if (page.dirty) {
-        console.info("re-added dirty", page.type, page.addr);
+        console.info("re-added dirty", PageType[page.type], page.addr);
         return;
       } else {
         throw new Error("Can't mark on-disk page as dirty");
@@ -246,11 +250,11 @@ export abstract class PageStorage {
       // Allocate from free space
       [addr] = this.freeSpace;
       this.freeSpace.delete(addr);
-      console.info(`allocated type(${page.type}) (free space)`, addr);
+      console.info(`allocated type(${PageType[page.type]}) (free space)`, addr);
     } else {
       // Grow the backed file
       addr = this.nextAddr++;
-      console.info(`allocated type(${page.type}) (growed)`, addr);
+      console.info(`allocated type(${PageType[page.type]}) (growed)`, addr);
     }
     this.newAllocated.set(addr, page);
     return addr;
@@ -380,6 +384,13 @@ export abstract class PageStorage {
 
   /** Mark all dirty pages as pending-commit. We will write them into disk later.  */
   async commitMark() {
+    console.info(
+      "[commit] pre free space",
+      [...this.freeSpace.values()],
+      "size",
+      this.superPage?.size,
+    );
+
     if (!this.superPage) throw new Error("superPage does not exist.");
     if (this.dirtySets.length) {
       const rootTree = new Node(this.superPage);
@@ -481,6 +492,7 @@ export abstract class PageStorage {
         if (addr >= this.superPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
+          console.info("discard (free) newAllocated beyond db size", addr);
         } // else it should be already in the free tree
         pendingFreeSpace.add(addr);
       }
@@ -519,6 +531,14 @@ export abstract class PageStorage {
     const currentDirtyPages = this.dirtyPages;
     this.dirtyPages = [];
     this.cleanSuperPage = this.superPage;
+
+    console.info(
+      "[commit] post free space",
+      [...this.freeSpace.values()],
+      "size",
+      this.superPage?.size,
+    );
+
     return currentDirtyPages;
   }
 
@@ -561,7 +581,10 @@ export abstract class PageStorage {
         const refcount = (isNewAllocated ? 0 : (val?.value.val ?? 1)) + delta;
         console.info("[ref]", addr, refcount);
         if (refcount < 0) {
-          throw new BugError(`BUG: refcount ${refcount} < 0`);
+          this.pendingRefChange.set(addr, delta);
+          console.warn(`BUG?: refcount ${refcount} < 0, moved to end of queue`);
+          continue;
+          // throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         if (refcount < 2 && found) {
           console.info(
@@ -596,11 +619,15 @@ export abstract class PageStorage {
           const page = await this.readPage(addr, null);
           page.unref();
         } else {
+          console.info("[un-free]", addr);
           pendingFreeSpace.delete(addr);
         }
       }
     }
   }
+
+  // private async validateRefTree() {
+  // }
 
   /** Commit all current changes into disk. */
   async commit(waitWriting: boolean) {
@@ -617,6 +644,8 @@ export abstract class PageStorage {
   }
 
   rollback() {
+    console.info("[rollback]");
+    console.info("[rollback] pre free space", [...this.freeSpace.values()]);
     if (this.superPage!.dirty) {
       this.metaCache.delete(this.superPage!.addr);
       this.superPage = this.cleanSuperPage;
@@ -625,6 +654,12 @@ export abstract class PageStorage {
     if (this.dirtySets.length > 0) {
       for (const page of this.dirtySets) {
         page._discard = true;
+        if (Object.getPrototypeOf(page) == DataPage.prototype) {
+          this.dataCache.delete(page.addr);
+        } else {
+          this.metaCache.delete(page.addr);
+        }
+        console.info("[rollback] discard dirty set ", page.addr);
       }
       this.dirtySets = [];
     }
@@ -636,6 +671,7 @@ export abstract class PageStorage {
         } else {
           this.metaCache.delete(page.addr);
         }
+        console.info("[rollback] discard dirty ", page.addr);
       }
       this.dirtyPages = [];
       this.nextAddr = this.superPage!.size;
@@ -645,10 +681,13 @@ export abstract class PageStorage {
       this.newAllocated.delete(addr);
       if (addr < this.nextAddr) {
         this.freeSpace.add(addr);
+        console.info("[rollback] newAllocated free ", addr);
       }
     }
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
+
+    console.info("[rollback] post free space", [...this.freeSpace.values()]);
   }
 
   waitDeferWriting() {

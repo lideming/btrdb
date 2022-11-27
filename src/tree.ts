@@ -1,5 +1,5 @@
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
-import { NodePage, PageAddr } from "./page.ts";
+import { NodePage, PageAddr, ZeroPage } from "./page.ts";
 import { Runtime } from "./runtime.ts";
 import { IComparable, IKey, KeyComparator } from "./value.ts";
 
@@ -163,6 +163,7 @@ export class Node<T extends IKey<unknown>> {
   }
 
   async deleteAt(pos: number) {
+    // TODO: implement real b tree delete
     const dirtyNode = this.getDirty(false);
     const oldLeftAddr = dirtyNode.children[pos];
     if (oldLeftAddr) {
@@ -191,6 +192,9 @@ export class Node<T extends IKey<unknown>> {
           dirtyNode.page.removeDirty();
         } else if (dirtyNode.children[0]) {
           const child = await dirtyNode.readChildPage(0);
+          // TODO: no need to setKeys() after fixed removeDirty()
+          child.page.setKeys([], []);
+          child.page.removeDirty();
           dirtyNode.page.setKeys(child.keys, child.children);
           dirtyNode.postChange();
         } else {
