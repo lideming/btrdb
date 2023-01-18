@@ -18,6 +18,8 @@ if (!global["Deno"]) {
   const fsPromises = require("fs/promises");
   // @ts-expect-error
   const crypto = require("crypto");
+  // @ts-expect-error
+  const process = require("process");
 
   const Runtime: typeof orignalRuntime = {} as any;
   setRuntimeImplementaion(Runtime);
@@ -109,4 +111,6 @@ if (!global["Deno"]) {
   };
 
   Runtime.getRandomValues = crypto.randomFillSync;
+
+  Runtime.memoryUsage = process.memoryUsage;
 }

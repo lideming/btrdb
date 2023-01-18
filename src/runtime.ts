@@ -3,7 +3,7 @@
 const _Deno = globalThis["Deno"];
 
 // Just use Deno Runtime API when it's running on Deno
-export let Runtime = !globalThis["Deno"] ? null! : {
+export let Runtime = !_Deno ? null! : {
   mkdir: _Deno.mkdir,
   remove: _Deno.remove,
   rename: _Deno.rename,
@@ -18,6 +18,7 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   SeekMode: _Deno.SeekMode,
   File: _Deno.FsFile,
   getRandomValues: crypto.getRandomValues,
+  memoryUsage: _Deno.memoryUsage,
 };
 
 if (!Runtime) {
