@@ -193,9 +193,9 @@ export class Node<T extends IKey<unknown>> {
         } else if (dirtyNode.children[0]) {
           const child = await dirtyNode.readChildPage(0);
           // TODO: no need to setKeys() after fixed removeDirty()
+          dirtyNode.page.setKeys(child.keys, child.children);
           child.page.setKeys([], []);
           child.page.removeDirty();
-          dirtyNode.page.setKeys(child.keys, child.children);
           dirtyNode.postChange();
         } else {
           dirtyNode.postChange();
