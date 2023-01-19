@@ -264,7 +264,7 @@ export abstract class PageStorage {
   changeRefCount(addr: PageAddr, delta: number) {
     if (typeof addr != "number") throw new Error("Invalid addr: " + addr);
     // console.info("changeRef():", addr, delta);
-    if (addr == 4208) console.trace({ addr, delta });
+    if (addr == 4541) console.trace({ addr, delta });
     const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
     if (newDelta == 0) {
       this.pendingRefChange.delete(addr);
@@ -447,10 +447,10 @@ export abstract class PageStorage {
       ? new Node(await this.readPage(this.superPage.refTreeAddr, RefPage))
       : new Node(new RefPage(this));
     let freeTree = this.superPage.freeTreeAddr
-      ? new NoRefcountNode(
+      ? new Node(
         await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
       )
-      : new NoRefcountNode(new FreeSpacePage(this));
+      : new Node(new FreeSpacePage(this));
     refTree = refTree.getDirty(true);
     freeTree = freeTree.getDirty(true);
     const pendingFreeSpace = new Set<PageAddr>();
@@ -618,7 +618,7 @@ export abstract class PageStorage {
           pendingFreeSpace.add(addr);
           const page = await this.readPage(addr, null);
           page.unref();
-        } else {
+        } else if (delta > 0 && refcount === delta) {
           console.info("[un-free]", addr);
           pendingFreeSpace.delete(addr);
         }

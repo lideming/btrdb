@@ -173,7 +173,7 @@ export abstract class Page {
     const type = buf.readU8();
     if (type != this.type) {
       throw new Error(
-        `Wrong type in disk, should be ${this.type}, got ${type}, addr ${this.addr}`,
+        `Wrong type in disk, should be ${PageType[this.type]}, got ${PageType[type]}, addr ${this.addr}`,
       );
     }
     if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
