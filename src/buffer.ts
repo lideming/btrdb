@@ -155,9 +155,8 @@ export class Buffer {
 
 const _globalThis = globalThis as any;
 
-const nativeStringSize: undefined | ((str: string) => number) = (
-  _globalThis?.Buffer?.byteLength ?? undefined
-);
+const nativeStringSize: undefined | ((str: string) => number) =
+  _globalThis?.Buffer?.byteLength ?? undefined;
 
 export class DynamicBuffer extends Buffer {
   constructor(initSize = 32) {

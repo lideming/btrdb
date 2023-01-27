@@ -104,7 +104,7 @@ export class DbDocSet implements IDbDocSet {
     }
   }
 
-  async forEach(fn: (doc: any) => (void | Promise<void>)): Promise<void> {
+  async forEach(fn: (doc: any) => void | Promise<void>): Promise<void> {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
     const thisnode = this.node;

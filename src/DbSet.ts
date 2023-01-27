@@ -75,7 +75,7 @@ export class DbSet implements IDbSet {
   }
 
   async forEach(
-    fn: (key: any, value: any) => (void | Promise<void>),
+    fn: (key: any, value: any) => void | Promise<void>,
   ): Promise<void> {
     const lockpage = this.page;
     await lockpage.lock.enterReader();
