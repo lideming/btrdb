@@ -492,9 +492,6 @@ export abstract class PageStorage {
       //   }]`,
       // );
       for (const [addr, page] of this.newAllocated) {
-        // FIXME: handle free tree ref update properly
-        if (page.type >= 0xfe) continue;
-
         if (addr >= this.superPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
