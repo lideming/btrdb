@@ -256,8 +256,8 @@ export class Node<T extends IKey<unknown>> {
       // split this node
       const leftSib = this.createChildPage();
       // when appending, make the left sibling larger for space efficiency
-      const leftCount = appending
-        ? Math.floor(this.keys.length * 0.9)
+      let leftCount = (appending && this.keys.length > 10)
+        ? Math.floor(this.keys.length * 0.8)
         : Math.floor(this.keys.length / 2);
       const leftKeys = this.page.spliceKeys(0, leftCount);
       leftKeys[1].push(0);
