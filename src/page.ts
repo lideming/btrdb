@@ -115,6 +115,7 @@ export abstract class Page {
 
   /** It is called when the refcount decreased to 0 */
   unref() {
+    console.info(PageType[this.type], this.addr, 'unref', [...this.getRefs()]);
     for (const it of this.getRefs()) {
       this.storage.changeRefCount(it, -1);
     }
@@ -122,6 +123,7 @@ export abstract class Page {
 
   /** It is called when the refcount increased to 1 */
   beref() {
+    console.info(PageType[this.type], this.addr, 'beref', [...this.getRefs()]);
     for (const it of this.getRefs()) {
       this.storage.changeRefCount(it, 1);
     }
@@ -173,7 +175,9 @@ export abstract class Page {
     const type = buf.readU8();
     if (type != this.type) {
       throw new Error(
-        `Wrong type in disk, should be ${PageType[this.type]}, got ${PageType[type]}, addr ${this.addr}`,
+        `Wrong type in disk, should be ${PageType[this.type]}, got ${
+          PageType[type]
+        }, addr ${this.addr}`,
       );
     }
     if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
@@ -343,6 +347,16 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       ...super._debugView(),
       keys: this.keys,
     };
+  }
+
+  get _childrenPages() {
+    return this.children.map((addr) =>
+      addr
+        ? this.storage.getCacheForPageType(Object.getPrototypeOf(this)).get(
+          addr,
+        )
+        : 0
+    );
   }
 
   protected override _writeContent(buf: Buffer) {
@@ -755,6 +769,9 @@ export class RefPage extends NodePage<KValue<UIntValue, UIntValue>> {
   protected override get _childCtor() {
     return RefPage;
   }
+  getRefs(): Iterable<number> {
+    return [];
+  }
 }
 
 // For refcount == 0 (free space)
@@ -767,6 +784,9 @@ export class FreeSpacePage extends NodePage<UIntValue> {
   }
   protected override get _childCtor() {
     return FreeSpacePage;
+  }
+  getRefs(): Iterable<number> {
+    return [];
   }
 }
 

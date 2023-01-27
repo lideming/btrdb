@@ -207,9 +207,11 @@ export class DatabaseEngine implements EngineContext, IDB {
       await this._autoCommit();
 
       const prefixedName = "s_" + name;
+      const snapshotAddr = this.storage.cleanSuperPage!.addr;
+      console.info("snapshot", prefixedName, snapshotAddr);
       const kv = new KValue(
         new StringValue(prefixedName),
-        new UIntValue(this.storage.cleanSuperPage!.addr),
+        new UIntValue(snapshotAddr),
       );
       // console.info("[createSnapshot]", kv);
       await this.getTree().set(

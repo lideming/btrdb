@@ -264,8 +264,8 @@ export abstract class PageStorage {
   changeRefCount(addr: PageAddr, delta: number) {
     if (typeof addr != "number") throw new Error("Invalid addr: " + addr);
     // console.info("changeRef():", addr, delta);
-    if (addr == 4541) console.trace({ addr, delta });
     const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
+    // if (addr == 4507) console.trace({ addr, delta, newDelta });
     if (newDelta == 0) {
       this.pendingRefChange.delete(addr);
     } else {
@@ -444,29 +444,34 @@ export abstract class PageStorage {
 
     // Update Ref tree and FreeSpace tree
     let refTree = this.superPage.refTreeAddr
-      ? new Node(await this.readPage(this.superPage.refTreeAddr, RefPage))
-      : new Node(new RefPage(this));
+      ? new NoRefcountNode(await this.readPage(this.superPage.refTreeAddr, RefPage))
+      : new NoRefcountNode(new RefPage(this));
     let freeTree = this.superPage.freeTreeAddr
-      ? new Node(
+      ? new NoRefcountNode(
         await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
       )
-      : new Node(new FreeSpacePage(this));
+      : new NoRefcountNode(new FreeSpacePage(this));
     refTree = refTree.getDirty(true);
     freeTree = freeTree.getDirty(true);
     const pendingFreeSpace = new Set<PageAddr>();
 
     await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
 
-    this.changeRefCount(refTree.addr, 1);
-    if (this.superPage.refTreeAddr) {
-      this.changeRefCount(this.superPage.refTreeAddr, -1);
-    }
+    // this.changeRefCount(refTree.addr, 1);
+    // if (this.superPage.refTreeAddr) {
+    //   this.changeRefCount(this.superPage.refTreeAddr, -1);
+    // }
+
     // this.changeRefCount(freeTree.addr, 1);
     // if (this.superPage.freeTreeAddr) {
     //   this.changeRefCount(this.superPage.freeTreeAddr, -1);
     // }
 
-    await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+    // await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+
+    if (this.pendingRefChange.size) {
+      throw new BugError("BUG: pendingRefChange.size > 0 after updateRefTree()");
+    }
 
     if (this.newAllocated.size) {
       // throw new BugError(`BUG: has allocated pages without ref, [${Array.from(this.newAllocated.keys()).join(",")
@@ -572,6 +577,10 @@ export abstract class PageStorage {
             new KValue(vAddr, new UIntValue(refcount)),
             "no-change",
           );
+        }
+        if (!isNewAllocated) {
+          const page = await this.readPage(addr, null);
+          page.beref();
         }
       } else {
         const vKey = new KeyComparator(vAddr);

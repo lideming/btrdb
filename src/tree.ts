@@ -189,15 +189,30 @@ export class Node<T extends IKey<unknown>> {
           );
           dirtyParent!.postChange();
           dirtyNode.parent = undefined;
-          dirtyNode.page.removeDirty();
+          dirtyNode.discard();
+          console.info(
+            "page",
+            dirtyNode.addr,
+            "no keys after delete, replace in parent with child",
+          );
         } else if (dirtyNode.children[0]) {
           const child = await dirtyNode.readChildPage(0);
-          // TODO: no need to setKeys() after fixed removeDirty()
           dirtyNode.page.setKeys(child.keys, child.children);
-          child.page.setKeys([], []);
-          child.page.removeDirty();
           dirtyNode.postChange();
+          // TODO: no need to setKeys() after fixed removeDirty()
+          child.page.setKeys([], []);
+          child.discard();
+          console.info(
+            "page",
+            dirtyNode.addr,
+            "no keys after delete, no parent, replace content with only child",
+          );
         } else {
+          console.info(
+            "page",
+            dirtyNode.addr,
+            "no keys after delete, no parent",
+          );
           dirtyNode.postChange();
         }
       } else {
@@ -236,11 +251,10 @@ export class Node<T extends IKey<unknown>> {
             " keys=" + Runtime.inspect(this.keys),
         );
       }
-      // console.log('spliting node with key count:', this.keys.length);
       // console.log(this.keys.length, this.children.length);
 
       // split this node
-      const leftSib = this.page.createChildPage();
+      const leftSib = this.createChildPage();
       // when appending, make the left sibling larger for space efficiency
       const leftCount = appending
         ? Math.floor(this.keys.length * 0.9)
@@ -261,13 +275,21 @@ export class Node<T extends IKey<unknown>> {
           this.posInParent! == this.parent.keys.length - 1,
         );
         //          ^^^^^^^^^^ makeDirtyToRoot() inside
+        console.info("page", this.page.addr, "splited", leftSib.addr);
       } else {
         // make this node a parent of two nodes...
-        const rightChild = this.page.createChildPage();
+        const rightChild = this.createChildPage();
         rightChild.setKeys(this.keys, this.children);
         this.page.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
         this.getDirty(true);
         this.makeDirtyToRoot();
+        console.info(
+          "page",
+          this.page.addr,
+          "splited as root",
+          leftSib.addr,
+          rightChild.addr,
+        );
       }
     } else {
       this.getDirty(true);
@@ -277,9 +299,19 @@ export class Node<T extends IKey<unknown>> {
     }
   }
 
+  createChildPage(): this["page"] {
+    return this.page.createChildPage();
+  }
+
   getDirty(addDirty: boolean): Node<T> {
     this.page = this.page.getDirty(addDirty);
     return this;
+  }
+
+  discard() {
+    if (this.page.dirty) {
+      this.page.removeDirty();
+    }
   }
 
   getParentDirty(): Node<T> {
@@ -316,17 +348,28 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return new NoRefcountNode(childPage, this, pos);
   }
 
-  getDirty(addDirty: boolean): Node<T> {
+  getDirty(addDirty: boolean): this {
     const oldpage = this.page;
     const wasOnDisk = this.page.hasAddr;
     this.page = this.page.getDirty(addDirty);
     if (oldpage !== this.page) {
-      this.page.storage.changeRefCount(oldpage.addr, -1);
       this.page.storage.changeRefCount(this.page.addr, 1);
+      this.page.storage.changeRefCount(oldpage.addr, -1);
     }
     if (!wasOnDisk && this.page.hasAddr) {
       this.page.storage.changeRefCount(this.page.addr, 1);
     }
     return this;
+  }
+
+  createChildPage(): this["page"] {
+    const page = super.createChildPage();
+    this.page.storage.changeRefCount(page.addr, 1);
+    return page;
+  }
+
+  discard() {
+    super.discard();
+    this.page.storage.changeRefCount(this.page.addr, -1);
   }
 }
