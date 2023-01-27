@@ -348,10 +348,10 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return new NoRefcountNode(childPage, this, pos);
   }
 
-  getDirty(addDirty: boolean): this {
+  getDirty(_addDirty: boolean): this {
     const oldpage = this.page;
     const wasOnDisk = this.page.hasAddr;
-    this.page = this.page.getDirty(addDirty);
+    this.page = this.page.getDirty(true); // always addDirty
     if (oldpage !== this.page) {
       this.page.storage.changeRefCount(this.page.addr, 1);
       this.page.storage.changeRefCount(oldpage.addr, -1);

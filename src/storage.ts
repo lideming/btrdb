@@ -262,7 +262,8 @@ export abstract class PageStorage {
 
   /** Change ref count on a page address (delayed ref tree operation before commit) */
   changeRefCount(addr: PageAddr, delta: number) {
-    if (typeof addr != "number") throw new Error("Invalid addr: " + addr);
+    if (typeof addr != "number") throw new BugError("Invalid addr: " + addr);
+    if (addr < 0) throw new BugError(`addr < 0 (addr=${addr})`);
     // console.info("changeRef():", addr, delta);
     const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
     // if (addr == 4507) console.trace({ addr, delta, newDelta });
@@ -610,7 +611,7 @@ export abstract class PageStorage {
         }
         if (refcount > 1) {
           // console.info("[shared]", addr, refcount);
-          node = node.getDirty(false);
+          node = node.getDirty(true);
           if (found) {
             node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
             node.postChange();
@@ -621,7 +622,7 @@ export abstract class PageStorage {
         }
         if (refcount == 0) {
           console.info("[free]", addr);
-          freenode = freenode.getDirty(false);
+          freenode = freenode.getDirty(true);
           freenode.insertAt(freepos, vAddr);
           freenode.postChange();
           pendingFreeSpace.add(addr);
