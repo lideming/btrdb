@@ -1,4 +1,5 @@
 import { Buffer } from "./buffer.ts";
+import { debug_allocate, debug_ref, debugLog } from "./debug.ts";
 import { BugError, NotExistError } from "./errors.ts";
 import { LRUMap } from "./lru.ts";
 import {
@@ -250,11 +251,13 @@ export abstract class PageStorage {
       // Allocate from free space
       [addr] = this.freeSpace;
       this.freeSpace.delete(addr);
-      console.info(`allocated type(${PageType[page.type]}) (free space)`, addr);
+      debug_allocate &&
+        debugLog(`allocated type(${PageType[page.type]}) (free space)`, addr);
     } else {
       // Grow the backed file
       addr = this.nextAddr++;
-      console.info(`allocated type(${PageType[page.type]}) (growed)`, addr);
+      debug_allocate &&
+        debugLog(`allocated type(${PageType[page.type]}) (growed)`, addr);
     }
     this.newAllocated.set(addr, page);
     return addr;
@@ -385,7 +388,7 @@ export abstract class PageStorage {
 
   /** Mark all dirty pages as pending-commit. We will write them into disk later.  */
   async commitMark() {
-    console.info(
+    debug_allocate && debugLog(
       "[commit] pre free space",
       [...this.freeSpace.values()],
       "size",
@@ -445,7 +448,9 @@ export abstract class PageStorage {
 
     // Update Ref tree and FreeSpace tree
     let refTree = this.superPage.refTreeAddr
-      ? new NoRefcountNode(await this.readPage(this.superPage.refTreeAddr, RefPage))
+      ? new NoRefcountNode(
+        await this.readPage(this.superPage.refTreeAddr, RefPage),
+      )
       : new NoRefcountNode(new RefPage(this));
     let freeTree = this.superPage.freeTreeAddr
       ? new NoRefcountNode(
@@ -471,7 +476,9 @@ export abstract class PageStorage {
     // await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
 
     if (this.pendingRefChange.size) {
-      throw new BugError("BUG: pendingRefChange.size > 0 after updateRefTree()");
+      throw new BugError(
+        "BUG: pendingRefChange.size > 0 after updateRefTree()",
+      );
     }
 
     if (this.newAllocated.size) {
@@ -495,7 +502,8 @@ export abstract class PageStorage {
         if (addr >= this.superPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
-          console.info("discard (free) newAllocated beyond db size", addr);
+          debug_allocate &&
+            debugLog("discard (free) newAllocated beyond db size", addr);
         } // else it should be already in the free tree
         pendingFreeSpace.add(addr);
       }
@@ -535,7 +543,7 @@ export abstract class PageStorage {
     this.dirtyPages = [];
     this.cleanSuperPage = this.superPage;
 
-    console.info(
+    debug_allocate && debugLog(
       "[commit] post free space",
       [...this.freeSpace.values()],
       "size",
@@ -551,7 +559,7 @@ export abstract class PageStorage {
     pendingFreeSpace: Set<number>,
   ) {
     for (const [addr, delta] of this.pendingRefChange) {
-      console.info(`[update ref] addr ${addr} delta ${delta}`);
+      debug_ref && debugLog(`[update ref] addr ${addr} delta ${delta}`);
       this.pendingRefChange.delete(addr);
       const vAddr = new UIntValue(addr);
       const isNewAllocated = this.newAllocated.get(addr);
@@ -567,7 +575,7 @@ export abstract class PageStorage {
           throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         await freenode.deleteAt(freepos);
-        console.info("[free->ref]", addr, refcount);
+        debug_ref && debugLog("[free->ref]", addr, refcount);
         pendingFreeSpace.delete(addr);
         if (refcount > 1) {
           await refTree.set(
@@ -586,7 +594,7 @@ export abstract class PageStorage {
           vKey,
         );
         const refcount = (isNewAllocated ? 0 : (val?.value.val ?? 1)) + delta;
-        console.info("[ref]", addr, refcount);
+        debug_ref && debugLog("[ref]", addr, refcount);
         if (refcount < 0) {
           this.pendingRefChange.set(addr, delta);
           // console.warn(`BUG?: refcount ${refcount} < 0, moved to end of queue`);
@@ -594,20 +602,20 @@ export abstract class PageStorage {
           throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         if (refcount < 2 && found) {
-          console.info(
-            "before delete",
-            node.keys.map((x) => x.value.key),
-            node.children,
-          );
+          // debugLog(
+          //   "before delete",
+          //   node.keys.map((x) => x.value.key),
+          //   node.children,
+          // );
           await node.deleteAt(pos);
-          console.info(
-            "before delete",
-            node.keys.map((x) => x.value.key),
-            node.children,
-          );
+          // debugLog(
+          //   "before delete",
+          //   node.keys.map((x) => x.value.key),
+          //   node.children,
+          // );
         }
         if (refcount > 1) {
-          // console.info("[shared]", addr, refcount);
+          // debug_ref && debugLog("[shared]", addr, refcount);
           node = node.getDirty(true);
           if (found) {
             node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
@@ -618,7 +626,7 @@ export abstract class PageStorage {
           }
         }
         if (refcount == 0) {
-          console.info("[free]", addr);
+          debug_ref && debugLog("[free]", addr);
           freenode = freenode.getDirty(true);
           freenode.insertAt(freepos, vAddr);
           freenode.postChange();
@@ -626,7 +634,7 @@ export abstract class PageStorage {
           const page = await this.readPage(addr, null);
           page.unref();
         } else if (delta > 0 && refcount === delta) {
-          console.info("[un-free]", addr);
+          debug_ref && debugLog("[un-free]", addr);
           pendingFreeSpace.delete(addr);
         }
       }
@@ -652,7 +660,8 @@ export abstract class PageStorage {
 
   rollback() {
     console.info("[rollback]");
-    console.info("[rollback] pre free space", [...this.freeSpace.values()]);
+    debug_allocate &&
+      debugLog("[rollback] pre free space", [...this.freeSpace.values()]);
     if (this.superPage!.dirty) {
       this.metaCache.delete(this.superPage!.addr);
       this.superPage = this.cleanSuperPage;
@@ -666,7 +675,7 @@ export abstract class PageStorage {
         } else {
           this.metaCache.delete(page.addr);
         }
-        console.info("[rollback] discard dirty set ", page.addr);
+        debug_allocate && debugLog("[rollback] discard dirty set ", page.addr);
       }
       this.dirtySets = [];
     }
@@ -678,7 +687,7 @@ export abstract class PageStorage {
         } else {
           this.metaCache.delete(page.addr);
         }
-        console.info("[rollback] discard dirty ", page.addr);
+        debug_allocate && debugLog("[rollback] discard dirty ", page.addr);
       }
       this.dirtyPages = [];
       this.nextAddr = this.superPage!.size;
@@ -688,13 +697,14 @@ export abstract class PageStorage {
       this.newAllocated.delete(addr);
       if (addr < this.nextAddr) {
         this.freeSpace.add(addr);
-        console.info("[rollback] newAllocated free ", addr);
+        debug_allocate && debugLog("[rollback] newAllocated free ", addr);
       }
     }
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
 
-    console.info("[rollback] post free space", [...this.freeSpace.values()]);
+    debug_allocate &&
+      debugLog("[rollback] post free space", [...this.freeSpace.values()]);
   }
 
   waitDeferWriting() {

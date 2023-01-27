@@ -18,6 +18,7 @@ function getPageSize() {
 }
 
 import { Buffer } from "./buffer.ts";
+import { debug_ref, debugLog } from "./debug.ts";
 import { BugError } from "./errors.ts";
 import { Runtime } from "./runtime.ts";
 import { PageStorage } from "./storage.ts";
@@ -115,7 +116,8 @@ export abstract class Page {
 
   /** It is called when the refcount decreased to 0 */
   unref() {
-    console.info(PageType[this.type], this.addr, 'unref', [...this.getRefs()]);
+    debug_ref &&
+      debugLog(PageType[this.type], this.addr, "unref", [...this.getRefs()]);
     for (const it of this.getRefs()) {
       this.storage.changeRefCount(it, -1);
     }
@@ -123,7 +125,8 @@ export abstract class Page {
 
   /** It is called when the refcount increased to 1 */
   beref() {
-    console.info(PageType[this.type], this.addr, 'beref', [...this.getRefs()]);
+    debug_ref &&
+      debugLog(PageType[this.type], this.addr, "beref", [...this.getRefs()]);
     for (const it of this.getRefs()) {
       this.storage.changeRefCount(it, 1);
     }

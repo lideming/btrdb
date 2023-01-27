@@ -1,3 +1,4 @@
+import { debug_node, debugLog } from "./debug.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
 import { NodePage, PageAddr, ZeroPage } from "./page.ts";
 import { Runtime } from "./runtime.ts";
@@ -190,7 +191,7 @@ export class Node<T extends IKey<unknown>> {
           dirtyParent!.postChange();
           dirtyNode.parent = undefined;
           dirtyNode.discard();
-          console.info(
+          debug_node && debugLog(
             "page",
             dirtyNode.addr,
             "no keys after delete, replace in parent with child",
@@ -202,13 +203,13 @@ export class Node<T extends IKey<unknown>> {
           // TODO: no need to setKeys() after fixed removeDirty()
           child.page.setKeys([], []);
           child.discard();
-          console.info(
+          debug_node && debugLog(
             "page",
             dirtyNode.addr,
             "no keys after delete, no parent, replace content with only child",
           );
         } else {
-          console.info(
+          debug_node && debugLog(
             "page",
             dirtyNode.addr,
             "no keys after delete, no parent",
@@ -275,7 +276,8 @@ export class Node<T extends IKey<unknown>> {
           this.posInParent! == this.parent.keys.length - 1,
         );
         //          ^^^^^^^^^^ makeDirtyToRoot() inside
-        console.info("page", this.page.addr, "splited", leftSib.addr);
+        debug_node &&
+          debugLog("page", this.page.addr, "splited", leftSib.addr);
       } else {
         // make this node a parent of two nodes...
         const rightChild = this.createChildPage();
@@ -283,7 +285,7 @@ export class Node<T extends IKey<unknown>> {
         this.page.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
         this.getDirty(true);
         this.makeDirtyToRoot();
-        console.info(
+        debug_node && debugLog(
           "page",
           this.page.addr,
           "splited as root",
