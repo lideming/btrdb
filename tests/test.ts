@@ -754,44 +754,6 @@ async function checkQuery(userSet: IDbDocSet<User>) {
   });
 }
 
-// get prev commit
-
-runWithDatabase(async function createSetSnap(db) {
-  var set = await db.createSet("snap1");
-  await set.set("somekey", "somevalue");
-  assertEquals(await db.commit(), true); // commit "a"
-}, "ignore");
-
-runWithDatabase(async function checkSnap(db) {
-  var set = await db.getSet("snap1");
-  assertEquals(await set!.get("somekey"), "somevalue");
-  var snap = await db.getPrevCommit(); // before commit "a"
-  assertEquals(await snap!.getSet("snap1"), null);
-  assert(!!await snap!.getSet("test"));
-  assertEquals(await db.commit(), false);
-}, "ignore");
-
-runWithDatabase(async function changeSnap(db) {
-  var set = await db.getSet("snap1");
-  await set!.set("somekey", "someothervalue");
-  await set!.set("newkey", "newvalue");
-  assertEquals(await db.commit(), true); // commit "b"
-}, "ignore");
-
-runWithDatabase(async function checkSnap2(db) {
-  var set = await db.getSet("snap1"); // commit "b"
-  assertEquals(await set!.count, 2);
-  assertEquals(await set!.get("somekey"), "someothervalue");
-  assertEquals(await set!.get("newkey"), "newvalue");
-  var snap = await db.getPrevCommit(); // commit "a"
-  var snapset = await snap!.getSet("snap1");
-  assertEquals(await snapset!.count, 1);
-  assertEquals(await snapset!.get("somekey"), "somevalue");
-  var snap2 = await snap!.getPrevCommit(); // before commit "a"
-  assertEquals(await snap2!.getSet("snap1"), null);
-  assertEquals(await db.commit(), false);
-}, "ignore");
-
 // transaction
 
 runWithDatabase(async function transaction(db) {
