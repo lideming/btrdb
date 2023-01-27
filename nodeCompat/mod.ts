@@ -43,7 +43,7 @@ if (!global["Deno"]) {
   Runtime.rename = (oldPath: string | URL, newPath: string | URL) =>
     fsPromises.rename(oldPath, newPath);
 
-  Runtime.writeTextFile = (path: string | URL, text: string) =>
+  Runtime.writeTextFile = (path, text, _options) =>
     fsPromises.writeFile(path, text);
 
   Runtime.readTextFile = (path: string | URL) =>
