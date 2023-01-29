@@ -259,6 +259,7 @@ export abstract class PageStorage {
       debug_allocate &&
         debugLog(`allocated type(${PageType[page.type]}) (growed)`, addr);
     }
+    // console.trace("allocated addr", addr);
     this.newAllocated.set(addr, page);
     return addr;
   }
@@ -267,8 +268,9 @@ export abstract class PageStorage {
   changeRefCount(addr: PageAddr, delta: number) {
     if (typeof addr != "number") throw new BugError("Invalid addr: " + addr);
     if (addr < 0) throw new BugError(`addr < 0 (addr=${addr})`);
-    // console.info("changeRef():", addr, delta);
     const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
+    debug_ref &&
+      debugLog("changeRef addr", addr, "delta", delta, "newDelta", newDelta);
     // if (addr == 4507) console.trace({ addr, delta, newDelta });
     if (newDelta == 0) {
       this.pendingRefChange.delete(addr);
@@ -475,15 +477,12 @@ export abstract class PageStorage {
 
     // await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
 
-    if (this.pendingRefChange.size) {
-      throw new BugError(
-        "BUG: pendingRefChange.size > 0 after updateRefTree()",
-      );
-    }
-
     if (this.newAllocated.size) {
-      // throw new BugError(`BUG: has allocated pages without ref, [${Array.from(this.newAllocated.keys()).join(",")
-      //   }]`);
+      // throw new BugError(
+      //   `BUG: has allocated pages without ref, [${
+      //     Array.from(this.newAllocated.keys()).join(",")
+      //   }]`,
+      // );
 
       // console.warn(`BUG: has allocated pages without ref, count=${this.newAllocated.size}, [${Array.from(this.newAllocated.keys()).join(",")
       //   }]`);
@@ -508,6 +507,16 @@ export abstract class PageStorage {
         pendingFreeSpace.add(addr);
       }
       this.newAllocated.clear();
+
+      if (this.pendingRefChange.size) {
+        await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+      }
+    }
+
+    if (this.pendingRefChange.size) {
+      throw new BugError(
+        "BUG: pendingRefChange.size > 0 after updateRefTree()",
+      );
     }
 
     this.superPage.refTreeAddr = refTree.addr;
@@ -564,6 +573,7 @@ export abstract class PageStorage {
       const vAddr = new UIntValue(addr);
       const isNewAllocated = this.newAllocated.get(addr);
       if (isNewAllocated) {
+        debug_allocate && debugLog("remove newAllocated flag addr", addr);
         this.newAllocated.delete(addr);
         isNewAllocated.beref();
       }
