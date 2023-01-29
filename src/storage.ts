@@ -13,8 +13,8 @@ import {
   pageTypeMap,
   RefPage,
   SetPage,
+  RootPage,
   SuperPage,
-  ZeroPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
 import { Node, NoRefcountNode } from "./tree.ts";
@@ -56,13 +56,13 @@ export abstract class PageStorage {
   /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */
   nextAddr: number = 0;
 
-  zeroPage: ZeroPage | undefined = undefined;
-
-  /** The latest SuperPage, might be dirty. */
   superPage: SuperPage | undefined = undefined;
 
-  /** Keep a reference to the latest clean/on-disk SuperPage. For concurrent querying and snapshop. */
-  cleanSuperPage: SuperPage | undefined = undefined;
+  /** The latest RootPage, might be dirty. */
+  rootPage: RootPage | undefined = undefined;
+
+  /** Keep a reference to the latest clean/on-disk RootPage. For concurrent querying and snapshop. */
+  cleanRootPage: RootPage | undefined = undefined;
 
   /** When a SetPage is dirty, it will be added into here. */
   dirtySets: SetPage[] = [];
@@ -89,35 +89,35 @@ export abstract class PageStorage {
   async init() {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
-      this.zeroPage = new ZeroPage(this).getDirty(true);
       this.superPage = new SuperPage(this).getDirty(true);
-      this.changeRefCount(this.zeroPage.addr, 1);
+      this.rootPage = new RootPage(this).getDirty(true);
+      this.changeRefCount(this.superPage.addr, 1);
       await this.commit(true);
     } else {
       this.nextAddr = lastAddr;
-      this.zeroPage = await this.readPage(0, ZeroPage, false);
+      this.superPage = await this.readPage(0, SuperPage, false);
       try {
-        this.superPage = await this.readPage(
-          this.zeroPage.superPageAddr,
-          SuperPage,
+        this.rootPage = await this.readPage(
+          this.superPage.rootPageAddr,
+          RootPage,
           false,
         );
       } catch (error) {
         console.error(error);
         console.info(
           "[RECOVERY] trying read another super page from addr " +
-            (this.zeroPage.prevSuperPageAddr),
+            (this.superPage.prevRootPageAddr),
         );
-        this.superPage = await this.readPage(
-          this.zeroPage.prevSuperPageAddr,
-          SuperPage,
+        this.rootPage = await this.readPage(
+          this.superPage.prevRootPageAddr,
+          RootPage,
           false,
         );
       }
-      this.cleanSuperPage = this.superPage;
-      this.writtenAddr = this.superPage.addr;
+      this.cleanRootPage = this.rootPage;
+      this.writtenAddr = this.rootPage.addr;
       const freeTree = await this.readPage(
-        this.superPage.freeTreeAddr,
+        this.rootPage.freeTreeAddr,
         FreeSpacePage,
       );
       for await (const addr of new Node(freeTree).iterateKeys()) {
@@ -394,12 +394,12 @@ export abstract class PageStorage {
       "[commit] pre free space",
       [...this.freeSpace.values()],
       "size",
-      this.superPage?.size,
+      this.rootPage?.size,
     );
 
-    if (!this.superPage) throw new Error("superPage does not exist.");
+    if (!this.rootPage) throw new Error("rootPage does not exist.");
     if (this.dirtySets.length) {
-      const rootTree = new Node(this.superPage);
+      const rootTree = new Node(this.rootPage);
       for (const set of this.dirtySets) {
         if (set.hasNewerCopy()) {
           console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
@@ -427,36 +427,36 @@ export abstract class PageStorage {
       }
       this.dirtySets = [];
     }
-    if (!this.superPage.dirty) {
+    if (!this.rootPage.dirty) {
       if (this.dirtyPages.length == 0) {
         // console.log("Nothing to commit");
         return [];
       } else {
-        throw new Error("super page is not dirty");
+        throw new Error("root page is not dirty");
       }
     }
 
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
 
-    this.addDirty(this.superPage);
+    this.addDirty(this.rootPage);
 
-    this.changeRefCount(this.superPage.addr, 1);
+    this.changeRefCount(this.rootPage.addr, 1);
 
-    if (this.cleanSuperPage) {
-      this.changeRefCount(this.cleanSuperPage.addr, -1);
+    if (this.cleanRootPage) {
+      this.changeRefCount(this.cleanRootPage.addr, -1);
       // this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
 
     // Update Ref tree and FreeSpace tree
-    let refTree = this.superPage.refTreeAddr
+    let refTree = this.rootPage.refTreeAddr
       ? new NoRefcountNode(
-        await this.readPage(this.superPage.refTreeAddr, RefPage),
+        await this.readPage(this.rootPage.refTreeAddr, RefPage),
       )
       : new NoRefcountNode(new RefPage(this));
-    let freeTree = this.superPage.freeTreeAddr
+    let freeTree = this.rootPage.freeTreeAddr
       ? new NoRefcountNode(
-        await this.readPage(this.superPage.freeTreeAddr, FreeSpacePage),
+        await this.readPage(this.rootPage.freeTreeAddr, FreeSpacePage),
       )
       : new NoRefcountNode(new FreeSpacePage(this));
     refTree = refTree.getDirty(true);
@@ -498,7 +498,7 @@ export abstract class PageStorage {
       //   }]`,
       // );
       for (const [addr, page] of this.newAllocated) {
-        if (addr >= this.superPage.size) {
+        if (addr >= this.rootPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
           debug_allocate &&
@@ -519,8 +519,8 @@ export abstract class PageStorage {
       );
     }
 
-    this.superPage.refTreeAddr = refTree.addr;
-    this.superPage.freeTreeAddr = freeTree.addr;
+    this.rootPage.refTreeAddr = refTree.addr;
+    this.rootPage.freeTreeAddr = freeTree.addr;
 
     // update free space cache after tree update,
     // otherwise the free space may be used by the tree immediately.
@@ -530,13 +530,13 @@ export abstract class PageStorage {
       this.dataCache.delete(addr);
     }
 
-    this.superPage.size = this.nextAddr;
+    this.rootPage.size = this.nextAddr;
 
-    this.zeroPage!.prevSuperPageAddr = this.zeroPage!.superPageAddr;
-    this.zeroPage!.superPageAddr = this.superPage.addr;
-    if (!this.zeroPage!.dirty) {
-      this.zeroPage!.dirty = true;
-      this.dirtyPages.push(this.zeroPage!);
+    this.superPage!.prevRootPageAddr = this.superPage!.rootPageAddr;
+    this.superPage!.rootPageAddr = this.rootPage.addr;
+    if (!this.superPage!.dirty) {
+      this.superPage!.dirty = true;
+      this.dirtyPages.push(this.superPage!);
     }
     // console.log(
     //   "commit",
@@ -550,13 +550,13 @@ export abstract class PageStorage {
     }
     const currentDirtyPages = this.dirtyPages;
     this.dirtyPages = [];
-    this.cleanSuperPage = this.superPage;
+    this.cleanRootPage = this.rootPage;
 
     debug_allocate && debugLog(
       "[commit] post free space",
       [...this.freeSpace.values()],
       "size",
-      this.superPage?.size,
+      this.rootPage?.size,
     );
 
     return currentDirtyPages;
@@ -672,10 +672,10 @@ export abstract class PageStorage {
     console.info("[rollback]");
     debug_allocate &&
       debugLog("[rollback] pre free space", [...this.freeSpace.values()]);
-    if (this.superPage!.dirty) {
-      this.metaCache.delete(this.superPage!.addr);
-      this.superPage = this.cleanSuperPage;
-      this.cleanSuperPage!._newerCopy = null;
+    if (this.rootPage!.dirty) {
+      this.metaCache.delete(this.rootPage!.addr);
+      this.rootPage = this.cleanRootPage;
+      this.cleanRootPage!._newerCopy = null;
     }
     if (this.dirtySets.length > 0) {
       for (const page of this.dirtySets) {
@@ -700,7 +700,7 @@ export abstract class PageStorage {
         debug_allocate && debugLog("[rollback] discard dirty ", page.addr);
       }
       this.dirtyPages = [];
-      this.nextAddr = this.superPage!.size;
+      this.nextAddr = this.rootPage!.size;
     }
     this.pendingRefChange.clear();
     for (const [addr] of this.newAllocated) {

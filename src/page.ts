@@ -38,8 +38,8 @@ export type PageAddr = number;
 export type InlinablePage<T> = PageAddr | T;
 
 export enum PageType {
-  Zero = 0,
-  Super,
+  Super = 0,
+  Root,
   RootTreeNode,
   Set,
   Records,
@@ -794,16 +794,16 @@ export class FreeSpacePage extends NodePage<UIntValue> {
 }
 
 /**
- * SuperPage, also the root of RootTree.
+ * The root of RootTree, also stores refs to RefTree and FreeTree.
  */
-export class SuperPage extends RootTreeNode {
+export class RootPage extends RootTreeNode {
   override get type(): PageType {
-    return PageType.Super;
+    return PageType.Root;
   }
 
   version: number = 1;
   rev: number = 1;
-  prevSuperPageAddr: PageAddr = 0;
+  prevRootPageAddr: PageAddr = 0;
   setCount: number = 0;
   refTreeAddr: PageAddr = 0;
   freeTreeAddr: PageAddr = 0;
@@ -817,7 +817,7 @@ export class SuperPage extends RootTreeNode {
     buf.writeString("BtrdbSuper_");
     buf.writeU32(this.version);
     buf.writeU32(this.rev);
-    buf.writeU32(this.prevSuperPageAddr);
+    buf.writeU32(this.prevRootPageAddr);
     buf.writeU32(this.setCount);
     buf.writeU32(this.refTreeAddr);
     buf.writeU32(this.freeTreeAddr);
@@ -833,7 +833,7 @@ export class SuperPage extends RootTreeNode {
       throw new Error(`Unsupported SuperPage version ${this.version}`);
     }
     this.rev = buf.readU32();
-    this.prevSuperPageAddr = buf.readU32();
+    this.prevRootPageAddr = buf.readU32();
     this.setCount = buf.readU32();
     this.refTreeAddr = buf.readU32();
     this.freeTreeAddr = buf.readU32();
@@ -844,14 +844,14 @@ export class SuperPage extends RootTreeNode {
     super._copyTo(other);
     other.rev = this.rev + 1;
     other.version = this.version;
-    other.prevSuperPageAddr = this.prevSuperPageAddr;
+    other.prevRootPageAddr = this.prevRootPageAddr;
     other.setCount = this.setCount;
     other.refTreeAddr = this.refTreeAddr;
     other.freeTreeAddr = this.freeTreeAddr;
     other.size = this.size;
   }
   override getDirty(addDirty: boolean) {
-    var dirty = this.storage.superPage = super.getDirty(false);
+    var dirty = this.storage.rootPage = super.getDirty(false);
     return dirty;
   }
   override _debugView() {
@@ -864,34 +864,38 @@ export class SuperPage extends RootTreeNode {
   }
 }
 
-export class ZeroPage extends Page {
+/**
+ * The SuperPage stores refs to RootTree.
+ * It's the only page to be overwritten without CoW.
+ **/
+export class SuperPage extends Page {
   get type(): PageType {
-    return PageType.Zero;
+    return PageType.Super;
   }
 
-  superPageAddr: PageAddr = 0;
-  prevSuperPageAddr: PageAddr = 0;
+  rootPageAddr: PageAddr = 0;
+  prevRootPageAddr: PageAddr = 0;
 
   init() {
     this.freeBytes -= 31 + 2 * 4;
   }
   _writeContent(buf: Buffer) {
     buf.writeString("This is btrdb file version 1.\n");
-    buf.writeU32(this.superPageAddr);
-    buf.writeU32(this.prevSuperPageAddr);
+    buf.writeU32(this.rootPageAddr);
+    buf.writeU32(this.prevRootPageAddr);
   }
   _readContent(buf: Buffer) {
     if (buf.readString() != "This is btrdb file version 1.\n") {
-      throw new Error("Invalid file signature");
+      throw new Error("Invalid btrdb super page signature");
     }
-    this.superPageAddr = buf.readU32();
-    this.prevSuperPageAddr = buf.readU32();
+    this.rootPageAddr = buf.readU32();
+    this.prevRootPageAddr = buf.readU32();
   }
 }
 
 export const pageTypeMap: Record<number, typeof Page> = {
-  0: ZeroPage,
-  1: SuperPage,
+  0: SuperPage,
+  1: RootPage,
   2: RootTreeNode,
   3: SetPage,
   4: RecordsPage,

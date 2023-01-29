@@ -1,6 +1,6 @@
 import { debug_node, debugLog } from "./debug.ts";
 import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
-import { NodePage, PageAddr, ZeroPage } from "./page.ts";
+import { NodePage, PageAddr, SuperPage } from "./page.ts";
 import { Runtime } from "./runtime.ts";
 import { IComparable, IKey, KeyComparator } from "./value.ts";
 
