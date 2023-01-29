@@ -313,10 +313,14 @@ export abstract class PageStorage {
       this.dataPage!.freeBytes -= totalLength;
     } else {
       // We need to split it into pages.
-      if (this.dataPage!.freeBytes < headerLength) {
-        // If current page even cannot fit the header...
-        await this.createDataPage(false);
-      }
+      // if (this.dataPage!.freeBytes < headerLength) {
+      //   // If current page even cannot fit the header...
+      //   await this.createDataPage(false);
+      // }
+
+      // If the whole data can't fit, always start new page for better space reclamation
+      await this.createDataPage(true);
+
       // Writing header
       pageAddr = this.dataPage!.addr;
       offset = this.dataPageBuffer!.pos;
