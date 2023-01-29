@@ -11,7 +11,7 @@ import {
   OR,
   SKIP,
   SLICE,
-} from "./query.ts";
+} from "../query/query.ts";
 
 const cache = globalThis.WeakMap
   ? new WeakMap<TemplateStringsArray, AST>()

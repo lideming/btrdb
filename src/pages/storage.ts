@@ -1,7 +1,7 @@
-import { Buffer } from "./buffer.ts";
-import { debug_allocate, debug_ref, debugLog } from "./debug.ts";
-import { BugError, NotExistError } from "./errors.ts";
-import { LRUMap } from "./lru.ts";
+import { Buffer } from "../utils/buffer.ts";
+import { debug_allocate, debug_ref, debugLog } from "../utils/debug.ts";
+import { BugError } from "../utils/errors.ts";
+import { LRUMap } from "../utils/lru.ts";
 import {
   DataPage,
   FreeSpacePage,
@@ -13,21 +13,19 @@ import {
   pageTypeMap,
   RefPage,
   RootPage,
-  SetPage,
   SuperPage,
-} from "./page.ts";
-import { Runtime, RuntimeFile } from "./runtime.ts";
-import { Node, NoRefcountNode } from "./tree.ts";
-import { OneWriterLock, TaskQueue } from "./util.ts";
+} from "../pages/page.ts";
+import { Runtime, RuntimeFile } from "../utils/runtime.ts";
+import { Node, NoRefcountNode } from "../pages/tree.ts";
+import { OneWriterLock, TaskQueue } from "../utils/util.ts";
 import {
   IValue,
   KeyComparator,
   KValue,
   PageOffsetValue,
-  StringValue,
   UIntValue,
   ValueType,
-} from "./value.ts";
+} from "../utils/value.ts";
 
 const METADATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
 const DATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);

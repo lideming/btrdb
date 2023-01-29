@@ -2,7 +2,7 @@ import {
   Runtime as orignalRuntime,
   RuntimeFile,
   setRuntimeImplementaion,
-} from "../src/runtime.ts";
+} from "../src/utils/runtime.ts";
 import * as btrdb from "../mod.ts";
 
 // @ts-expect-error

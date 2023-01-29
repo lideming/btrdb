@@ -1,8 +1,8 @@
-import { debug_node, debugLog } from "./debug.ts";
-import { AlreadyExistError, BugError, NotExistError } from "./errors.ts";
-import { NodePage, PageAddr, SuperPage } from "./page.ts";
-import { Runtime } from "./runtime.ts";
-import { IComparable, IKey, KeyComparator } from "./value.ts";
+import { debug_node, debugLog } from "../utils/debug.ts";
+import { AlreadyExistError, BugError, NotExistError } from "../utils/errors.ts";
+import { NodePage, PageAddr } from "../pages/page.ts";
+import { Runtime } from "../utils/runtime.ts";
+import { IComparable, IKey, KeyComparator } from "../utils/value.ts";
 
 export class Node<T extends IKey<unknown>> {
   constructor(

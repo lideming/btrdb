@@ -1,6 +1,6 @@
-import { Transaction } from "./btrdb.d.ts";
+import { Transaction } from "../btrdb.d.ts";
 import { Database } from "./database.ts";
-import { Deferred, deferred } from "./util.ts";
+import { Deferred, deferred } from "../utils/util.ts";
 
 export class TransactionService {
   constructor(readonly db: Database) {

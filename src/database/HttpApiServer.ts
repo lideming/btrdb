@@ -1,6 +1,6 @@
 import { Database } from "./database.ts";
-import { query } from "./queryString.ts";
-import { IDbDocSet, IDbSet, IndexDef, KeySelector } from "./btrdb.d.ts";
+import { query } from "../query/queryString.ts";
+import { IDbDocSet, IDbSet, IndexDef, KeySelector } from "../btrdb.d.ts";
 
 export class HttpApiServer {
   constructor(

@@ -1,7 +1,7 @@
-import { DbSetType } from "./btrdb.d.ts";
+import { DbSetType } from "../btrdb.d.ts";
 import { DatabaseEngine } from "./database.ts";
-import { DocNodeType, DocSetPage, SetPage } from "./page.ts";
-import { Node } from "./tree.ts";
+import { DocNodeType, DocSetPage, SetPage } from "../pages/page.ts";
+import { Node } from "../pages/tree.ts";
 
 export class DbSetPageHelper<PageType extends (SetPage | DocSetPage)> {
   constructor(

@@ -1,7 +1,7 @@
-export { Database } from "./src/database.ts";
-export { InMemoryData } from "./src/storage.ts";
-export { HttpApiServer } from "./src/HttpApiServer.ts";
-export { nanoIdGenerator, numberIdGenerator } from "./src/DbDocSet.ts";
+export { Database } from "./src/database/database.ts";
+export { InMemoryData } from "./src/pages/storage.ts";
+export { HttpApiServer } from "./src/database/HttpApiServer.ts";
+export { nanoIdGenerator, numberIdGenerator } from "./src/database/DbDocSet.ts";
 export {
   AND,
   BETWEEN,
@@ -14,8 +14,8 @@ export {
   NOT,
   OR,
   SLICE,
-} from "./src/query.ts";
-export { query } from "./src/queryString.ts";
+} from "./src/query/query.ts";
+export { query } from "./src/query/queryString.ts";
 export type {
   DbObjectType,
   DbSetType,

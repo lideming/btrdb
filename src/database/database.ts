@@ -1,24 +1,29 @@
 import { DbDocSet } from "./DbDocSet.ts";
 import { DbKvSet } from "./DbKvSet.ts";
-import { DocSetPage, RootPage, SetPage } from "./page.ts";
+import { DocSetPage, RootPage, SetPage } from "../pages/page.ts";
 import {
   InFileStorage,
   InMemoryData,
   InMemoryStorage,
   PageStorage,
-} from "./storage.ts";
-import { OneWriterLock } from "./util.ts";
-import { KeyComparator, KValue, StringValue, UIntValue } from "./value.ts";
-import { BugError } from "./errors.ts";
-import { Runtime } from "./runtime.ts";
-import { Node } from "./tree.ts";
+} from "../pages/storage.ts";
+import { OneWriterLock } from "../utils/util.ts";
+import {
+  KeyComparator,
+  KValue,
+  StringValue,
+  UIntValue,
+} from "../utils/value.ts";
+import { BugError } from "../utils/errors.ts";
+import { Runtime } from "../utils/runtime.ts";
+import { Node } from "../pages/tree.ts";
 import type {
   Database as IDB,
   DbObjectType,
   DbSetType,
   Transaction,
-} from "./btrdb.d.ts";
-import { TransactionService } from "./transaction.ts";
+} from "../btrdb.d.ts";
+import { TransactionService } from "../database/transaction.ts";
 export type Database = IDB;
 
 const _setTypeInfo = {

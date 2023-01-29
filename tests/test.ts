@@ -13,8 +13,8 @@ import {
   query,
   SLICE,
 } from "../mod.ts";
-import { encoder } from "../src/buffer.ts";
-import { Runtime } from "../src/runtime.ts";
+import { encoder } from "../src/utils/buffer.ts";
+import { Runtime } from "../src/utils/runtime.ts";
 import { assert, assertEquals, assertThrows } from "./test.dep.ts";
 import {
   assertQueryEquals,

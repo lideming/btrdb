@@ -1,6 +1,6 @@
 import { Database, InMemoryData } from "../mod.ts";
-import { PAGESIZE } from "../src/page.ts";
-import { Runtime, RuntimeInspectOptions } from "../src/runtime.ts";
+import { PAGESIZE } from "../src/pages/page.ts";
+import { Runtime, RuntimeInspectOptions } from "../src/utils/runtime.ts";
 import { assertEquals } from "./test.dep.ts";
 
 const testFile = "testdata/testdb.db";

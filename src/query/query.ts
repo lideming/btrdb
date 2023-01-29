@@ -3,15 +3,15 @@ import {
   DocSetPage,
   IndexNodeType,
   IndexTopPage,
-} from "./page.ts";
+} from "../pages/page.ts";
 import {
   compareJSValue,
   JSValue,
   KeyLeftmostComparator,
   KeyRightmostComparator,
   PageOffsetValue,
-} from "./value.ts";
-import { Node } from "./tree.ts";
+} from "../utils/value.ts";
+import { Node } from "../pages/tree.ts";
 
 export interface Query {
   run(page: Node<DocNodeType>): AsyncIterable<PageOffsetValue>;

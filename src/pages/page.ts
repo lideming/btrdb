@@ -17,12 +17,12 @@ function getPageSize() {
   }
 }
 
-import { Buffer } from "./buffer.ts";
-import { debug_ref, debugLog } from "./debug.ts";
-import { BugError } from "./errors.ts";
-import { Runtime } from "./runtime.ts";
-import { PageStorage } from "./storage.ts";
-import { OneWriterLock } from "./util.ts";
+import { Buffer } from "../utils/buffer.ts";
+import { debug_ref, debugLog } from "../utils/debug.ts";
+import { BugError } from "../utils/errors.ts";
+import { Runtime } from "../utils/runtime.ts";
+import { PageStorage } from "../pages/storage.ts";
+import { OneWriterLock } from "../utils/util.ts";
 import {
   IKey,
   IValue,
@@ -31,7 +31,7 @@ import {
   PageOffsetValue,
   StringValue,
   UIntValue,
-} from "./value.ts";
+} from "../utils/value.ts";
 
 export type PageAddr = number;
 

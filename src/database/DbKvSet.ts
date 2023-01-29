@@ -1,8 +1,8 @@
-import type { IDbSet, SetKeyType, SetValueType } from "./btrdb.d.ts";
+import type { IDbSet, SetKeyType, SetValueType } from "../btrdb.d.ts";
 import { DbSetBase } from "./DbSetBase.ts";
-import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
-import { Node } from "./tree.ts";
-import { JSValue, KeyComparator, KValue } from "./value.ts";
+import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "../pages/page.ts";
+import { Node } from "../pages/tree.ts";
+import { JSValue, KeyComparator, KValue } from "../utils/value.ts";
 
 export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
   async get(key: SetKeyType): Promise<SetValueType | null> {

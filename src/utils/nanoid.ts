@@ -1,4 +1,4 @@
-import { Runtime } from "./runtime.ts";
+import { Runtime } from "../utils/runtime.ts";
 
 let bytes: Uint8Array | null = null;
 

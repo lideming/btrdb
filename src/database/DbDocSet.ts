@@ -1,4 +1,3 @@
-import { DatabaseEngine } from "./database.ts";
 import {
   DocNodeType,
   DocSetPage,
@@ -6,20 +5,20 @@ import {
   IndexTopPage,
   KEYSIZE_LIMIT,
   PageAddr,
-} from "./page.ts";
+} from "../pages/page.ts";
 import {
   DocumentValue,
   JSValue,
   KeyComparator,
   KValue,
   PageOffsetValue,
-} from "./value.ts";
-import { AlreadyExistError, BugError } from "./errors.ts";
-import { Runtime } from "./runtime.ts";
-import { EQ, Query } from "./query.ts";
-import { Node } from "./tree.ts";
-import type { IDbDocSet, IndexDef } from "./btrdb.d.ts";
-import { nanoid } from "./nanoid.ts";
+} from "../utils/value.ts";
+import { AlreadyExistError, BugError } from "../utils/errors.ts";
+import { Runtime } from "../utils/runtime.ts";
+import { EQ, Query } from "../query/query.ts";
+import { Node } from "../pages/tree.ts";
+import type { IDbDocSet, IndexDef } from "../btrdb.d.ts";
+import { nanoid } from "../utils/nanoid.ts";
 import { DbSetBase } from "./DbSetBase.ts";
 
 function _numberIdGenerator(lastId: number | null) {

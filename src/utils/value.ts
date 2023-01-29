@@ -5,7 +5,7 @@ import {
   writeValue,
 } from "./binval.ts";
 import { Buffer, encoder } from "./buffer.ts";
-import { Runtime } from "./runtime.ts";
+import { Runtime } from "../utils/runtime.ts";
 
 export interface ISerializable {
   writeTo(buf: Buffer): void;
