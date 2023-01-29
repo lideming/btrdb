@@ -330,7 +330,7 @@ export class DatabaseEngine implements IDB {
   async rollback() {
     await this.commitLock.enterWriter();
     try {
-      this.storage.rollback();
+      await this.storage.rollback();
     } finally {
       this.commitLock.exitWriter();
     }

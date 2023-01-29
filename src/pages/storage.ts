@@ -75,7 +75,7 @@ export abstract class PageStorage {
 
   pendingRefChange = new Map<PageAddr, number>();
 
-  freeSpace = new Set<number>();
+  freeSpaceIterator: AsyncIterator<UIntValue> | undefined = undefined;
 
   newAllocated = new Map<PageAddr, Page>();
 
@@ -112,15 +112,28 @@ export abstract class PageStorage {
       }
       this.cleanRootPage = this.rootPage;
       this.writtenAddr = this.rootPage.addr;
-      // TODO: make more functions async so we don't need to read the whole free tree
-      const freeTree = await this.readPage(
-        this.rootPage.freeTreeAddr,
-        FreeSpacePage,
-      );
-      for await (const addr of new Node(freeTree).iterateKeys()) {
-        this.freeSpace.add(addr.val);
-      }
+      await this.resetFreeSpaceIterator();
     }
+  }
+
+  async resetFreeSpaceIterator() {
+    const freeTree = await this.readPage(
+      this.rootPage!.freeTreeAddr,
+      FreeSpacePage,
+    );
+    this.freeSpaceIterator = new Node(freeTree).iterateKeys()
+      [Symbol.asyncIterator]();
+  }
+
+  async _getAllFreeSpace() {
+    if (!this.rootPage!.freeTreeAddr) {
+      return [];
+    }
+    const freeTree = await this.readPage(
+      this.rootPage!.freeTreeAddr,
+      FreeSpacePage,
+    );
+    return (await new Node(freeTree).getAllValues()).map((x) => x.val);
   }
 
   readPage<T extends Page>(
@@ -237,15 +250,19 @@ export abstract class PageStorage {
   }
 
   async allocate(page: Page) {
-    let addr: number;
-    // if (false) {
-    if (this.freeSpace.size) {
-      // Allocate from free space
-      [addr] = this.freeSpace;
-      this.freeSpace.delete(addr);
-      debug_allocate &&
-        debugLog(`allocated type(${PageType[page.type]}) (free space)`, addr);
-    } else {
+    let addr: number | null = null;
+    if (this.freeSpaceIterator) {
+      // Try allocating from free space
+      const r = await this.freeSpaceIterator.next();
+      if (!r.done) {
+        addr = r.value.val;
+        debug_allocate &&
+          debugLog(`allocated type(${PageType[page.type]}) (free space)`, addr);
+      } else {
+        this.freeSpaceIterator = undefined;
+      }
+    }
+    if (addr === null) {
       // Grow the backed file
       addr = this.nextAddr++;
       debug_allocate &&
@@ -383,7 +400,7 @@ export abstract class PageStorage {
   async commitMark() {
     debug_allocate && debugLog(
       "[commit] pre free space",
-      [...this.freeSpace.values()],
+      await this._getAllFreeSpace(),
       "size",
       this.rootPage?.size,
     );
@@ -423,9 +440,8 @@ export abstract class PageStorage {
       : new NoRefcountNode(new FreeSpacePage(this));
     refTree = await refTree.getDirtyWithAddr();
     freeTree = await freeTree.getDirtyWithAddr();
-    const pendingFreeSpace = new Set<PageAddr>();
 
-    await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+    await this.updateRefTree(freeTree, refTree);
 
     if (this.newAllocated.size) {
       for (const [addr, page] of this.newAllocated) {
@@ -434,13 +450,14 @@ export abstract class PageStorage {
           await freeTree.set(vAddr, vAddr, "no-change");
           debug_allocate &&
             debugLog("discard (free) newAllocated beyond db size", addr);
-        } // else it should be already in the free tree
-        pendingFreeSpace.add(addr);
+        } // else it should be already in t
+        this.metaCache.delete(addr);
+        this.dataCache.delete(addr);
       }
       this.newAllocated.clear();
 
       if (this.pendingRefChange.size) {
-        await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+        await this.updateRefTree(freeTree, refTree);
       }
     }
 
@@ -453,13 +470,7 @@ export abstract class PageStorage {
     this.rootPage.refTreeAddr = refTree.addr;
     this.rootPage.freeTreeAddr = freeTree.addr;
 
-    // update free space cache after tree update,
-    // otherwise the free space may be used by the tree immediately.
-    for (const addr of pendingFreeSpace) {
-      this.freeSpace.add(addr);
-      this.metaCache.delete(addr);
-      this.dataCache.delete(addr);
-    }
+    await this.resetFreeSpaceIterator();
 
     this.rootPage.size = this.nextAddr;
 
@@ -483,7 +494,7 @@ export abstract class PageStorage {
 
     debug_allocate && debugLog(
       "[commit] post free space",
-      [...this.freeSpace.values()],
+      await this._getAllFreeSpace(),
       "size",
       this.rootPage?.size,
     );
@@ -494,7 +505,6 @@ export abstract class PageStorage {
   private async updateRefTree(
     freeTree: Node<UIntValue>,
     refTree: Node<KValue<UIntValue, UIntValue>>,
-    pendingFreeSpace: Set<number>,
   ) {
     for (const [addr, delta] of this.pendingRefChange) {
       debug_ref && debugLog(`[update ref] addr ${addr} delta ${delta}`);
@@ -515,7 +525,6 @@ export abstract class PageStorage {
         }
         await freenode.deleteAt(freepos);
         debug_ref && debugLog("[free->ref]", addr, refcount);
-        pendingFreeSpace.delete(addr);
         if (refcount > 1) {
           await refTree.set(
             new KeyComparator(vAddr),
@@ -559,12 +568,10 @@ export abstract class PageStorage {
           freenode = await freenode.getDirtyWithAddr();
           freenode.insertAt(freepos, vAddr);
           await freenode.postChange();
-          pendingFreeSpace.add(addr);
           const page = await this.readPage(addr, null);
           page.unref();
         } else if (delta > 0 && refcount === delta) {
           debug_ref && debugLog("[un-free]", addr);
-          pendingFreeSpace.delete(addr);
         }
       }
     }
@@ -587,10 +594,10 @@ export abstract class PageStorage {
     return pages.length > 0;
   }
 
-  rollback() {
+  async rollback() {
     console.info("[rollback]");
     debug_allocate &&
-      debugLog("[rollback] pre free space", [...this.freeSpace.values()]);
+      debugLog("[rollback] pre free space", await this._getAllFreeSpace());
     if (this.rootPage!.dirty) {
       this.metaCache.delete(this.rootPage!.addr);
       this.rootPage = this.cleanRootPage;
@@ -610,18 +617,13 @@ export abstract class PageStorage {
       this.nextAddr = this.rootPage!.size;
     }
     this.pendingRefChange.clear();
-    for (const [addr] of this.newAllocated) {
-      this.newAllocated.delete(addr);
-      if (addr < this.nextAddr) {
-        this.freeSpace.add(addr);
-        debug_allocate && debugLog("[rollback] newAllocated free ", addr);
-      }
-    }
+    this.newAllocated.clear();
+    await this.resetFreeSpaceIterator();
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
 
     debug_allocate &&
-      debugLog("[rollback] post free space", [...this.freeSpace.values()]);
+      debugLog("[rollback] post free space", await this._getAllFreeSpace());
   }
 
   waitDeferWriting() {
