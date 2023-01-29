@@ -757,7 +757,7 @@ async function checkQuery(userSet: IDbDocSet<User>) {
 // transaction
 
 runWithDatabase(async function transaction(db) {
-  (db as any).transaction.debug = true;
+  // (db as any).transaction.debug = true;
 
   function getSet() {
     return db.getSet<any>("transaction", "doc");
