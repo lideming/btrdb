@@ -91,6 +91,13 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
   );
   console.info("dataReads:", counter.dataReads, "dataAdds:", counter.dataAdds);
   if (counter.cacheCleans) console.info("cacheCleans:", counter.cacheCleans);
+  const memoryUsage = Runtime.memoryUsage();
+  const M = 1024 * 1024;
+  console.info(
+    `memoryUsage: ${(memoryUsage.heapUsed / M).toFixed(1)} MB / ${
+      (memoryUsage.heapTotal / M).toFixed(1)
+    } MB`,
+  );
 }
 
 export async function run() {
@@ -111,6 +118,7 @@ export async function run() {
       } catch (error) {
         console.error("error in test", error);
         failed++;
+        throw error;
       }
     } else {
       ignored++;

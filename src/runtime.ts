@@ -3,7 +3,7 @@
 const _Deno = globalThis["Deno"];
 
 // Just use Deno Runtime API when it's running on Deno
-export let Runtime = !globalThis["Deno"] ? null! : {
+export let Runtime = !_Deno ? null! : {
   mkdir: _Deno.mkdir,
   remove: _Deno.remove,
   rename: _Deno.rename,
@@ -16,8 +16,9 @@ export let Runtime = !globalThis["Deno"] ? null! : {
   customInspect: Symbol.for("Deno.customInspect"),
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,
-  File: _Deno.File,
+  File: _Deno.FsFile,
   getRandomValues: crypto.getRandomValues,
+  memoryUsage: _Deno.memoryUsage,
 };
 
 if (!Runtime) {
@@ -26,7 +27,7 @@ if (!Runtime) {
   } as any;
 }
 
-export type RuntimeFile = Deno.File;
+export type RuntimeFile = Deno.FsFile;
 export type RuntimeInspectOptions = Deno.InspectOptions;
 
 // When running on Node.js, change the runtime API implementation.

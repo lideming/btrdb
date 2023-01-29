@@ -1,6 +1,6 @@
 import { DbDocSet } from "./DbDocSet.ts";
 import { DbSet } from "./DbSet.ts";
-import { DocSetPage, SetPage, SuperPage } from "./page.ts";
+import { DocSetPage, RootPage, SetPage } from "./page.ts";
 import {
   InFileStorage,
   InMemoryData,
@@ -33,7 +33,7 @@ const _setTypeInfo = {
 export class DatabaseEngine implements EngineContext, IDB {
   storage: PageStorage = undefined as any;
   transaction: TransactionService = new TransactionService(this);
-  private snapshot: SuperPage | null = null;
+  private snapshot: RootPage | null = null;
 
   autoCommit = false;
   autoCommitWaitWriting = true;
@@ -41,12 +41,12 @@ export class DatabaseEngine implements EngineContext, IDB {
 
   commitLock = new OneWriterLock();
 
-  get superPage() {
-    return this.snapshot || this.storage.superPage;
+  get rootPage() {
+    return this.snapshot || this.storage.rootPage;
   }
 
   getTree() {
-    return new Node(this.superPage!);
+    return new Node(this.rootPage!);
   }
 
   async openFile(path: string, options?: { fsync?: InFileStorage["fsync"] }) {
@@ -106,7 +106,7 @@ export class DatabaseEngine implements EngineContext, IDB {
         new KValue(keyv, new UIntValue(setPage.addr)),
         "no-change",
       );
-      this.superPage!.setCount++;
+      this.rootPage!.setCount++;
       if (this.autoCommit) await this._autoCommit();
       return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
     } finally {
@@ -167,7 +167,7 @@ export class DatabaseEngine implements EngineContext, IDB {
         "no-change",
       );
       if (action == "removed" && type != "snapshot") {
-        this.superPage!.setCount--;
+        this.rootPage!.setCount--;
         if (this.autoCommit) await this._autoCommit();
         return true;
       } else if (action == "noop") {
@@ -181,7 +181,7 @@ export class DatabaseEngine implements EngineContext, IDB {
   }
 
   async getSetCount() {
-    return this.superPage!.setCount;
+    return this.rootPage!.setCount;
   }
 
   async getObjects() {
@@ -207,10 +207,13 @@ export class DatabaseEngine implements EngineContext, IDB {
       await this._autoCommit();
 
       const prefixedName = "s_" + name;
+      const snapshotAddr = this.storage.cleanRootPage!.addr;
+      console.info("snapshot", prefixedName, snapshotAddr);
       const kv = new KValue(
         new StringValue(prefixedName),
-        new UIntValue(this.storage.cleanSuperPage!.addr),
+        new UIntValue(snapshotAddr),
       );
+      // console.info("[createSnapshot]", kv);
       await this.getTree().set(
         new KeyComparator(kv.key),
         kv,
@@ -251,10 +254,16 @@ export class DatabaseEngine implements EngineContext, IDB {
   }
 
   async _commitNoLock(waitWriting: boolean) {
-    // console.log('==========COMMIT==========');
-    const r = await this.storage.commit(waitWriting);
-    // console.log('========END COMMIT========');
-    return r;
+    // console.log("==========COMMIT==========");
+    try {
+      const r = await this.storage.commit(waitWriting);
+      return r;
+    } catch (err) {
+      console.error("[commit error]", err);
+      throw err;
+    } finally {
+      // console.log("========END COMMIT========");
+    }
   }
 
   _autoCommit() {
@@ -262,14 +271,14 @@ export class DatabaseEngine implements EngineContext, IDB {
   }
 
   async getPrevCommit() {
-    if (!this.superPage?.prevSuperPageAddr) return null;
-    return await this._getSnapshotByAddr(this.superPage.prevSuperPageAddr);
+    if (!this.rootPage?.prevRootPageAddr) return null;
+    return await this._getSnapshotByAddr(this.rootPage.prevRootPageAddr);
   }
 
   async _getSnapshotByAddr(addr: number) {
     var snapshot = new DatabaseEngine();
     snapshot.storage = this.storage;
-    snapshot.snapshot = await this.storage.readPage(addr, SuperPage);
+    snapshot.snapshot = await this.storage.readPage(addr, RootPage);
     return snapshot;
   }
 

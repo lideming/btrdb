@@ -1,17 +1,23 @@
 import { Buffer } from "./buffer.ts";
+import { debug_allocate, debug_ref, debugLog } from "./debug.ts";
 import { BugError, NotExistError } from "./errors.ts";
 import { LRUMap } from "./lru.ts";
 import {
   DataPage,
+  FreeSpacePage,
   Page,
   PageAddr,
   PageClass,
   PAGESIZE,
+  PageType,
+  pageTypeMap,
+  RefPage,
+  RootPage,
   SetPage,
   SuperPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
-import { Node } from "./tree.ts";
+import { Node, NoRefcountNode } from "./tree.ts";
 import { OneWriterLock, TaskQueue } from "./util.ts";
 import {
   IValue,
@@ -50,11 +56,13 @@ export abstract class PageStorage {
   /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */
   nextAddr: number = 0;
 
-  /** The latest SuperPage, might be dirty. */
   superPage: SuperPage | undefined = undefined;
 
-  /** Keep a reference to the latest clean/on-disk SuperPage. For concurrent querying and snapshop. */
-  cleanSuperPage: SuperPage | undefined = undefined;
+  /** The latest RootPage, might be dirty. */
+  rootPage: RootPage | undefined = undefined;
+
+  /** Keep a reference to the latest clean/on-disk RootPage. For concurrent querying and snapshop. */
+  cleanRootPage: RootPage | undefined = undefined;
 
   /** When a SetPage is dirty, it will be added into here. */
   dirtySets: SetPage[] = [];
@@ -66,13 +74,14 @@ export abstract class PageStorage {
   dataPage: DataPage | undefined = undefined;
   dataPageBuffer: Buffer | undefined = undefined;
 
-  /** The last addr commited. */
-  get cleanAddr() {
-    return this.cleanSuperPage?.addr ?? 0;
-  }
-
   /** The last addr commited and written to the file. */
   writtenAddr: number = 0;
+
+  pendingRefChange = new Map<PageAddr, number>();
+
+  freeSpace = new Set<number>();
+
+  newAllocated = new Map<PageAddr, Page>();
 
   perfCounter = new PageStorageCounter();
 
@@ -81,38 +90,46 @@ export abstract class PageStorage {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
       this.superPage = new SuperPage(this).getDirty(true);
+      this.rootPage = new RootPage(this).getDirty(true);
+      this.changeRefCount(this.superPage.addr, 1);
       await this.commit(true);
     } else {
       this.nextAddr = lastAddr;
-      // try read the last page as super page
-      let rootAddr = lastAddr - 1;
-      while (rootAddr >= 0) {
-        try {
-          const page = await this.readPage(rootAddr, SuperPage, true);
-          if (!page) {
-            rootAddr--;
-            continue;
-          }
-          this.superPage = page;
-          this.cleanSuperPage = page;
-          this.writtenAddr = page.addr;
-          break;
-        } catch (error) {
-          console.error(error);
-          console.info(
-            "[RECOVERY] trying read super page from addr " + (--rootAddr),
-          );
-        }
+      this.superPage = await this.readPage(0, SuperPage, false);
+      try {
+        this.rootPage = await this.readPage(
+          this.superPage.rootPageAddr,
+          RootPage,
+          false,
+        );
+      } catch (error) {
+        console.error(error);
+        console.info(
+          "[RECOVERY] trying read another super page from addr " +
+            (this.superPage.prevRootPageAddr),
+        );
+        this.rootPage = await this.readPage(
+          this.superPage.prevRootPageAddr,
+          RootPage,
+          false,
+        );
       }
-      if (rootAddr < 0) {
-        throw new Error("Failed to open database");
+      this.cleanRootPage = this.rootPage;
+      this.writtenAddr = this.rootPage.addr;
+      // TODO: make more functions async so we don't need to read the whole free tree
+      const freeTree = await this.readPage(
+        this.rootPage.freeTreeAddr,
+        FreeSpacePage,
+      );
+      for await (const addr of new Node(freeTree).iterateKeys()) {
+        this.freeSpace.add(addr.val);
       }
     }
   }
 
   readPage<T extends Page>(
     addr: PageAddr,
-    type: PageClass<T>,
+    type: PageClass<T> | null,
     nullOnTypeMismatch?: false,
   ): Promise<T>;
   readPage<T extends Page>(
@@ -133,16 +150,19 @@ export abstract class PageStorage {
     const cached = cache.get(addr);
     if (cached) {
       this.perfCounter.cachedPageReads++;
-      return Promise.resolve(cached as T);
-      // .then((cached) => {
-      //   if (Object.getPrototypeOf(cached) !== type.prototype) {
-      //     throw new BugError(
-      //       "BUG: page type from cached mismatched: " +
-      //         Runtime.inspect({ cached, type }),
-      //     );
-      //   }
-      //   return cached;
-      // });
+      return Promise.resolve(cached as T)
+        .then((cached) => {
+          if (type && Object.getPrototypeOf(cached) !== type.prototype) {
+            throw new BugError(
+              "BUG: page type from cached mismatched: " +
+                Runtime.inspect({
+                  cached,
+                  expected: PageType[new type(this).type],
+                }),
+            );
+          }
+          return cached;
+        });
     }
     if (addr < 0 || addr >= this.nextAddr) {
       throw new Error("Invalid page addr " + addr);
@@ -150,7 +170,7 @@ export abstract class PageStorage {
     this.perfCounter.acutalPageReads++;
     const buffer = new Uint8Array(PAGESIZE);
     const promise = this._readPageBuffer(addr, buffer).then(() => {
-      const page = new type(this);
+      const page = new (type || pageTypeMap[buffer[0]])(this);
       page.dirty = false;
       page.addr = addr;
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
@@ -192,7 +212,7 @@ export abstract class PageStorage {
       let deleted = 0;
       for (const page of cache.valuesFromOldest()) {
         if (page instanceof Page && page.addr <= this.writtenAddr) {
-          // console.info('clean ' + page.type + ' ' + page.addr);
+          // console.info('clean ' + PageType[page.type] + ' ' + page.addr);
           this.perfCounter.cacheCleans++;
           // It's safe to remove on iterating.
           cache.delete(page.addr);
@@ -206,15 +226,49 @@ export abstract class PageStorage {
   addDirty(page: Page) {
     if (page.hasAddr) {
       if (page.dirty) {
-        console.info("re-added dirty", page.type, page.addr);
+        console.info("re-added dirty", PageType[page.type], page.addr);
         return;
       } else {
         throw new Error("Can't mark on-disk page as dirty");
       }
     }
-    page.addr = this.nextAddr++;
+    page.addr = this.allocate(page);
     this.dirtyPages.push(page);
     this.getCacheForPage(page).set(page.addr, page);
+  }
+
+  allocate(page: Page) {
+    let addr: number;
+    // if (false) {
+    if (this.freeSpace.size) {
+      // Allocate from free space
+      [addr] = this.freeSpace;
+      this.freeSpace.delete(addr);
+      debug_allocate &&
+        debugLog(`allocated type(${PageType[page.type]}) (free space)`, addr);
+    } else {
+      // Grow the backed file
+      addr = this.nextAddr++;
+      debug_allocate &&
+        debugLog(`allocated type(${PageType[page.type]}) (growed)`, addr);
+    }
+    // console.trace("allocated addr", addr);
+    this.newAllocated.set(addr, page);
+    return addr;
+  }
+
+  /** Change ref count on a page address (delayed ref tree operation before commit) */
+  changeRefCount(addr: PageAddr, delta: number) {
+    if (typeof addr != "number") throw new BugError("Invalid addr: " + addr);
+    if (addr < 0) throw new BugError(`addr < 0 (addr=${addr})`);
+    const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
+    debug_ref &&
+      debugLog("changeRef addr", addr, "delta", delta, "newDelta", newDelta);
+    if (newDelta == 0) {
+      this.pendingRefChange.delete(addr);
+    } else {
+      this.pendingRefChange.set(addr, newDelta);
+    }
   }
 
   /** Add a value into data pages and return its address (PageOffsetValue). */
@@ -322,14 +376,22 @@ export abstract class PageStorage {
     this.dataPage.createBuffer();
     this.dataPageBuffer = new Buffer(this.dataPage.buffer!, 0);
     this.addDirty(this.dataPage);
+    // this.changeRefCount(this.dataPage.addr, 1);
     if (continued) prev!.next = this.dataPage.addr;
   }
 
   /** Mark all dirty pages as pending-commit. We will write them into disk later.  */
   async commitMark() {
-    if (!this.superPage) throw new Error("superPage does not exist.");
+    debug_allocate && debugLog(
+      "[commit] pre free space",
+      [...this.freeSpace.values()],
+      "size",
+      this.rootPage?.size,
+    );
+
+    if (!this.rootPage) throw new Error("rootPage does not exist.");
     if (this.dirtySets.length) {
-      const rootTree = new Node(this.superPage);
+      const rootTree = new Node(this.rootPage);
       for (const set of this.dirtySets) {
         if (set.hasNewerCopy()) {
           console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
@@ -357,35 +419,185 @@ export abstract class PageStorage {
       }
       this.dirtySets = [];
     }
-    if (!this.superPage.dirty) {
+    if (!this.rootPage.dirty) {
       if (this.dirtyPages.length == 0) {
         // console.log("Nothing to commit");
         return [];
       } else {
-        throw new Error("super page is not dirty");
+        throw new Error("root page is not dirty");
       }
     }
+
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
-    if (this.cleanSuperPage) {
-      this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
+
+    this.addDirty(this.rootPage);
+
+    this.changeRefCount(this.rootPage.addr, 1);
+
+    if (this.cleanRootPage) {
+      this.changeRefCount(this.cleanRootPage.addr, -1);
+      // this.superPage.prevSuperPageAddr = this.cleanSuperPage.addr;
     }
-    this.addDirty(this.superPage);
-    // console.log(
-    //   "commit",
-    //   this.dirtyPages
-    //     .length + " pages",
-    //   // .map(x => x._debugView())
-    //   // .map(x => [x.addr, x.type])
-    // );
+
+    // Update Ref tree and FreeSpace tree
+    let refTree = this.rootPage.refTreeAddr
+      ? new NoRefcountNode(
+        await this.readPage(this.rootPage.refTreeAddr, RefPage),
+      )
+      : new NoRefcountNode(new RefPage(this));
+    let freeTree = this.rootPage.freeTreeAddr
+      ? new NoRefcountNode(
+        await this.readPage(this.rootPage.freeTreeAddr, FreeSpacePage),
+      )
+      : new NoRefcountNode(new FreeSpacePage(this));
+    refTree = refTree.getDirty(true);
+    freeTree = freeTree.getDirty(true);
+    const pendingFreeSpace = new Set<PageAddr>();
+
+    await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+
+    if (this.newAllocated.size) {
+      for (const [addr, page] of this.newAllocated) {
+        if (addr >= this.rootPage.size) {
+          const vAddr = new UIntValue(addr);
+          await freeTree.set(vAddr, vAddr, "no-change");
+          debug_allocate &&
+            debugLog("discard (free) newAllocated beyond db size", addr);
+        } // else it should be already in the free tree
+        pendingFreeSpace.add(addr);
+      }
+      this.newAllocated.clear();
+
+      if (this.pendingRefChange.size) {
+        await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
+      }
+    }
+
+    if (this.pendingRefChange.size) {
+      throw new BugError(
+        "BUG: pendingRefChange.size > 0 after updateRefTree()",
+      );
+    }
+
+    this.rootPage.refTreeAddr = refTree.addr;
+    this.rootPage.freeTreeAddr = freeTree.addr;
+
+    // update free space cache after tree update,
+    // otherwise the free space may be used by the tree immediately.
+    for (const addr of pendingFreeSpace) {
+      this.freeSpace.add(addr);
+      this.metaCache.delete(addr);
+      this.dataCache.delete(addr);
+    }
+
+    this.rootPage.size = this.nextAddr;
+
+    this.superPage!.prevRootPageAddr = this.superPage!.rootPageAddr;
+    this.superPage!.rootPageAddr = this.rootPage.addr;
+    if (!this.superPage!.dirty) {
+      this.superPage!.dirty = true;
+      this.dirtyPages.push(this.superPage!);
+    }
+
     for (const page of this.dirtyPages) {
       page.dirty = false;
     }
     const currentDirtyPages = this.dirtyPages;
     this.dirtyPages = [];
-    this.cleanSuperPage = this.superPage;
+    this.cleanRootPage = this.rootPage;
+
+    debug_allocate && debugLog(
+      "[commit] post free space",
+      [...this.freeSpace.values()],
+      "size",
+      this.rootPage?.size,
+    );
+
     return currentDirtyPages;
   }
+
+  private async updateRefTree(
+    freeTree: Node<UIntValue>,
+    refTree: Node<KValue<UIntValue, UIntValue>>,
+    pendingFreeSpace: Set<number>,
+  ) {
+    for (const [addr, delta] of this.pendingRefChange) {
+      debug_ref && debugLog(`[update ref] addr ${addr} delta ${delta}`);
+      this.pendingRefChange.delete(addr);
+      const vAddr = new UIntValue(addr);
+      const isNewAllocated = this.newAllocated.get(addr);
+      if (isNewAllocated) {
+        debug_allocate && debugLog("remove newAllocated flag addr", addr);
+        this.newAllocated.delete(addr);
+        isNewAllocated.beref();
+      }
+      let { found: freefound, node: freenode, pos: freepos, val } =
+        await freeTree.findKeyRecursive(vAddr);
+      if (freefound) {
+        const refcount = 0 + delta;
+        if (refcount < 0) {
+          throw new BugError(`BUG: refcount ${refcount} < 0`);
+        }
+        await freenode.deleteAt(freepos);
+        debug_ref && debugLog("[free->ref]", addr, refcount);
+        pendingFreeSpace.delete(addr);
+        if (refcount > 1) {
+          await refTree.set(
+            new KeyComparator(vAddr),
+            new KValue(vAddr, new UIntValue(refcount)),
+            "no-change",
+          );
+        }
+        if (!isNewAllocated) {
+          const page = await this.readPage(addr, null);
+          page.beref();
+        }
+      } else {
+        const vKey = new KeyComparator(vAddr);
+        let { found, node, pos, val } = await refTree.findKeyRecursive(
+          vKey,
+        );
+        const refcount = (isNewAllocated ? 0 : (val?.value.val ?? 1)) + delta;
+        debug_ref && debugLog("[ref]", addr, refcount);
+        if (refcount < 0) {
+          this.pendingRefChange.set(addr, delta);
+          // console.warn(`BUG?: refcount ${refcount} < 0, moved to end of queue`);
+          // continue;
+          throw new BugError(`BUG: refcount ${refcount} < 0`);
+        }
+        if (refcount < 2 && found) {
+          await node.deleteAt(pos);
+        }
+        if (refcount > 1) {
+          // debug_ref && debugLog("[shared]", addr, refcount);
+          node = node.getDirty(true);
+          if (found) {
+            node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
+            node.postChange();
+          } else {
+            node.insertAt(pos, new KValue(vAddr, new UIntValue(refcount)));
+            node.postChange();
+          }
+        }
+        if (refcount == 0) {
+          debug_ref && debugLog("[free]", addr);
+          freenode = freenode.getDirty(true);
+          freenode.insertAt(freepos, vAddr);
+          freenode.postChange();
+          pendingFreeSpace.add(addr);
+          const page = await this.readPage(addr, null);
+          page.unref();
+        } else if (delta > 0 && refcount === delta) {
+          debug_ref && debugLog("[un-free]", addr);
+          pendingFreeSpace.delete(addr);
+        }
+      }
+    }
+  }
+
+  // private async validateRefTree() {
+  // }
 
   /** Commit all current changes into disk. */
   async commit(waitWriting: boolean) {
@@ -402,14 +614,23 @@ export abstract class PageStorage {
   }
 
   rollback() {
-    if (this.superPage!.dirty) {
-      this.metaCache.delete(this.superPage!.addr);
-      this.superPage = this.cleanSuperPage;
-      this.cleanSuperPage!._newerCopy = null;
+    console.info("[rollback]");
+    debug_allocate &&
+      debugLog("[rollback] pre free space", [...this.freeSpace.values()]);
+    if (this.rootPage!.dirty) {
+      this.metaCache.delete(this.rootPage!.addr);
+      this.rootPage = this.cleanRootPage;
+      this.cleanRootPage!._newerCopy = null;
     }
     if (this.dirtySets.length > 0) {
       for (const page of this.dirtySets) {
         page._discard = true;
+        if (Object.getPrototypeOf(page) == DataPage.prototype) {
+          this.dataCache.delete(page.addr);
+        } else {
+          this.metaCache.delete(page.addr);
+        }
+        debug_allocate && debugLog("[rollback] discard dirty set ", page.addr);
       }
       this.dirtySets = [];
     }
@@ -421,12 +642,24 @@ export abstract class PageStorage {
         } else {
           this.metaCache.delete(page.addr);
         }
+        debug_allocate && debugLog("[rollback] discard dirty ", page.addr);
       }
       this.dirtyPages = [];
-      this.nextAddr = this.cleanAddr + 1;
+      this.nextAddr = this.rootPage!.size;
+    }
+    this.pendingRefChange.clear();
+    for (const [addr] of this.newAllocated) {
+      this.newAllocated.delete(addr);
+      if (addr < this.nextAddr) {
+        this.freeSpace.add(addr);
+        debug_allocate && debugLog("[rollback] newAllocated free ", addr);
+      }
     }
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
+
+    debug_allocate &&
+      debugLog("[rollback] post free space", [...this.freeSpace.values()]);
   }
 
   waitDeferWriting() {
@@ -461,9 +694,6 @@ export class InFileStorage extends PageStorage {
   commitBuffer = new Buffer(new Uint8Array(PAGESIZE * MAX_COMBINED), 0);
 
   /**
-   * `"final-only"` (default): call the fsync once only after final writing.
-   * This ensures the consistency on some systems.
-   *
    * `true | "strict"`: call fsync once before SuperPage and once after final writing.
    * This ensures the consistency on all (correctly implemented) systems.
    *
@@ -474,12 +704,8 @@ export class InFileStorage extends PageStorage {
    * people usually do "write(file, data); fsync(file); write(file, superPage); fsync(file);"
    * to ensure the writing order.
    * This ensures the consistency on system crash or power loss during the commit.
-   *
-   * Since this DB engine is log-structured, the DB file is like a write-ahead-log,
-   * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
-   * is probably okay on some FileSystems (esp. on Btrfs).
    */
-  fsync: "final-only" | "strict" | boolean = "final-only";
+  fsync: "strict" | boolean = true;
 
   async openPath(path: string) {
     if (this.file) throw new Error("Already opened a file.");
@@ -558,7 +784,7 @@ export class InFileStorage extends PageStorage {
       }
 
       // Assuming the last item in `pages` is the SuperPage.
-      if (i === pagesLen - 2 && this.fsync && this.fsync !== "final-only") {
+      if (i === pagesLen - 2 && this.fsync) {
         // Call fsync() before the SuperPage
         await Runtime.fdatasync(this.file!.rid);
       }
@@ -596,7 +822,7 @@ export class InMemoryStorage extends PageStorage {
       buf.buffer = new Uint8Array(PAGESIZE);
       buf.pos = 0;
       page.writeTo(buf);
-      this.data.pageBuffers.push(buf.buffer);
+      this.data.pageBuffers[page.addr] = buf.buffer;
       this.perfCounter.pageWrites++;
       this.perfCounter.pageFreebyteWrites += page.freeBytes;
     }

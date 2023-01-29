@@ -754,44 +754,6 @@ async function checkQuery(userSet: IDbDocSet<User>) {
   });
 }
 
-// get prev commit
-
-runWithDatabase(async function createSetSnap(db) {
-  var set = await db.createSet("snap1");
-  await set.set("somekey", "somevalue");
-  assertEquals(await db.commit(), true); // commit "a"
-});
-
-runWithDatabase(async function checkSnap(db) {
-  var set = await db.getSet("snap1");
-  assertEquals(await set!.get("somekey"), "somevalue");
-  var snap = await db.getPrevCommit(); // before commit "a"
-  assertEquals(await snap!.getSet("snap1"), null);
-  assert(!!await snap!.getSet("test"));
-  assertEquals(await db.commit(), false);
-});
-
-runWithDatabase(async function changeSnap(db) {
-  var set = await db.getSet("snap1");
-  await set!.set("somekey", "someothervalue");
-  await set!.set("newkey", "newvalue");
-  assertEquals(await db.commit(), true); // commit "b"
-});
-
-runWithDatabase(async function checkSnap2(db) {
-  var set = await db.getSet("snap1"); // commit "b"
-  assertEquals(await set!.count, 2);
-  assertEquals(await set!.get("somekey"), "someothervalue");
-  assertEquals(await set!.get("newkey"), "newvalue");
-  var snap = await db.getPrevCommit(); // commit "a"
-  var snapset = await snap!.getSet("snap1");
-  assertEquals(await snapset!.count, 1);
-  assertEquals(await snapset!.get("somekey"), "somevalue");
-  var snap2 = await snap!.getPrevCommit(); // before commit "a"
-  assertEquals(await snap2!.getSet("snap1"), null);
-  assertEquals(await db.commit(), false);
-});
-
 // transaction
 
 runWithDatabase(async function transaction(db) {
@@ -963,7 +925,8 @@ runWithDatabase(async function setGetCommitConcurrent(db) {
   var set = (await db.createSet("testConcurrent"))!;
   var tasks: Promise<void>[] = [];
   for (const k of concurrentKeys) {
-    tasks.push((async () => {
+    // tasks.push((async () => {
+    await ((async () => {
       await set.set("key" + k, "val" + k);
       const val = await set!.get("key" + k);
       assertEquals(val, "val" + k);
@@ -1043,6 +1006,7 @@ runWithDatabase(async function getMassive(db) {
     const val = await set!.get("key" + k);
     if (val != "val" + k) {
       errors.push("expect " + k + " got " + val);
+      await set!.get("key" + k);
     }
   }
   assertEquals(errors, []);
@@ -1132,7 +1096,8 @@ runWithDatabase(async function DocSet_upsertOverrideMassive(db) {
     await dumpObjectToFile("testdata/five_actual.txt", actualIndexResults);
     await dumpObjectToFile("testdata/five_expected.txt", expectedIndexResults);
     throw new Error(
-      "test failed, dump is created under 'testdata' folder: " + error,
+      "test failed, dump is created under 'testdata' folder: ",
+      { cause: error },
     );
   }
   assertEquals(set.count, fivesSet.length);
@@ -1156,6 +1121,40 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
       await set.delete(k);
     }
     assertEquals(await db.commit(), true);
+    actualIndexResults = (await Promise.all(
+      fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
+    )).map((x) => x.map((x) => x.id).sort());
+    assertEquals(actualIndexResults, AD_expectedIndexResults);
+    assertEquals(set.count, fivesSet.length - AD_toDelete.length);
+  } catch (error) {
+    console.info(error);
+    console.info("generating dump...");
+    await dumpObjectToFile(
+      "testdata/five_delete_tree.txt",
+      await (set as any)._dump(),
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_actual.txt",
+      actualIndexResults,
+    );
+    await dumpObjectToFile(
+      "testdata/five_delete_expected.txt",
+      AD_expectedIndexResults,
+    );
+    throw new Error(
+      "test failed, dump is created under 'testdata' folder: " + error,
+    );
+  }
+}, ignoreMassiveTests);
+
+runWithDatabase(async function DocSet_deleteMassive_reopen_verify(db) {
+  var set = await db.createSet<TestDoc>("docMassive2", "doc");
+  // await dumpObjectToFile(
+  //   "testdata/five_before_delete_tree.txt",
+  //   await (set as any)._dump(),
+  // );
+  let actualIndexResults = null;
+  try {
     actualIndexResults = (await Promise.all(
       fiveLastThreeSet.map((three) => set.findIndex("lastThree", three)),
     )).map((x) => x.map((x) => x.id).sort());

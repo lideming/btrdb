@@ -122,7 +122,7 @@ export interface IDbSet {
   getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]>;
   getKeys(): Promise<SetKeyType[]>;
   forEach(
-    fn: (key: SetKeyType, value: SetValueType) => (void | Promise<void>),
+    fn: (key: SetKeyType, value: SetValueType) => void | Promise<void>,
   ): Promise<void>;
   delete(key: SetKeyType): Promise<boolean>;
 }
@@ -167,7 +167,7 @@ export interface IDbDocSet<
   getIds<T>(): Promise<IdType<T>[]>;
 
   /** Iterate through all documents. */
-  forEach(fn: (doc: T) => (void | Promise<void>)): Promise<void>;
+  forEach(fn: (doc: T) => void | Promise<void>): Promise<void>;
 
   /** Delete a document by id. */
   delete(id: IdType<T>): Promise<boolean>;
@@ -245,4 +245,4 @@ export function SLICE(query: Query, skip: number, take: number): Query;
 
 export type Transaction<T> = (
   ctx: { db: Database; replaying: boolean },
-) => (Promise<T> | T);
+) => Promise<T> | T;

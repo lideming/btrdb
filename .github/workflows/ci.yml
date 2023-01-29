@@ -149,12 +149,12 @@ jobs:
     strategy:
       matrix:
         page_size: 
-        # - 128
+        - 128
         - 256
         - 512
         - 1024
         - 2048
-        - 8192
+        - 4096
 
     steps:
       - uses: actions/checkout@v2
