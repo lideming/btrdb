@@ -244,23 +244,19 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
 
   override init() {
     super.init();
-    this.freeBytes -= 2; // keysCount
+    this.freeBytes -= 2 + 2; // keysCount + childrenCount
   }
 
   setKeys(newKeys: T[], newChildren: PageAddr[]) {
     // console.log([newKeys.length, newChildren.length]);
     if (
-      !((newKeys.length == 0 && newChildren.length == 0) ||
-        (newKeys.length + 1 == newChildren.length))
+      !(newChildren.length == 0 ||
+        (newKeys.length && newKeys.length + 1 == newChildren.length))
     ) {
       throw new Error("Invalid args");
     }
-    if (this.keys) {
-      this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
-    }
-    if (newKeys) {
-      this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
-    }
+    this.freeBytes += calcSizeOfKeys(this.keys) + this.children.length * 4;
+    this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
     this.keys = newKeys;
     this.children = newChildren;
   }
@@ -278,31 +274,40 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     if (leftChild! < 0) throw new BugError("Invalid leftChild");
     let deleted: T[];
     let deletedChildren: PageAddr[];
-    if (key) {
-      deleted = this.keys.splice(pos, delCount, key);
-      deletedChildren = this.children.splice(pos, delCount, leftChild || 0);
-      if (delCount == 0 && this.keys.length == 1) {
-        this.freeBytes -= 4;
+    const beforeChildrenLength = this.children.length;
+    if (leftChild && !this.children.length) {
+      for (let i = 0; i < this.keys.length + 1; i++) {
         this.children.push(0);
       }
-      this.freeBytes -= key.byteLength + 4;
+    }
+    const noChildren = !this.keys.length || !this.children.length;
+    if (key) {
+      deleted = this.keys.splice(pos, delCount, key);
+      deletedChildren = !noChildren
+        ? this.children.splice(pos, delCount, leftChild || 0)
+        : [];
+      this.freeBytes -= key.byteLength;
     } else {
       deleted = this.keys.splice(pos, delCount);
-      deletedChildren = this.children.splice(pos, delCount);
-      if (delCount && this.keys.length == 0) {
-        if (this.children[0] === 0) {
-          this.children.pop();
-          this.freeBytes += 4;
-        }
+      deletedChildren = !noChildren ? this.children.splice(pos, delCount) : [];
+      if (delCount && this.keys.length == 0 && this.children[0] === 0) {
+        this.children.pop();
       }
     }
-    this.freeBytes += calcSizeOfKeys(deleted) + delCount * 4;
+    this.freeBytes += calcSizeOfKeys(deleted) +
+      (beforeChildrenLength - this.children.length) * 4;
     return [deleted, deletedChildren];
   }
 
   setChild(pos: number, child: PageAddr) {
-    if (pos < 0 || this.children.length <= pos) {
+    if (pos < 0 || !this.keys.length || this.keys.length + 1 <= pos) {
       throw new BugError("pos out of range");
+    }
+    if (child && !this.children.length) {
+      for (let i = 0; i < this.keys.length + 1; i++) {
+        this.children.push(0);
+      }
+      this.freeBytes -= this.children.length * 4;
     }
     this.children[pos] = child;
   }
@@ -358,22 +363,23 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     for (let i = 0; i < this.keys.length; i++) {
       this.keys[i].writeTo(buf);
     }
+    buf.writeU16(this.children.length);
     for (let i = 0; i < this.children.length; i++) {
       buf.writeU32(this.children[i]);
     }
   }
   protected override _readContent(buf: Buffer) {
     super._readContent(buf);
-    const keyCount = buf.readU16();
     const posBefore = buf.pos;
+    const keyCount = buf.readU16();
     for (let i = 0; i < keyCount; i++) {
       this.keys.push(this._readValue(buf));
     }
-    const childrenCount = keyCount ? keyCount + 1 : 0;
+    const childrenCount = buf.readU16();
     for (let i = 0; i < childrenCount; i++) {
       this.children.push(buf.readU32());
     }
-    this.freeBytes -= buf.pos - posBefore;
+    this.freeBytes -= buf.pos - posBefore - (2 + 2);
   }
   protected override _copyTo(page: this) {
     super._copyTo(page);

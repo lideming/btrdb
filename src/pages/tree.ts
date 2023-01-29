@@ -1,6 +1,6 @@
 import { debug_node, debugLog } from "../utils/debug.ts";
 import { AlreadyExistError, BugError, NotExistError } from "../utils/errors.ts";
-import { NodePage, PageAddr } from "../pages/page.ts";
+import { NodePage, PageAddr, PAGESIZE } from "../pages/page.ts";
 import { Runtime } from "../utils/runtime.ts";
 import { IComparable, IKey, KeyComparator } from "../utils/value.ts";
 
@@ -55,7 +55,7 @@ export class Node<T extends IKey<unknown>> {
     const result: any[] = [
       `(addr ${this.page.addr}${this.page.dirty ? " (dirty)" : ""})`,
     ];
-    for (let pos = 0; pos < this.children.length; pos++) {
+    for (let pos = 0; pos < this.keys.length + 1; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
         const leftPage = await this.readChildPage(pos);
@@ -71,7 +71,7 @@ export class Node<T extends IKey<unknown>> {
   async traverseKeys(
     func: (key: T, page: this, pos: number) => Promise<void> | void,
   ) {
-    for (let pos = 0; pos < this.children.length; pos++) {
+    for (let pos = 0; pos < this.keys.length + 1; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
         const leftPage = await this.readChildPage(pos);
@@ -84,11 +84,11 @@ export class Node<T extends IKey<unknown>> {
   }
 
   async *iterateKeys(): AsyncIterable<T> {
-    for (let pos = 0; pos < this.children.length; pos++) {
+    for (let pos = 0; pos < this.keys.length + 1; pos++) {
       const leftAddr = this.children[pos];
       if (leftAddr) {
         const leftPage = await this.readChildPage(pos);
-        yield* await leftPage.iterateKeys();
+        yield* leftPage.iterateKeys();
       }
       if (pos < this.keys.length) {
         yield this.keys[pos];
@@ -257,15 +257,29 @@ export class Node<T extends IKey<unknown>> {
       // split this node
       const leftSib = this.createChildNode();
       await leftSib.getDirtyWithAddr();
+
+      let leftCount = Math.floor(this.keys.length / 2);
       // when appending, make the left sibling larger for space efficiency
-      let leftCount = (appending && this.keys.length > 10)
-        ? Math.floor(this.keys.length * 0.8)
-        : Math.floor(this.keys.length / 2);
-      const leftKeys = this.page.spliceKeys(0, leftCount);
-      leftKeys[1].push(0);
-      leftSib.page.setKeys(leftKeys[0], leftKeys[1]);
+      if (appending) {
+        leftCount = this.keys.length;
+        let leftFree = this.page.freeBytes;
+        while (
+          leftFree < PAGESIZE * 0.05 ||
+          leftCount > this.keys.length - 2
+        ) {
+          leftCount--;
+          leftFree += this.keys[leftCount].byteLength;
+          if (this.children.length) leftFree += 4;
+        }
+      }
+
+      const [leftKeys, leftChildren] = this.page.spliceKeys(0, leftCount);
+      if (leftChildren.length) leftChildren.push(0);
+      leftSib.page.setKeys(leftKeys, leftChildren);
       const [[middleKey], [middleLeftChild]] = this.page.spliceKeys(0, 1);
-      leftSib.setChild(leftCount, middleLeftChild);
+      if (middleLeftChild) {
+        leftSib.setChild(leftCount, middleLeftChild);
+      }
 
       if (this.parent) {
         // insert the middle key with the left sibling to parent
