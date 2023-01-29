@@ -28,12 +28,7 @@ btrfs.
   - [x] Readers/writer lock
   - [x] Isolation with concurrent reader on snapshots
 - [x] Auto-commit
-- [ ] Space reclamation
-  - [x] Rebuilding database file (a.k.a. stop-and-copy GC)
-  - [ ] Real solution, one of:
-    - Refcount tree
-      [like btrfs](https://btrfs.wiki.kernel.org/index.php/Btrfs_design#Reference_Counted_Extents)
-    - Mark-and-sweep GC
+- [x] Space reclamation with refcount tree
 - [ ] Client / Server (?)
 - [ ] Replication (?)
 
