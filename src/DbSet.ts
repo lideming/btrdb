@@ -101,8 +101,9 @@ export class DbSet implements IDbSet {
     const lockpage = this.page.getDirty(false);
     await lockpage.lock.enterWriter();
     try { // BEGIN WRITE LOCK
-      const dataAddr = this.page.storage.addData(new JSValue(val));
-      const valv = val == null ? null : new KValue(keyv, dataAddr);
+      const valv = val == null
+        ? null
+        : new KValue(keyv, this.page.storage.addData(new JSValue(val)));
       const { action } = await this.node.set(
         new KeyComparator(keyv),
         valv,
