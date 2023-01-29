@@ -4,8 +4,8 @@ import {
   encodeValue,
   readValue,
   writeValue,
-} from "../src/binval.ts";
-import { Buffer } from "../src/buffer.ts";
+} from "../src/utils/binval.ts";
+import { Buffer } from "../src/utils/buffer.ts";
 import { assertEquals } from "./test.dep.ts";
 
 function genNumbers(len: number) {

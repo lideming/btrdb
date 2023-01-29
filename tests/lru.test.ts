@@ -1,4 +1,4 @@
-import { LRUMap } from "../src/lru.ts";
+import { LRUMap } from "../src/utils/lru.ts";
 import { assertEquals } from "./test.dep.ts";
 
 Deno.test({
