@@ -65,9 +65,6 @@ export abstract class PageStorage {
   /** Keep a reference to the latest clean/on-disk RootPage. For concurrent querying and snapshop. */
   cleanRootPage: RootPage | undefined = undefined;
 
-  /** When a SetPage is dirty, it will be added into here. */
-  dirtySets: SetPage[] = [];
-
   /** Queue for committed pages being written to disk. */
   deferWritingQueue = new TaskQueue();
 
@@ -394,35 +391,6 @@ export abstract class PageStorage {
     );
 
     if (!this.rootPage) throw new Error("rootPage does not exist.");
-    if (this.dirtySets.length) {
-      const rootTree = new Node(this.rootPage);
-      for (const set of this.dirtySets) {
-        if (set.hasNewerCopy()) {
-          console.info(this.dirtySets.map((x) => [x.addr, x.prefixedName]));
-          console.info("dirtySets length", this.dirtySets.length);
-          throw new Error("non-latest page in dirtySets");
-        }
-        set.getDirty(true);
-        try {
-          await rootTree.set(
-            new KeyComparator(new StringValue(set.prefixedName)),
-            new KValue(
-              new StringValue(set.prefixedName),
-              new UIntValue(set.addr),
-            ),
-            "change-only",
-          );
-        } catch (error) {
-          if (error instanceof NotExistError) {
-            // This set is deleted.
-            // TODO: remove dirty pages of this set.
-            continue;
-          }
-          throw error;
-        }
-      }
-      this.dirtySets = [];
-    }
     if (!this.rootPage.dirty) {
       if (this.dirtyPages.length == 0) {
         // console.log("Nothing to commit");
@@ -629,18 +597,6 @@ export abstract class PageStorage {
       this.metaCache.delete(this.rootPage!.addr);
       this.rootPage = this.cleanRootPage;
       this.cleanRootPage!._newerCopy = null;
-    }
-    if (this.dirtySets.length > 0) {
-      for (const page of this.dirtySets) {
-        page._discard = true;
-        if (Object.getPrototypeOf(page) == DataPage.prototype) {
-          this.dataCache.delete(page.addr);
-        } else {
-          this.metaCache.delete(page.addr);
-        }
-        debug_allocate && debugLog("[rollback] discard dirty set ", page.addr);
-      }
-      this.dirtySets = [];
     }
     if (this.dirtyPages.length > 0) {
       for (const page of this.dirtyPages) {

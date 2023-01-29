@@ -461,14 +461,6 @@ function buildSetPageClass<
       super._copyTo(page as any);
       page.prefixedName = this.prefixedName;
     }
-
-    override getDirty(addDirty: boolean) {
-      var r = super.getDirty(addDirty);
-      if (r != this) {
-        this.storage.dirtySets.push(r as any);
-      }
-      return r;
-    }
   }
   return SetPageBase;
 }
