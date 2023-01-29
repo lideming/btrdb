@@ -52,6 +52,7 @@ export abstract class PageStorage {
 
   /** Pages that are dirty and pending to be written on-disk. */
   dirtyPages: Page[] = [];
+  writingPages = new Set<Page>();
 
   /** Next address number that will be used for the next dirty page (being passed to `addDirty()`). */
   nextAddr: number = 0;
@@ -205,13 +206,16 @@ export abstract class PageStorage {
   }
 
   _checkCache(limit: number, cache: this["metaCache"]) {
-    const cleanCacheSize = cache.size -
-      (this.nextAddr - 1 - this.writtenAddr);
+    const dirtyCount = this.dirtyPages.length + this.writingPages.size;
+    const cleanCacheSize = cache.size - dirtyCount;
     if (limit > 0 && cleanCacheSize > limit) {
       let deleteCount = cleanCacheSize - limit * 3 / 4;
       let deleted = 0;
       for (const page of cache.valuesFromOldest()) {
-        if (page instanceof Page && page.addr <= this.writtenAddr) {
+        if (
+          page instanceof Page &&
+          !page.dirty && !this.writingPages.has(page)
+        ) {
           // console.info('clean ' + PageType[page.type] + ' ' + page.addr);
           this.perfCounter.cacheCleans++;
           // It's safe to remove on iterating.
@@ -507,6 +511,10 @@ export abstract class PageStorage {
     this.dirtyPages = [];
     this.cleanRootPage = this.rootPage;
 
+    for (const page of currentDirtyPages) {
+      this.writingPages.add(page);
+    }
+
     debug_allocate && debugLog(
       "[commit] post free space",
       [...this.freeSpace.values()],
@@ -777,6 +785,11 @@ export class InFileStorage extends PageStorage {
       // console.info("written page addr", page.addr);
       buffer.buffer.set(InFileStorage.emptyBuffer.subarray(0, toWrite), 0);
       buffer.pos = 0;
+
+      for (let p = 0; p < combined; p++) {
+        const page = pages[beginI + p];
+        this.writingPages.delete(page);
+      }
 
       this.writtenAddr = beginAddr + combined - 1;
       if (i % TOTAL_CACHE_LIMIT === TOTAL_CACHE_LIMIT - 1) {
