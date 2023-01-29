@@ -1,5 +1,5 @@
 import { DbDocSet } from "./DbDocSet.ts";
-import { DbSet } from "./DbSet.ts";
+import { DbKvSet } from "./DbKvSet.ts";
 import { DocSetPage, RootPage, SetPage } from "./page.ts";
 import {
   InFileStorage,
@@ -21,16 +21,12 @@ import type {
 import { TransactionService } from "./transaction.ts";
 export type Database = IDB;
 
-export interface EngineContext {
-  storage: PageStorage;
-}
-
 const _setTypeInfo = {
-  kv: { page: SetPage, dbset: DbSet },
+  kv: { page: SetPage, dbset: DbKvSet },
   doc: { page: DocSetPage, dbset: DbDocSet },
 };
 
-export class DatabaseEngine implements EngineContext, IDB {
+export class DatabaseEngine implements IDB {
   storage: PageStorage = undefined as any;
   transaction: TransactionService = new TransactionService(this);
   private snapshot: RootPage | null = null;
@@ -76,80 +72,92 @@ export class DatabaseEngine implements EngineContext, IDB {
     return db;
   }
 
-  async createSet(name: string, type: "kv"): Promise<DbSet>;
+  async createSet(name: string, type: "kv"): Promise<DbKvSet>;
   async createSet(name: string, type: "doc"): Promise<DbDocSet>;
   async createSet(
     name: string,
     type: DbSetType = "kv",
-  ): Promise<DbSet | DbDocSet> {
+  ): Promise<DbKvSet | DbDocSet> {
     let lockWriter = false;
     const lock = this.commitLock;
     await lock.enterReader();
     try {
-      let set = await this._getSet(name, type as any, false);
-      if (set) return set;
-
-      await lock.enterWriterFromReader();
-      lockWriter = true;
-
-      // double check after entered lock writer, another writer may have create it before.
-      set = await this._getSet(name, type as any, false);
-      if (set) return set;
-
       const prefixedName = this._getPrefixedName(type, name);
       const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
-      const setPage = new Ctorpage(this.storage).getDirty(true);
-      setPage.prefixedName = prefixedName;
-      const keyv = new StringValue(prefixedName);
-      await this.getTree().set(
-        new KeyComparator(keyv),
-        new KValue(keyv, new UIntValue(setPage.addr)),
-        "no-change",
-      );
-      this.rootPage!.setCount++;
-      if (this.autoCommit) await this._autoCommit();
-      return new Ctordbset(setPage as any, this, name, !!this.snapshot) as any;
+      const setKey = new KeyComparator(new StringValue(prefixedName));
+
+      let r = await this.getTree().findKeyRecursive(setKey);
+      if (!r.found) {
+        await lock.enterWriterFromReader();
+        lockWriter = true;
+
+        // double check after entered lock writer, another writer may have create it before.
+        r = await this.getTree().findKeyRecursive(setKey);
+        if (!r.found) {
+          const setPage = new Ctorpage(this.storage).getDirty(true);
+          setPage.prefixedName = prefixedName;
+          const keyv = new StringValue(prefixedName);
+          await this.getTree().set(
+            new KeyComparator(keyv),
+            new KValue(keyv, new UIntValue(setPage.addr)),
+            "no-change",
+          );
+          this.rootPage!.setCount++;
+          if (this.autoCommit) await this._autoCommit();
+        }
+      }
+      return new Ctordbset(this, name, type, !!this.snapshot) as any;
     } finally {
       if (lockWriter) lock.exitWriter();
       else lock.exitReader();
     }
   }
 
-  async getSet(name: string, type: "kv"): Promise<DbSet | null>;
-  async getSet(name: string, type: "doc"): Promise<DbDocSet | null>;
+  getSet(name: string, type: "kv"): DbKvSet;
+  getSet(name: string, type: "doc"): DbDocSet;
   getSet(
     name: string,
     type: DbSetType = "kv",
-  ): Promise<DbSet | DbDocSet | null> {
-    if (type as DbObjectType == "snapshot") {
-      throw new Error("Cannot call getSet() with type 'snapshot'");
-    }
-    return this._getSet(name, type, true);
+  ): DbKvSet | DbDocSet {
+    const { dbset: Ctordbset } = _setTypeInfo[type];
+    return new Ctordbset(this, name, type, !!this.snapshot);
   }
 
-  private async _getSet(
+  async _getSetPage<T extends DbSetType>(
     name: string,
     type: DbSetType,
-    useLock: boolean,
-  ): Promise<DbSet | DbDocSet | null> {
-    const lock = this.commitLock;
-    if (useLock) await lock.enterReader();
-    try {
-      const prefixedName = this._getPrefixedName(type, name);
-      const r = await this.getTree().findKeyRecursive(
-        new KeyComparator(new StringValue(prefixedName)),
-      );
-      if (!r.found) return null;
-      const { dbset: Ctordbset, page: Ctorpage } = _setTypeInfo[type];
-      const setPage = await this.storage.readPage(
-        r.val!.value.val,
-        Ctorpage as any,
-      ) as SetPage;
-      setPage.prefixedName = prefixedName;
-      return new Ctordbset(setPage as any, this, name, !!this.snapshot);
-    } finally {
-      if (useLock) lock.exitReader();
-    }
+  ): Promise<SetPage | DocSetPage | null> {
+    const prefixedName = this._getPrefixedName(type, name);
+    const r = await this.getTree().findKeyRecursive(
+      new KeyComparator(new StringValue(prefixedName)),
+    );
+    if (!r.found) return null;
+    const { page: Ctorpage } = _setTypeInfo[type];
+    const setPage = await this.storage.readPage(
+      r.val!.value.val,
+      Ctorpage as any,
+    ) as SetPage;
+    setPage.prefixedName = prefixedName;
+    return setPage;
+  }
+
+  async _setExists(name: string, type: DbSetType) {
+    const prefixedName = this._getPrefixedName(type, name);
+    const r = await this.getTree().findKeyRecursive(
+      new KeyComparator(new StringValue(prefixedName)),
+    );
+    return r.found;
+  }
+
+  _updateSetPage(page: SetPage) {
+    return this.getTree().set(
+      new KeyComparator(new StringValue(page.prefixedName)),
+      new KValue(
+        new StringValue(page.prefixedName),
+        new UIntValue(page.addr),
+      ),
+      "change-only",
+    );
   }
 
   async deleteSet(name: string, type: DbSetType): Promise<boolean> {
@@ -331,7 +339,7 @@ export class DatabaseEngine implements EngineContext, IDB {
     const sets = (await this._getObjectsNoLock())
       .filter((x) => x.type != "snapshot");
     for (const { name, type } of sets) {
-      const oldSet = await this._getSet(name, type as any, false);
+      const oldSet = this.getSet(name, type as any);
       const newSet = await other.createSet(name, type as any);
       await oldSet!._cloneTo(newSet as any);
     }

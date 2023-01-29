@@ -1,64 +1,37 @@
 import type { IDbSet, SetKeyType, SetValueType } from "./btrdb.d.ts";
-import { DatabaseEngine } from "./database.ts";
+import { DbSetBase } from "./DbSetBase.ts";
 import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "./page.ts";
 import { Node } from "./tree.ts";
 import { JSValue, KeyComparator, KValue } from "./value.ts";
 
-export class DbSet implements IDbSet {
-  protected _page: SetPage;
-
-  constructor(
-    page: SetPage,
-    protected _db: DatabaseEngine,
-    public readonly name: string,
-    protected isSnapshot: boolean,
-  ) {
-    this._page = page;
-  }
-
-  protected get page() {
-    if (this.isSnapshot) return this._page;
-    return this._page = this._page.getLatestCopy();
-  }
-
-  protected get node() {
-    return new Node(this.page);
-  }
-
-  get count() {
-    return this.page.count;
-  }
-
+export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
   async get(key: SetKeyType): Promise<SetValueType | null> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      const { found, val, node, pos } = await this.node.findKeyRecursive(
+      const { found, val, node, pos } = await lock.node.findKeyRecursive(
         new KeyComparator(new JSValue(key)),
       );
       if (!found) return null;
       return (await this.readValue(val as KVNodeType)).val;
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
   protected async _getAllRaw() {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      return (await this.node.getAllValues());
+      return (await lock.node.getAllValues());
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
   async getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]> {
     const result = [];
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      for await (const key of this.node.iterateKeys()) {
+      for await (const key of lock.node.iterateKeys()) {
         result.push({
           key: key.key.val,
           value: (await this.readValue(key)).val,
@@ -66,7 +39,7 @@ export class DbSet implements IDbSet {
       }
       return result;
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
@@ -77,14 +50,13 @@ export class DbSet implements IDbSet {
   async forEach(
     fn: (key: any, value: any) => void | Promise<void>,
   ): Promise<void> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      for await (const key of this.node.iterateKeys()) {
+      for await (const key of lock.node.iterateKeys()) {
         await fn(key.key.val, (await this.readValue(key)).val);
       }
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
@@ -97,32 +69,35 @@ export class DbSet implements IDbSet {
       );
     }
 
-    await this._db.commitLock.enterWriter();
-    const lockpage = this.page.getDirty(false);
-    await lockpage.lock.enterWriter();
+    const lock = await this.getPageEnterLock(true);
+    const dirtypage = lock.page.getDirty(false);
+    const dirtynode = new Node(dirtypage);
     try { // BEGIN WRITE LOCK
       const valv = val == null
         ? null
-        : new KValue(keyv, this.page.storage.addData(new JSValue(val)));
-      const { action } = await this.node.set(
+        : new KValue(keyv, lock.page.storage.addData(new JSValue(val)));
+      const { action } = await dirtynode.set(
         new KeyComparator(keyv),
         valv,
         "can-change",
       );
       if (action == "added") {
-        lockpage.count += 1;
+        dirtypage.count += 1;
       } else if (action == "removed") {
-        lockpage.count -= 1;
+        dirtypage.count -= 1;
       }
       if (action == "noop") {
         return false;
       } else {
+        if (dirtypage !== lock.page) {
+          dirtypage.getDirty(true);
+          await this._db._updateSetPage(dirtypage);
+        }
         if (this._db.autoCommit) await this._db._autoCommit();
         return true;
       }
     } finally { // END WRITE LOCK
-      lockpage.lock.exitWriter();
-      this._db.commitLock.exitWriter();
+      lock.exitLock();
     }
   }
 
@@ -131,24 +106,27 @@ export class DbSet implements IDbSet {
   }
 
   readValue(node: KVNodeType) {
-    return this.page.storage.readData(node.value, JSValue);
+    return this._db.storage.readData(node.value, JSValue);
   }
 
-  async _cloneTo(other: DbSet) {
-    const otherStorage = other._page.storage;
+  async _cloneTo(other: DbKvSet) {
+    const otherStorage = other._db.storage;
+    const otherPage = (await other.getPage())!;
+    const otherNode = new Node(otherPage);
     for await (
-      const kv of this.node.iterateKeys() as AsyncIterable<KVNodeType>
+      const kv of new Node((await this.getPage())!)
+        .iterateKeys() as AsyncIterable<KVNodeType>
     ) {
       const newKv = new KValue(
         kv.key,
         otherStorage.addData(await this.readValue(kv)),
       );
-      await other.node.set(new KeyComparator(newKv.key), newKv, "no-change");
+      await otherNode.set(new KeyComparator(newKv.key), newKv, "no-change");
     }
-    other.page.count = this.page.count;
+    otherPage.count = otherPage.count;
   }
 
   async _dump() {
-    return { kvTree: await this.node._dumpTree() };
+    return { kvTree: await new Node((await this.getPage())!)._dumpTree() };
   }
 }

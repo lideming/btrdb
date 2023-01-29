@@ -106,7 +106,7 @@ export class HttpApiServer {
           } else if (url.search == "?count") {
             // Get count of pairs
             const set = await this.getSet(setname, settype);
-            return set.count;
+            return await set.getCount();
           } else if (url.search == "") {
             // List key-value pairs
             const set = await this.getSet(setname, settype);
@@ -147,7 +147,7 @@ export class HttpApiServer {
               } else if (url.search == "?count") {
                 // Get documents count
                 const set = await this.getSet(setname, settype);
-                return set.count;
+                return await set.getCount();
               } else if (url.search == "?ids") {
                 // Get document ids
                 const set = await this.getSet(setname, settype);

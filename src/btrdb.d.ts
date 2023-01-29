@@ -39,11 +39,11 @@ export class Database {
     type: "doc",
   ): Promise<IDbDocSet<T>>;
 
-  getSet(name: string, type?: "kv"): Promise<IDbSet | null>;
+  getSet(name: string, type?: "kv"): IDbSet;
   getSet<T extends IDocument>(
     name: string,
     type: "doc",
-  ): Promise<IDbDocSet<T> | null>;
+  ): IDbDocSet<T>;
 
   /** Delete a key-value set or a document set. */
   deleteSet(name: string, type: DbSetType): Promise<boolean>;
@@ -116,7 +116,8 @@ export type SetKeyType = string | number;
 export type SetValueType = string | number | any[] | object;
 
 export interface IDbSet {
-  readonly count: number;
+  exists(): Promise<boolean>;
+  getCount(): Promise<number>;
   get(key: SetKeyType): Promise<SetValueType | null>;
   set(key: SetKeyType, value: SetValueType): Promise<boolean>;
   getAll(): Promise<{ key: SetKeyType; value: SetValueType }[]>;
@@ -140,7 +141,7 @@ export interface IDbDocSet<
   T extends IDocument = any,
 > {
   /** Documents count of this set. */
-  readonly count: number;
+  getCount(): Promise<number>;
 
   /**
    * Get/set a function used to generate next id when inserting document.

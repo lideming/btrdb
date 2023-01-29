@@ -20,6 +20,7 @@ import { EQ, Query } from "./query.ts";
 import { Node } from "./tree.ts";
 import type { IDbDocSet, IndexDef } from "./btrdb.d.ts";
 import { nanoid } from "./nanoid.ts";
+import { DbSetBase } from "./DbSetBase.ts";
 
 function _numberIdGenerator(lastId: number | null) {
   if (lastId == null) return 1;
@@ -41,80 +42,55 @@ const enum Op {
   delete,
 }
 
-export class DbDocSet implements IDbDocSet {
-  protected _page: DocSetPage;
-
-  constructor(
-    page: DocSetPage,
-    protected _db: DatabaseEngine,
-    public readonly name: string,
-    protected isSnapshot: boolean,
-  ) {
-    this._page = page;
-  }
-
-  protected get page() {
-    if (this.isSnapshot) return this._page;
-    return this._page = this._page.getLatestCopy();
-  }
-
-  protected get node() {
-    return new Node(this.page);
-  }
-
-  get count() {
-    return this.page.count;
-  }
-
+export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
   idGenerator: (lastId: any) => any = numberIdGenerator();
 
   async get(key: string): Promise<any | null> {
-    const { found, val } = await this.node.findKeyRecursive(
-      new KeyComparator(new JSValue(key)),
-    );
-    if (!found) return null;
-    const docVal = await this._readDocument((val as DocNodeType).value);
-    return docVal.val;
+    const lock = await this.getPageEnterLock();
+    try {
+      const { found, val } = await lock.node.findKeyRecursive(
+        new KeyComparator(new JSValue(key)),
+      );
+      if (!found) return null;
+      const docVal = await this._readDocument((val as DocNodeType).value);
+      return docVal.val;
+    } finally {
+      lock.exitLock();
+    }
   }
 
   protected async _getAllRaw() {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
-    const thisnode = this.node;
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      return (await thisnode.getAllValues());
+      return (await lock.node.getAllValues());
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
   async getAll(): Promise<any[]> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
-    const thisnode = this.node;
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
       const result = [];
-      for await (const kv of thisnode.iterateKeys()) {
+      for await (const kv of lock.node.iterateKeys()) {
         const doc = await this._readDocument(kv.value);
         result.push(doc.val);
       }
       return result;
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
   async forEach(fn: (doc: any) => void | Promise<void>): Promise<void> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
-    const thisnode = this.node;
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
-      for await (const kv of thisnode.iterateKeys()) {
+      for await (const kv of lock.node.iterateKeys()) {
         const doc = await this._readDocument(kv.value);
         await fn(doc.val);
       }
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
@@ -146,10 +122,9 @@ export class DbDocSet implements IDbDocSet {
   async _set(key: any, doc: any, op: Op) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
 
-    await this._db.commitLock.enterWriter();
-    const lockpage = this.page.getDirty(false);
-    await lockpage.lock.enterWriter();
-    const thisnode = this.node;
+    const lock = await this.getPageEnterLock(true);
+    const dirtypage = lock.page.getDirty(false);
+    const dirtynode = new Node(dirtypage);
     try { // BEGIN WRITE LOCK
       let dataPos;
       let vKey;
@@ -161,7 +136,7 @@ export class DbDocSet implements IDbDocSet {
         if (op === Op.insert) {
           if (key == null) {
             autoId = true;
-            key = doc.id = this.idGenerator(lockpage.lastId.val);
+            key = doc.id = this.idGenerator(dirtypage.lastId.val);
           }
         }
         vKey = new JSValue(key);
@@ -172,10 +147,10 @@ export class DbDocSet implements IDbDocSet {
         }
         dataPos = !doc
           ? null
-          : await lockpage.storage.addData(new DocumentValue(doc));
+          : await dirtypage.storage.addData(new DocumentValue(doc));
         vPair = !doc ? null : new KValue(vKey, dataPos!);
         try {
-          ({ action, oldValue: oldDoc } = await thisnode.set(
+          ({ action, oldValue: oldDoc } = await dirtynode.set(
             new KeyComparator(vKey),
             vPair,
             op === Op.insert
@@ -201,12 +176,12 @@ export class DbDocSet implements IDbDocSet {
         break;
       }
       if (action == "added") {
-        if (vKey.compareTo(lockpage.lastId) > 0) {
-          lockpage.lastId = vKey;
+        if (vKey.compareTo(dirtypage.lastId) > 0) {
+          dirtypage.lastId = vKey;
         }
-        lockpage.count += 1;
+        dirtypage.count += 1;
       } else if (action == "removed") {
-        lockpage.count -= 1;
+        dirtypage.count -= 1;
       }
 
       // TODO: rollback changes on (unique) index failed?
@@ -215,12 +190,12 @@ export class DbDocSet implements IDbDocSet {
       let nextSeq = 0;
       for (
         const [indexName, indexInfo] of Object.entries(
-          await lockpage.ensureIndexes(),
+          await dirtypage.ensureIndexes(),
         )
       ) {
         const seq = nextSeq++;
-        const index = (await lockpage.storage.readPage(
-          lockpage.indexesAddrs[seq],
+        const index = (await dirtypage.storage.readPage(
+          dirtypage.indexesAddrs[seq],
           IndexTopPage,
         ))
           .getDirty(false);
@@ -264,31 +239,34 @@ export class DbDocSet implements IDbDocSet {
         }
 
         const newIndexAddr = indexNode.page.getDirty(true).addr;
-        lockpage.indexesAddrs[seq] = newIndexAddr;
-        lockpage.indexesAddrMap[indexName] = newIndexAddr;
+        dirtypage.indexesAddrs[seq] = newIndexAddr;
+        dirtypage.indexesAddrMap[indexName] = newIndexAddr;
       }
       // } catch (error) {
       //   // Failed in index updating (duplicated key in unique index?)
       //   // Rollback the change.
-      //   await lockpage.set(keyv, oldDoc, true);
+      //   await dirtypage.set(keyv, oldDoc, true);
       //   throw error;
       // }
       if (action !== "noop") {
+        if (lock.page !== dirtypage) {
+          dirtypage.getDirty(true);
+          await this._db._updateSetPage(dirtypage);
+        }
         if (this._db.autoCommit) await this._db._autoCommit();
       }
       return { action, key: vKey };
     } finally { // END WRITE LOCK
-      lockpage.lock.exitWriter();
-      this._db.commitLock.exitWriter();
+      lock.exitLock();
     }
   }
 
   async getIndexes(): Promise<
     Record<string, { key: string; unique: boolean }>
   > {
-    await this.page.ensureIndexes();
+    const indexes = await (await this.getPage()).ensureIndexes();
     return Object.fromEntries(
-      Object.entries(this.page.indexes!)
+      Object.entries(indexes!)
         .map(([k, v]) => [k, { key: v.funcStr, unique: v.unique }]),
     );
   }
@@ -296,7 +274,7 @@ export class DbDocSet implements IDbDocSet {
   async useIndexes(indexDefs: IndexDef<any>): Promise<void> {
     const toBuild: string[] = [];
     const toRemove: string[] = [];
-    const currentIndex = await this.page.ensureIndexes();
+    const currentIndex = await (await this.getPage()).ensureIndexes();
 
     for (const key in indexDefs) {
       if (Object.prototype.hasOwnProperty.call(indexDefs, key)) {
@@ -321,13 +299,12 @@ export class DbDocSet implements IDbDocSet {
 
     if (toBuild.length || toRemove.length) {
       if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
-      await this._db.commitLock.enterWriter();
-      const lockpage = this.page.getDirty(false);
-      await lockpage.lock.enterWriter();
-      const thisnode = this.node;
+      const lock = await this.getPageEnterLock();
+      const dirtypage = lock.page.getDirty(false);
+      const dirtynode = new Node(dirtypage);
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };
-        const newAddrs = { ...lockpage.indexesAddrMap! };
+        const newAddrs = { ...dirtypage.indexesAddrMap! };
         for (const key of toRemove) {
           delete newIndexes[key];
           delete newAddrs[key];
@@ -341,9 +318,9 @@ export class DbDocSet implements IDbDocSet {
             unique,
             func,
           );
-          const index = new IndexTopPage(lockpage.storage).getDirty(true);
+          const index = new IndexTopPage(dirtypage.storage).getDirty(true);
           const indexNode = new Node(index);
-          await thisnode.traverseKeys(async (k: DocNodeType) => {
+          await dirtynode.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k.value);
             const indexKV = new KValue(new JSValue(func(doc.val)), k.value);
             if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
@@ -360,28 +337,31 @@ export class DbDocSet implements IDbDocSet {
           newAddrs[key] = index.addr;
           newIndexes[key] = info;
         }
-        lockpage.setIndexes(newIndexes, newAddrs);
-        thisnode.postChange();
+        dirtypage.setIndexes(newIndexes, newAddrs);
+        dirtynode.postChange();
+
+        if (lock.page !== dirtypage) {
+          dirtypage.getDirty(true);
+          await this._db._updateSetPage(dirtypage);
+        }
         if (this._db.autoCommit) await this._db._autoCommit();
       } finally { // END WRITE LOCK
-        lockpage.lock.exitWriter();
-        this._db.commitLock.exitWriter();
+        lock.exitLock();
       }
     }
   }
 
   async query(query: Query): Promise<any[]> {
-    const lockpage = this.page;
-    await lockpage.lock.enterReader();
+    const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
       const result = [];
-      for await (const docAddr of query.run(this.node)) {
+      for await (const docAddr of query.run(lock.node)) {
         result.push(await this._readDocument(docAddr));
       }
       return result.sort((a, b) => a.key.compareTo(b.key))
         .map((doc) => doc.val);
     } finally { // END READ LOCK
-      lockpage.lock.exitReader();
+      lock.exitLock();
     }
   }
 
@@ -390,28 +370,32 @@ export class DbDocSet implements IDbDocSet {
   }
 
   _readDocument(dataAddr: PageOffsetValue) {
-    return this.page.storage.readData(dataAddr, DocumentValue);
+    return this._db.storage.readData(dataAddr, DocumentValue);
   }
 
   async _cloneTo(other: DbDocSet) {
-    const thisStorage = this.page.storage;
-    const otherStorage = other.page.storage;
+    const thisStorage = this._db.storage;
+    const otherStorage = other._db.storage;
     const dataAddrMap = new Map<number, number>();
+    const thispage = await this.getPage();
+    const thisnode = new Node(thispage);
+    const otherpage = await other.getPage();
+    const othernode = new Node(otherpage);
     for await (
-      const key of this.node.iterateKeys() as AsyncIterable<DocNodeType>
+      const key of thisnode.iterateKeys() as AsyncIterable<DocNodeType>
     ) {
       const doc = await thisStorage.readData(key.value, DocumentValue);
       const newAddr = await otherStorage.addData(doc);
       dataAddrMap.set(key.value.encode(), newAddr.encode());
       const newKey = new KValue(key.key, newAddr);
-      await new Node(other.page).set(newKey, newKey, "no-change");
+      await new Node(otherpage).set(newKey, newKey, "no-change");
     }
-    const indexes = await this.page.ensureIndexes();
+    const indexes = await thispage.ensureIndexes();
     const newIndexes: Record<string, IndexInfo> = {};
     const newAddrs: Record<string, PageAddr> = {};
     for (const [name, info] of Object.entries(indexes)) {
       const indexPage = await thisStorage.readPage(
-        this.page.indexesAddrMap[name],
+        thispage.indexesAddrMap[name],
         IndexTopPage,
       );
       const otherIndex = new IndexTopPage(otherStorage).getDirty(true);
@@ -428,21 +412,23 @@ export class DbDocSet implements IDbDocSet {
       newIndexes[name] = info;
       newAddrs[name] = otherIndex.addr;
     }
-    other.page.setIndexes(newIndexes, newAddrs);
-    other.node.postChange();
-    other.page.count = this.page.count;
-    other.page.lastId = this.page.lastId;
+    otherpage.setIndexes(newIndexes, newAddrs);
+    othernode.postChange();
+    otherpage.count = thispage.count;
+    otherpage.lastId = thispage.lastId;
   }
 
   async _dump() {
+    const thispage = await this.getPage();
+    const thisnode = new Node(thispage);
     return {
-      docTree: await this.node._dumpTree(),
+      docTree: await thisnode._dumpTree(),
       indexes: Object.fromEntries(
         await Promise.all(
-          Object.entries(await this.page.ensureIndexes()).map(
+          Object.entries(await thispage.ensureIndexes()).map(
             async ([name, info]) => {
-              const indexPage = await this.page.storage.readPage(
-                this.page.indexesAddrMap[name],
+              const indexPage = await thispage.storage.readPage(
+                thispage.indexesAddrMap[name],
                 IndexTopPage,
               );
               return [name, await new Node(indexPage)._dumpTree()];
