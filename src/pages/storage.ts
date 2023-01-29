@@ -187,6 +187,10 @@ export abstract class PageStorage {
       cache.set(page.addr, page);
       this.checkCache();
       return page;
+    }).catch((err) => {
+      throw new Error(
+        `Error reading page addr ${addr} type ${type.name}: ${err}`,
+      );
     });
     cache.set(addr, promise as Promise<Page>);
     return promise;
@@ -445,20 +449,19 @@ export abstract class PageStorage {
 
     if (this.newAllocated.size) {
       for (const [addr, page] of this.newAllocated) {
+        this.metaCache.delete(addr);
+        this.dataCache.delete(addr);
         if (addr >= this.rootPage.size) {
           const vAddr = new UIntValue(addr);
           await freeTree.set(vAddr, vAddr, "no-change");
+          if (this.pendingRefChange.size) {
+            await this.updateRefTree(freeTree, refTree);
+          }
           debug_allocate &&
             debugLog("discard (free) newAllocated beyond db size", addr);
         } // else it should be already in t
-        this.metaCache.delete(addr);
-        this.dataCache.delete(addr);
       }
       this.newAllocated.clear();
-
-      if (this.pendingRefChange.size) {
-        await this.updateRefTree(freeTree, refTree);
-      }
     }
 
     if (this.pendingRefChange.size) {

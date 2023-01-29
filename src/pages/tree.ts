@@ -255,7 +255,7 @@ export class Node<T extends IKey<unknown>> {
       // console.log(this.keys.length, this.children.length);
 
       // split this node
-      const leftSib = this.createChildPage();
+      const leftSib = this.createChildNode();
       await leftSib.getDirtyWithAddr();
       // when appending, make the left sibling larger for space efficiency
       let leftCount = (appending && this.keys.length > 10)
@@ -263,7 +263,7 @@ export class Node<T extends IKey<unknown>> {
         : Math.floor(this.keys.length / 2);
       const leftKeys = this.page.spliceKeys(0, leftCount);
       leftKeys[1].push(0);
-      leftSib.setKeys(leftKeys[0], leftKeys[1]);
+      leftSib.page.setKeys(leftKeys[0], leftKeys[1]);
       const [[middleKey], [middleLeftChild]] = this.page.spliceKeys(0, 1);
       leftSib.setChild(leftCount, middleLeftChild);
 
@@ -281,12 +281,11 @@ export class Node<T extends IKey<unknown>> {
           debugLog("page", this.page.addr, "splited", leftSib.addr);
       } else {
         // make this node a parent of two nodes...
-        const rightChild = this.createChildPage();
+        const rightChild = this.createChildNode();
         await rightChild.getDirtyWithAddr();
-        rightChild.setKeys(this.keys, this.children);
+        rightChild.page.setKeys(this.keys, this.children);
         this.page.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
         await this.getDirtyWithAddr();
-        this.makeDirtyToRoot();
         debug_node && debugLog(
           "page",
           this.page.addr,
@@ -298,13 +297,13 @@ export class Node<T extends IKey<unknown>> {
     } else {
       await this.getDirtyWithAddr();
       if (this.parent) {
-        this.makeDirtyToRoot();
+        await this.makeDirtyToRoot();
       }
     }
   }
 
-  createChildPage(): this["page"] {
-    return this.page.createChildPage();
+  createChildNode(): this {
+    return new Node(this.page.createChildPage(), undefined, undefined) as this;
   }
 
   getDirty(): Node<T> {
@@ -382,14 +381,18 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return this;
   }
 
-  createChildPage(): this["page"] {
-    const page = super.createChildPage();
-    this.page.storage.changeRefCount(page.addr, 1);
-    return page;
+  createChildNode(): this {
+    return new NoRefcountNode(
+      this.page.createChildPage(),
+      undefined,
+      undefined,
+    ) as this;
   }
 
   discard() {
     super.discard();
-    this.page.storage.changeRefCount(this.page.addr, -1);
+    if (this.page.hasAddr) {
+      this.page.storage.changeRefCount(this.page.addr, -1);
+    }
   }
 }
