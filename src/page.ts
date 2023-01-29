@@ -246,13 +246,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
       this.freeBytes -= calcSizeOfKeys(newKeys) + newChildren.length * 4;
     }
     this.keys = newKeys;
-    // for (const child of this.children) {
-    //   if (child) this.storage.changeRefCount(child, -1);
-    // }
     this.children = newChildren;
-    // for (const child of this.children) {
-    //   if (child) this.storage.changeRefCount(child, 1);
-    // }
   }
 
   /**
@@ -312,26 +306,6 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     );
     return childPage;
   }
-
-  // unref() {
-  //   super.unref();
-  //   console.info("[node unref]", this.addr, this.children.filter((x) => !!x));
-  //   for (const childAddr of this.children) {
-  //     if (childAddr) {
-  //       this.storage.changeRefCount(childAddr, -1);
-  //     }
-  //   }
-  // }
-
-  // beref() {
-  //   super.beref();
-  //   console.info("[node beref]", this.addr, this.children.filter((x) => !!x));
-  //   for (const childAddr of this.children) {
-  //     if (childAddr) {
-  //       this.storage.changeRefCount(childAddr, 1);
-  //     }
-  //   }
-  // }
 
   *getRefs(): Iterable<number> {
     for (const it of this.children) {
@@ -867,7 +841,7 @@ export class RootPage extends RootTreeNode {
 /**
  * The SuperPage stores refs to RootTree.
  * It's the only page to be overwritten without CoW.
- **/
+ */
 export class SuperPage extends Page {
   get type(): PageType {
     return PageType.Super;

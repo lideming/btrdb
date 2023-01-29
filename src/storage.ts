@@ -12,8 +12,8 @@ import {
   PageType,
   pageTypeMap,
   RefPage,
-  SetPage,
   RootPage,
+  SetPage,
   SuperPage,
 } from "./page.ts";
 import { Runtime, RuntimeFile } from "./runtime.ts";
@@ -116,21 +116,14 @@ export abstract class PageStorage {
       }
       this.cleanRootPage = this.rootPage;
       this.writtenAddr = this.rootPage.addr;
+      // TODO: make more functions async so we don't need to read the whole free tree
       const freeTree = await this.readPage(
         this.rootPage.freeTreeAddr,
         FreeSpacePage,
       );
       for await (const addr of new Node(freeTree).iterateKeys()) {
-        // console.info("[free tree]", addr.val);
         this.freeSpace.add(addr.val);
       }
-      // const refTree = await this.readPage(
-      //   this.superPage.refTreeAddr,
-      //   RefPage,
-      // );
-      // for await (const { key, value } of new Node(refTree).iterateKeys()) {
-      //   console.info("[ref tree]", key.val, 'refcount', value.val);
-      // }
     }
   }
 
@@ -271,7 +264,6 @@ export abstract class PageStorage {
     const newDelta = (this.pendingRefChange.get(addr) ?? 0) + delta;
     debug_ref &&
       debugLog("changeRef addr", addr, "delta", delta, "newDelta", newDelta);
-    // if (addr == 4507) console.trace({ addr, delta, newDelta });
     if (newDelta == 0) {
       this.pendingRefChange.delete(addr);
     } else {
@@ -465,38 +457,7 @@ export abstract class PageStorage {
 
     await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
 
-    // this.changeRefCount(refTree.addr, 1);
-    // if (this.superPage.refTreeAddr) {
-    //   this.changeRefCount(this.superPage.refTreeAddr, -1);
-    // }
-
-    // this.changeRefCount(freeTree.addr, 1);
-    // if (this.superPage.freeTreeAddr) {
-    //   this.changeRefCount(this.superPage.freeTreeAddr, -1);
-    // }
-
-    // await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
-
     if (this.newAllocated.size) {
-      // throw new BugError(
-      //   `BUG: has allocated pages without ref, [${
-      //     Array.from(this.newAllocated.keys()).join(",")
-      //   }]`,
-      // );
-
-      // console.warn(`BUG: has allocated pages without ref, count=${this.newAllocated.size}, [${Array.from(this.newAllocated.keys()).join(",")
-      //   }]`);
-      // if (this.newAllocated.size == 262) debugger;
-      // for (const [addr] of this.newAllocated) {
-      //   this.changeRefCount(addr, 1);
-      // }
-      // continue;
-
-      // console.warn(
-      //   `WARN: has allocated but unused pages, count=${this.newAllocated.size}, [${
-      //     Array.from(this.newAllocated.keys()).join(",")
-      //   }]`,
-      // );
       for (const [addr, page] of this.newAllocated) {
         if (addr >= this.rootPage.size) {
           const vAddr = new UIntValue(addr);
@@ -538,13 +499,7 @@ export abstract class PageStorage {
       this.superPage!.dirty = true;
       this.dirtyPages.push(this.superPage!);
     }
-    // console.log(
-    //   "commit",
-    //   this.dirtyPages
-    //     .length + " pages",
-    //   // .map(x => x._debugView())
-    //   // .map(x => [x.addr, x.type])
-    // );
+
     for (const page of this.dirtyPages) {
       page.dirty = false;
     }
@@ -612,17 +567,7 @@ export abstract class PageStorage {
           throw new BugError(`BUG: refcount ${refcount} < 0`);
         }
         if (refcount < 2 && found) {
-          // debugLog(
-          //   "before delete",
-          //   node.keys.map((x) => x.value.key),
-          //   node.children,
-          // );
           await node.deleteAt(pos);
-          // debugLog(
-          //   "before delete",
-          //   node.keys.map((x) => x.value.key),
-          //   node.children,
-          // );
         }
         if (refcount > 1) {
           // debug_ref && debugLog("[shared]", addr, refcount);

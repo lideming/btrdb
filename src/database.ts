@@ -1,6 +1,6 @@
 import { DbDocSet } from "./DbDocSet.ts";
 import { DbSet } from "./DbSet.ts";
-import { DocSetPage, SetPage, RootPage } from "./page.ts";
+import { DocSetPage, RootPage, SetPage } from "./page.ts";
 import {
   InFileStorage,
   InMemoryData,
