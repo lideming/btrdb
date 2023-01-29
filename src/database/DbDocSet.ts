@@ -122,7 +122,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
 
     const lock = await this.getPageEnterLock(true);
-    const dirtypage = lock.page.getDirty(false);
+    const dirtypage = lock.page.getDirty();
     const dirtynode = new Node(dirtypage);
     try { // BEGIN WRITE LOCK
       let dataPos;
@@ -197,7 +197,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           dirtypage.indexesAddrs[seq],
           IndexTopPage,
         ))
-          .getDirty(false);
+          .getDirty();
         const indexNode = new Node(index);
         if (oldDoc) {
           const oldKey = new JSValue(
@@ -237,7 +237,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           }
         }
 
-        const newIndexAddr = indexNode.page.getDirty(true).addr;
+        const newIndexAddr = (await indexNode.page.getDirtyWithAddr()).addr;
         dirtypage.indexesAddrs[seq] = newIndexAddr;
         dirtypage.indexesAddrMap[indexName] = newIndexAddr;
       }
@@ -249,7 +249,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       // }
       if (action !== "noop") {
         if (lock.page !== dirtypage) {
-          dirtypage.getDirty(true);
+          await dirtypage.getDirtyWithAddr();
           await this._db._updateSetPage(dirtypage);
         }
         if (this._db.autoCommit) await this._db._autoCommit();
@@ -299,7 +299,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
     if (toBuild.length || toRemove.length) {
       if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
       const lock = await this.getPageEnterLock();
-      const dirtypage = lock.page.getDirty(false);
+      const dirtypage = lock.page.getDirty();
       const dirtynode = new Node(dirtypage);
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };
@@ -317,7 +317,8 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
             unique,
             func,
           );
-          const index = new IndexTopPage(dirtypage.storage).getDirty(true);
+          const index = await new IndexTopPage(dirtypage.storage)
+            .getDirtyWithAddr();
           const indexNode = new Node(index);
           await dirtynode.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k.value);
@@ -336,11 +337,11 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           newAddrs[key] = index.addr;
           newIndexes[key] = info;
         }
-        dirtypage.setIndexes(newIndexes, newAddrs);
-        dirtynode.postChange();
+        await dirtypage.setIndexes(newIndexes, newAddrs);
+        await dirtynode.postChange();
 
         if (lock.page !== dirtypage) {
-          dirtypage.getDirty(true);
+          await dirtypage.getDirtyWithAddr();
           await this._db._updateSetPage(dirtypage);
         }
         if (this._db.autoCommit) await this._db._autoCommit();
@@ -397,7 +398,8 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
         thispage.indexesAddrMap[name],
         IndexTopPage,
       );
-      const otherIndex = new IndexTopPage(otherStorage).getDirty(true);
+      const otherIndex = await new IndexTopPage(otherStorage)
+        .getDirtyWithAddr();
       const otherIndexNode = new Node(otherIndex);
       for await (const key of new Node(indexPage).iterateKeys()) {
         const newKey = new KValue(
@@ -411,8 +413,8 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       newIndexes[name] = info;
       newAddrs[name] = otherIndex.addr;
     }
-    otherpage.setIndexes(newIndexes, newAddrs);
-    othernode.postChange();
+    await otherpage.setIndexes(newIndexes, newAddrs);
+    await othernode.postChange();
     otherpage.count = thispage.count;
     otherpage.lastId = thispage.lastId;
   }

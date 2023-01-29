@@ -85,8 +85,8 @@ export abstract class PageStorage {
   async init() {
     const lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
-      this.superPage = new SuperPage(this).getDirty(true);
-      this.rootPage = new RootPage(this).getDirty(true);
+      this.superPage = await new SuperPage(this).getDirtyWithAddr();
+      this.rootPage = await new RootPage(this).getDirtyWithAddr();
       this.changeRefCount(this.superPage.addr, 1);
       await this.commit(true);
     } else {
@@ -222,7 +222,7 @@ export abstract class PageStorage {
   }
 
   /** Mark a page as dirty. Only newly created pages or cloned pages can be marked. */
-  addDirty(page: Page) {
+  async addDirty(page: Page) {
     if (page.hasAddr) {
       if (page.dirty) {
         console.info("re-added dirty", PageType[page.type], page.addr);
@@ -231,12 +231,12 @@ export abstract class PageStorage {
         throw new Error("Can't mark on-disk page as dirty");
       }
     }
-    page.addr = this.allocate(page);
+    page.addr = await this.allocate(page);
     this.dirtyPages.push(page);
     this.getCacheForPage(page).set(page.addr, page);
   }
 
-  allocate(page: Page) {
+  async allocate(page: Page) {
     let addr: number;
     // if (false) {
     if (this.freeSpace.size) {
@@ -271,10 +271,10 @@ export abstract class PageStorage {
   }
 
   /** Add a value into data pages and return its address (PageOffsetValue). */
-  addData(val: IValue) {
+  async addData(val: IValue) {
     this.perfCounter.dataAdds++;
     if (!this.dataPage || this.dataPage.freeBytes == 0) {
-      this.createDataPage(false);
+      await this.createDataPage(false);
     }
     const valLength = val.byteLength;
     const headerLength = Buffer.calcEncodedUintSize(valLength);
@@ -294,7 +294,7 @@ export abstract class PageStorage {
       // We need to split it into pages.
       if (this.dataPage!.freeBytes < headerLength) {
         // If current page even cannot fit the header...
-        this.createDataPage(false);
+        await this.createDataPage(false);
       }
       // Writing header
       pageAddr = this.dataPage!.addr;
@@ -308,7 +308,7 @@ export abstract class PageStorage {
       let written = 0;
       while (written < valLength) {
         if (this.dataPage!.freeBytes == 0) {
-          this.createDataPage(true);
+          await this.createDataPage(true);
         }
         const toWrite = Math.min(valLength - written, this.dataPage!.freeBytes);
         this.dataPageBuffer!.writeBuffer(
@@ -369,12 +369,12 @@ export abstract class PageStorage {
    * Create a new data page.
    * @param continued Whether this page is a continued page after the previous one.
    */
-  createDataPage(continued: boolean) {
+  async createDataPage(continued: boolean) {
     const prev = this.dataPage;
     this.dataPage = new DataPage(this);
     this.dataPage.createBuffer();
     this.dataPageBuffer = new Buffer(this.dataPage.buffer!, 0);
-    this.addDirty(this.dataPage);
+    await this.addDirty(this.dataPage);
     // this.changeRefCount(this.dataPage.addr, 1);
     if (continued) prev!.next = this.dataPage.addr;
   }
@@ -401,7 +401,7 @@ export abstract class PageStorage {
     this.dataPage = undefined;
     this.dataPageBuffer = undefined;
 
-    this.addDirty(this.rootPage);
+    await this.addDirty(this.rootPage);
 
     this.changeRefCount(this.rootPage.addr, 1);
 
@@ -421,8 +421,8 @@ export abstract class PageStorage {
         await this.readPage(this.rootPage.freeTreeAddr, FreeSpacePage),
       )
       : new NoRefcountNode(new FreeSpacePage(this));
-    refTree = refTree.getDirty(true);
-    freeTree = freeTree.getDirty(true);
+    refTree = await refTree.getDirtyWithAddr();
+    freeTree = await freeTree.getDirtyWithAddr();
     const pendingFreeSpace = new Set<PageAddr>();
 
     await this.updateRefTree(freeTree, refTree, pendingFreeSpace);
@@ -545,20 +545,20 @@ export abstract class PageStorage {
         }
         if (refcount > 1) {
           // debug_ref && debugLog("[shared]", addr, refcount);
-          node = node.getDirty(true);
+          node = await node.getDirtyWithAddr();
           if (found) {
             node.setKey(pos, new KValue(vAddr, new UIntValue(refcount)));
-            node.postChange();
+            await node.postChange();
           } else {
             node.insertAt(pos, new KValue(vAddr, new UIntValue(refcount)));
-            node.postChange();
+            await node.postChange();
           }
         }
         if (refcount == 0) {
           debug_ref && debugLog("[free]", addr);
-          freenode = freenode.getDirty(true);
+          freenode = await freenode.getDirtyWithAddr();
           freenode.insertAt(freepos, vAddr);
-          freenode.postChange();
+          await freenode.postChange();
           pendingFreeSpace.add(addr);
           const page = await this.readPage(addr, null);
           page.unref();

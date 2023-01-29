@@ -70,12 +70,12 @@ export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
     }
 
     const lock = await this.getPageEnterLock(true);
-    const dirtypage = lock.page.getDirty(false);
+    const dirtypage = lock.page.getDirty();
     const dirtynode = new Node(dirtypage);
     try { // BEGIN WRITE LOCK
       const valv = val == null
         ? null
-        : new KValue(keyv, lock.page.storage.addData(new JSValue(val)));
+        : new KValue(keyv, await lock.page.storage.addData(new JSValue(val)));
       const { action } = await dirtynode.set(
         new KeyComparator(keyv),
         valv,
@@ -90,7 +90,7 @@ export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
         return false;
       } else {
         if (dirtypage !== lock.page) {
-          dirtypage.getDirty(true);
+          await dirtypage.getDirtyWithAddr();
           await this._db._updateSetPage(dirtypage);
         }
         if (this._db.autoCommit) await this._db._autoCommit();
@@ -119,7 +119,7 @@ export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
     ) {
       const newKv = new KValue(
         kv.key,
-        otherStorage.addData(await this.readValue(kv)),
+        await otherStorage.addData(await this.readValue(kv)),
       );
       await otherNode.set(new KeyComparator(newKv.key), newKv, "no-change");
     }

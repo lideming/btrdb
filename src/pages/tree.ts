@@ -131,7 +131,7 @@ export class Node<T extends IKey<unknown>> {
     }
 
     if (val != null) {
-      const dirtyNode = node.getDirty(false);
+      const dirtyNode = node.getDirty();
       if (found) {
         if (policy === "no-change") {
           throw new AlreadyExistError("key already exists");
@@ -139,11 +139,11 @@ export class Node<T extends IKey<unknown>> {
           // TODO: omit key on appended value
           dirtyNode.insertAt(pos, val, dirtyNode.children[pos]);
           dirtyNode.setChild(pos + 1, 0);
-          dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
+          await dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
           action = "added";
         } else {
           dirtyNode.setKey(pos, val);
-          dirtyNode.postChange();
+          await dirtyNode.postChange();
           action = "changed";
         }
       } else {
@@ -151,7 +151,7 @@ export class Node<T extends IKey<unknown>> {
           throw new NotExistError("key doesn't exists");
         }
         dirtyNode.insertAt(pos, val);
-        dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
+        await dirtyNode.postChange(pos == dirtyNode.keys.length - 1);
         action = "added";
       }
     } else {
@@ -165,7 +165,7 @@ export class Node<T extends IKey<unknown>> {
 
   async deleteAt(pos: number) {
     // TODO: implement real b tree delete
-    const dirtyNode = this.getDirty(false);
+    const dirtyNode = this.getDirty();
     const oldLeftAddr = dirtyNode.children[pos];
     if (oldLeftAddr) {
       let leftSubNode = await dirtyNode.readChildPage(pos);
@@ -178,17 +178,17 @@ export class Node<T extends IKey<unknown>> {
       const leftKey = leftSubNode.keys[leftSubNode.keys.length - 1];
       dirtyNode.page.spliceKeys(pos, 1, leftKey, leftNode.addr);
       await leftSubNode.deleteAt(leftSubNode.keys.length - 1);
-      dirtyNode.postChange();
+      await dirtyNode.postChange();
     } else {
       dirtyNode.page.spliceKeys(pos, 1);
       if (dirtyNode.keys.length == 0) {
         if (dirtyNode.parent) {
-          const dirtyParent = dirtyNode.parent.getDirty(false);
+          const dirtyParent = dirtyNode.parent.getDirty();
           dirtyParent.setChild(
             dirtyNode.posInParent!,
             dirtyNode.children[0] ?? 0,
           );
-          dirtyParent!.postChange();
+          await dirtyParent!.postChange();
           dirtyNode.parent = undefined;
           dirtyNode.discard();
           debug_node && debugLog(
@@ -199,7 +199,7 @@ export class Node<T extends IKey<unknown>> {
         } else if (dirtyNode.children[0]) {
           const child = await dirtyNode.readChildPage(0);
           dirtyNode.page.setKeys(child.keys, child.children);
-          dirtyNode.postChange();
+          await dirtyNode.postChange();
           // TODO: no need to setKeys() after fixed removeDirty()
           child.page.setKeys([], []);
           child.discard();
@@ -214,10 +214,10 @@ export class Node<T extends IKey<unknown>> {
             dirtyNode.addr,
             "no keys after delete, no parent",
           );
-          dirtyNode.postChange();
+          await dirtyNode.postChange();
         }
       } else {
-        dirtyNode.postChange();
+        await dirtyNode.postChange();
       }
     }
   }
@@ -238,7 +238,7 @@ export class Node<T extends IKey<unknown>> {
    * Finish copy-on-write on this node and parent nodes.
    * Also split this node if the node is overflow.
    */
-  postChange(appending = false) {
+  async postChange(appending = false) {
     if (this.page.hasNewerCopy()) {
       throw new BugError("BUG: postChange() on old copy.");
     }
@@ -256,6 +256,7 @@ export class Node<T extends IKey<unknown>> {
 
       // split this node
       const leftSib = this.createChildPage();
+      await leftSib.getDirtyWithAddr();
       // when appending, make the left sibling larger for space efficiency
       let leftCount = (appending && this.keys.length > 10)
         ? Math.floor(this.keys.length * 0.8)
@@ -268,11 +269,11 @@ export class Node<T extends IKey<unknown>> {
 
       if (this.parent) {
         // insert the middle key with the left sibling to parent
-        this.getDirty(true);
-        this.getParentDirty();
+        await this.getDirtyWithAddr();
+        this.parent = await this.parent!.getDirtyWithAddr();
         this.parent.setChild(this.posInParent!, this.addr);
         this.parent.insertAt(this.posInParent!, middleKey, leftSib.addr);
-        this.parent.postChange(
+        await this.parent.postChange(
           this.posInParent! == this.parent.keys.length - 1,
         );
         //          ^^^^^^^^^^ makeDirtyToRoot() inside
@@ -281,9 +282,10 @@ export class Node<T extends IKey<unknown>> {
       } else {
         // make this node a parent of two nodes...
         const rightChild = this.createChildPage();
+        await rightChild.getDirtyWithAddr();
         rightChild.setKeys(this.keys, this.children);
         this.page.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
-        this.getDirty(true);
+        await this.getDirtyWithAddr();
         this.makeDirtyToRoot();
         debug_node && debugLog(
           "page",
@@ -294,7 +296,7 @@ export class Node<T extends IKey<unknown>> {
         );
       }
     } else {
-      this.getDirty(true);
+      await this.getDirtyWithAddr();
       if (this.parent) {
         this.makeDirtyToRoot();
       }
@@ -305,8 +307,13 @@ export class Node<T extends IKey<unknown>> {
     return this.page.createChildPage();
   }
 
-  getDirty(addDirty: boolean): Node<T> {
-    this.page = this.page.getDirty(addDirty);
+  getDirty(): Node<T> {
+    this.page = this.page.getDirty();
+    return this;
+  }
+
+  async getDirtyWithAddr(): Promise<Node<T>> {
+    this.page = await this.page.getDirtyWithAddr();
     return this;
   }
 
@@ -316,11 +323,7 @@ export class Node<T extends IKey<unknown>> {
     }
   }
 
-  getParentDirty(): Node<T> {
-    return this.parent = this.parent!.getDirty(true);
-  }
-
-  makeDirtyToRoot() {
+  async makeDirtyToRoot() {
     if (!this.page.dirty) {
       throw new BugError("BUG: makeDirtyToRoot() on non-dirty page");
     }
@@ -328,7 +331,7 @@ export class Node<T extends IKey<unknown>> {
     while (node.parent) {
       const parent = node.parent;
       const parentWasDirty = parent.page.dirty;
-      const dirtyParent = node.parent = parent.getDirty(true);
+      const dirtyParent = node.parent = await parent.getDirtyWithAddr();
       dirtyParent.setChild(node.posInParent!, node.addr);
       node = dirtyParent;
       if (parentWasDirty) break;
@@ -350,16 +353,31 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return new NoRefcountNode(childPage, this, pos);
   }
 
-  getDirty(_addDirty: boolean): this {
+  _cleanPage: NodePage<T> | null = null;
+
+  getDirty(): this {
     const oldpage = this.page;
+    this.page = this.page.getDirty();
+    if (oldpage !== this.page) {
+      this._cleanPage = oldpage;
+    }
+    return this;
+  }
+
+  async getDirtyWithAddr(): Promise<this> {
+    let oldpage = this.page;
     const wasOnDisk = this.page.hasAddr;
-    this.page = this.page.getDirty(true); // always addDirty
+    this.page = await this.page.getDirtyWithAddr();
     if (oldpage !== this.page) {
       this.page.storage.changeRefCount(this.page.addr, 1);
       this.page.storage.changeRefCount(oldpage.addr, -1);
     }
     if (!wasOnDisk && this.page.hasAddr) {
       this.page.storage.changeRefCount(this.page.addr, 1);
+      if (this._cleanPage) {
+        this.page.storage.changeRefCount(this._cleanPage.addr, -1);
+        this._cleanPage = null;
+      }
     }
     return this;
   }

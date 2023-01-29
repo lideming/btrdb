@@ -99,7 +99,7 @@ export class DatabaseEngine implements IDB {
         // double check after entered lock writer, another writer may have create it before.
         r = await this.getTree().findKeyRecursive(setKey);
         if (!r.found) {
-          const setPage = new Ctorpage(this.storage).getDirty(true);
+          const setPage = await new Ctorpage(this.storage).getDirtyWithAddr();
           setPage.prefixedName = prefixedName;
           const keyv = new StringValue(prefixedName);
           await this.getTree().set(

@@ -88,19 +88,35 @@ export abstract class Page {
    * Create a dirty copy of this page or return this page if it's already dirty.
    * @param addDirty {boolean} whether to assign the page address
    */
-  getDirty(addDirty: boolean): this {
+  getDirty(): this {
     if (this.hasNewerCopy()) {
       throw new BugError("getDirty on out-dated page");
     }
     if (this.dirty) {
-      if (addDirty && !this.hasAddr) this.storage.addDirty(this);
       return this;
     } else {
       let dirty = new this._thisCtor(this.storage);
       dirty.dirty = true;
       this._copyTo(dirty);
       this._newerCopy = dirty;
-      if (addDirty) this.storage.addDirty(dirty);
+      return dirty;
+    }
+  }
+
+  /** getDirty() and ensure it has an address. */
+  async getDirtyWithAddr(): Promise<this> {
+    if (this.hasNewerCopy()) {
+      throw new BugError("getDirty on out-dated page");
+    }
+    if (this.dirty) {
+      if (!this.hasAddr) await this.storage.addDirty(this);
+      return this;
+    } else {
+      let dirty = new this._thisCtor(this.storage);
+      dirty.dirty = true;
+      this._copyTo(dirty);
+      this._newerCopy = dirty;
+      await this.storage.addDirty(dirty);
       return dirty;
     }
   }
@@ -316,7 +332,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   createChildPage() {
-    return new this._childCtor(this.storage).getDirty(true);
+    return new this._childCtor(this.storage);
   }
 
   override _debugView() {
@@ -511,7 +527,7 @@ export class DocSetPage extends DocSetPageBase2 {
   indexesAddrs: PageAddr[] = [];
   indexesAddrMap: Record<string, PageAddr> = {};
 
-  setIndexes(newIndexes: IndexInfoMap, map: Record<string, PageAddr>) {
+  async setIndexes(newIndexes: IndexInfoMap, map: Record<string, PageAddr>) {
     const addrs = Object.values(map);
     this.freeBytes += this.indexesAddrs.length * 4;
     this.freeBytes -= addrs.length * 4;
@@ -519,7 +535,7 @@ export class DocSetPage extends DocSetPageBase2 {
     this.indexesAddrs = addrs;
     this.indexesInfoAddr = addrs.length == 0
       ? new PageOffsetValue(0, 0)
-      : this.storage.addData(
+      : await this.storage.addData(
         new IndexesInfoValue(newIndexes),
       );
     this.indexesAddrMap = map;
@@ -816,9 +832,12 @@ export class RootPage extends RootTreeNode {
     other.freeTreeAddr = this.freeTreeAddr;
     other.size = this.size;
   }
-  override getDirty(addDirty: boolean) {
-    var dirty = this.storage.rootPage = super.getDirty(false);
+  override getDirty() {
+    var dirty = this.storage.rootPage = super.getDirty();
     return dirty;
+  }
+  override getDirtyWithAddr(): Promise<this> {
+    return Promise.resolve(this.getDirty());
   }
   override _debugView() {
     return {
