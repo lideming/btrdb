@@ -749,9 +749,6 @@ export class InFileStorage extends PageStorage {
   commitBuffer = new Buffer(new Uint8Array(PAGESIZE * MAX_COMBINED), 0);
 
   /**
-   * `"final-only"` (default): call the fsync once only after final writing.
-   * This ensures the consistency on some systems.
-   *
    * `true | "strict"`: call fsync once before SuperPage and once after final writing.
    * This ensures the consistency on all (correctly implemented) systems.
    *
@@ -762,12 +759,8 @@ export class InFileStorage extends PageStorage {
    * people usually do "write(file, data); fsync(file); write(file, superPage); fsync(file);"
    * to ensure the writing order.
    * This ensures the consistency on system crash or power loss during the commit.
-   *
-   * Since this DB engine is log-structured, the DB file is like a write-ahead-log,
-   * and the SuperPage is always in the end, so only call the "final" fsync or not using fsync at all
-   * is probably okay on some FileSystems (esp. on Btrfs).
    */
-  fsync: "final-only" | "strict" | boolean = "final-only";
+  fsync: "strict" | boolean = true;
 
   async openPath(path: string) {
     if (this.file) throw new Error("Already opened a file.");
@@ -846,7 +839,7 @@ export class InFileStorage extends PageStorage {
       }
 
       // Assuming the last item in `pages` is the SuperPage.
-      if (i === pagesLen - 2 && this.fsync && this.fsync !== "final-only") {
+      if (i === pagesLen - 2 && this.fsync) {
         // Call fsync() before the SuperPage
         await Runtime.fdatasync(this.file!.rid);
       }
