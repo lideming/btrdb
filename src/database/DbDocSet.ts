@@ -177,6 +177,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       if (action == "added") {
         if (vKey.compareTo(dirtypage.lastId) > 0) {
           dirtypage.lastId = vKey;
+          await dirtynode.postChange();
         }
         dirtypage.count += 1;
       } else if (action == "removed") {
@@ -414,9 +415,9 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       newAddrs[name] = otherIndex.addr;
     }
     await otherpage.setIndexes(newIndexes, newAddrs);
-    await othernode.postChange();
     otherpage.count = thispage.count;
     otherpage.lastId = thispage.lastId;
+    await othernode.postChange();
   }
 
   async _dump() {
