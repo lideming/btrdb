@@ -838,14 +838,14 @@ runWithDatabase(async function transaction(db) {
 runWithDatabase(async function dumpAndImport(db) {
   await Runtime.writeTextFile(
     "testdata/dump.json",
-    await db.dump(),
+    JSON.stringify(await db.dump()),
   );
 
   for (const obj of await db.getObjects()) {
     await db.deleteObject(obj.name, obj.type);
   }
 
-  await db.import(await Runtime.readTextFile("testdata/dump.json"));
+  await db.import(JSON.parse(await Runtime.readTextFile("testdata/dump.json")));
 
   await db.commit();
 

@@ -97,11 +97,11 @@ export class Database {
 
   rebuild(): Promise<void>;
 
-  /** Dump all sets as a JSON string. */
-  dump(): Promise<string>;
+  /** Dump all sets as a object. */
+  dump(): Promise<object>;
 
-  /** Import sets from a JSON string. */
-  import(data: string): Promise<void>;
+  /** Import sets from a object. */
+  import(data: object): Promise<void>;
 }
 
 export class InMemoryData {

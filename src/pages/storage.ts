@@ -26,6 +26,7 @@ import {
   UIntValue,
   ValueType,
 } from "../utils/value.ts";
+import { checkUpgrade } from "../upgrade/upgrade.ts";
 
 const METADATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
 const DATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
@@ -90,6 +91,7 @@ export abstract class PageStorage {
       this.changeRefCount(this.superPage.addr, 1);
       await this.commit(true);
     } else {
+      await checkUpgrade(this);
       this.nextAddr = lastAddr;
       this.superPage = await this.readPage(0, SuperPage, false);
       try {
@@ -188,6 +190,7 @@ export abstract class PageStorage {
       this.checkCache();
       return page;
     }).catch((err) => {
+      cache.delete(addr);
       throw new Error(
         `Error reading page addr ${addr} type ${type.name}: ${err}`,
       );
@@ -648,7 +651,7 @@ export abstract class PageStorage {
   }
 
   protected abstract _commit(pages: Page[]): Promise<void>;
-  protected abstract _readPageBuffer(
+  abstract _readPageBuffer(
     addr: PageAddr,
     buffer: Uint8Array,
   ): Promise<void>;
@@ -687,7 +690,7 @@ export class InFileStorage extends PageStorage {
     });
     this.filePath = path;
   }
-  protected async _readPageBuffer(
+  async _readPageBuffer(
     addr: number,
     buffer: Uint8Array,
   ): Promise<void> {
@@ -778,6 +781,7 @@ export class InFileStorage extends PageStorage {
   }
   protected _close() {
     this.file!.close();
+    this.file = undefined;
   }
   private static readonly emptyBuffer = new Uint8Array(PAGESIZE * MAX_COMBINED);
 }
@@ -803,7 +807,7 @@ export class InMemoryStorage extends PageStorage {
       this.perfCounter.pageFreebyteWrites += page.freeBytes;
     }
   }
-  protected async _readPageBuffer(
+  async _readPageBuffer(
     addr: number,
     buffer: Uint8Array,
   ): Promise<void> {

@@ -430,11 +430,10 @@ export class DatabaseEngine implements IDB {
         throw new Error(`Unknown type '${type}'`);
       }
     }
-    return JSON.stringify(obj);
+    return obj;
   }
 
-  async import(data: string) {
-    const obj = JSON.parse(data) as DbDump;
+  async import(obj: DbDump) {
     if (obj.btrdbDumpVersion != "0") {
       throw new Error(`Unknown version '${obj.btrdbDumpVersion}'`);
     }
