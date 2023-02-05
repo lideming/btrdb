@@ -9,12 +9,12 @@ btrfs.
 - [x] [Deno runtime](https://deno.land/x/btrdb)
 - [x] [Node.js runtime](https://www.npmjs.com/package/@yuuza/btrdb)
 - [x] Single file
-- [x] B-tree Copy-on-Write
-      ([paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
+- [x] B-tree Copy-on-Write (reference
+      [paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
       [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
 - [x] Good performance even written in pure TypeScript
-  - [x] [Set 100k key-value pairs under 1.2s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:296)
-  - [x] [Insert 100k documents under 3.3s](https://github.com/lideming/btrdb/runs/3079877766?check_suite_focus=true#step:4:320)
+  - [x] Set 100k key-value pairs in 1.2s
+  - [x] Insert 100k documents in 2.3s
 - [x] [Snapshots](#Use-snapshots)
   - [x] Named snapshots
 - [x] [Key-Value sets](#Use-key-value-set)
@@ -156,7 +156,7 @@ interface User {
 const userSet = await db.createSet<User>("users", "doc");
 
 // Define indexes on the set and update indexes if needed.
-userSet.useIndexes({
+await userSet.useIndexes({
   status: (u) => u.status,
   // define "status" index, which indexing the value of user.status for each user in the set
 
@@ -230,12 +230,7 @@ Query functions: `EQ` (==), `NE` (!=), `LT` (<), `GT` (>), `LE` (<=), `GE` (>=),
 ```ts
 // Get all offline admins
 console.info(
-  await userSet.query(
-    AND(
-      EQ("status", "offline"),
-      EQ("role", "admin"),
-    ),
-  ),
+  await userSet.query(AND(EQ("status", "offline"), EQ("role", "admin"))),
 );
 // [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
 
@@ -288,12 +283,6 @@ const snap = await db.getSnapshot("backup");
 // Read data from the snapshot
 console.info(await snap.getSet("data").get("foo"));
 ```
-
-Also, `db.getPrevCommit()` can be used to get previous commit as a snapshot.
-
-## Use rebuild
-
-Call `db.rebuild()` to lose all snapshots and reclaim some space.
 
 ## More example in the test code
 
