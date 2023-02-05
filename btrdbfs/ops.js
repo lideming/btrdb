@@ -8,6 +8,9 @@ const FS_SIZE = 2 * 1024 * 1024 * 1024;
 
 const zeros = new Uint8Array(EXTENT_SIZE);
 
+/**
+ * @param {import("./db").DB} db 
+ */
 export function getOps(db, uid, gid) {
   return {
     readdir: async function (path, cb) {
@@ -197,6 +200,15 @@ export function getOps(db, uid, gid) {
       const link = await db.linkFromPath(path);
       if (!link) return cb(Fuse.ENOENT);
       await db.unlink(link);
+      const { ino } = link;
+      const links = await db.linksFromIno(ino);
+      if (!links.length) {
+        const exts = await db.extents.findIndex("ino", ino);
+        for (const it of exts) {
+          await db.extents.delete(it.id);
+        }
+        console.info("deleted", exts.length, "extends", path);
+      }
       cb(0);
     },
     async rmdir(path, cb) {

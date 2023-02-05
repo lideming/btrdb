@@ -1,5 +1,6 @@
 //@ts-check
-import { Database } from "@yuuza/btrdb";
+import btrdb from "@yuuza/btrdb";
+const { Database } = btrdb;
 import Fuse from "@yuuza/fuse-native";
 
 export const KIND_DIR = 1;
@@ -76,6 +77,7 @@ export class DB {
     // @ts-ignore
     this.links = await this.db.createSet("links", "doc");
     await this.links.useIndexes({
+      "ino": (x) => x.ino,
       "paid": (x) => x.paid,
       "paid_name": (x) => x.paid + "_" + x.name,
     });
@@ -84,6 +86,7 @@ export class DB {
     // @ts-ignore
     this.extents = await this.db.createSet("extents", "doc");
     await this.extents.useIndexes({
+      "ino": (x) => x.ino,
       "ino_pos": (x) => x.ino + "_" + x.pos,
     });
   }
@@ -206,6 +209,10 @@ export class DB {
   linkFromPath(path) {
     const names = this.namesFromPath(path);
     return this.linkFromNames(names);
+  }
+
+  linksFromIno(ino) {
+    return this.links.findIndex("ino", ino);
   }
 
   /** @param {string[]} names */

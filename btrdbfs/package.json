@@ -21,7 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@yuuza/btrdb": "^0.5.0",
+    "@yuuza/btrdb": "^0.8.2",
     "@yuuza/fuse-native": "^1.0.0"
   }
 }
