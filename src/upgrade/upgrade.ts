@@ -4,8 +4,6 @@ import { InFileStorage, PageStorage } from "../pages/storage.ts";
 import * as oldBtrdb from "./btrdb_v0_7_2.js";
 import { Runtime } from "../utils/runtime.ts";
 
-oldBtrdb.setRuntimeImplementaion(Runtime);
-
 export async function checkUpgrade(storage: PageStorage) {
   if (!(storage instanceof InFileStorage)) return;
   const zeroPageBuffer = new Uint8Array(PAGESIZE);
@@ -19,6 +17,7 @@ export async function checkUpgrade(storage: PageStorage) {
     const db = new Database();
     await db.openFile(tmpPath);
 
+    oldBtrdb.setRuntimeImplementaion(Runtime);
     const old = new oldBtrdb.Database();
     await old.openFile(path);
 
