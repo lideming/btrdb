@@ -157,8 +157,7 @@ export abstract class PageStorage {
     // If it's the promise, `Promise.resolve` will return the promise as-is.
     // If cache not hitted, start a reading task and set the promise to `cache`.
     // This method ensures that no duplicated reading will happen.
-    const cache = this.getCacheForPageType(type);
-    const cached = cache.get(addr);
+    const cached = this._getCache(addr);
     if (cached) {
       this.perfCounter.cachedPageReads++;
       return Promise.resolve(cached as T)
@@ -186,36 +185,39 @@ export abstract class PageStorage {
       page.addr = addr;
       if (nullOnTypeMismatch && page.type != buffer[0]) return null;
       page.readFrom(new Buffer(buffer, 0));
-      cache.set(page.addr, page);
-      this.checkCache();
+      this._setCache(page);
+      this._checkAllCache();
       return page;
     }).catch((err) => {
-      cache.delete(addr);
+      this._deleteCache(addr);
       throw new Error(
         `Error reading page addr ${addr} type ${type.name}: ${err}`,
       );
     });
-    cache.set(addr, promise as Promise<Page>);
+    this.metaCache.set(addr, promise as Promise<Page>);
     return promise;
   }
 
-  getCacheForPageType(type: PageClass<any>) {
-    if (type === DataPage) {
-      return this.dataCache;
+  _getCache(addr: PageAddr) {
+    return this.metaCache.get(addr) || this.dataCache.get(addr);
+  }
+
+  _setCache(page: Page) {
+    if (page.type === PageType.Data) {
+      this.dataCache.set(page.addr, page);
+      this.metaCache.delete(page.addr);
     } else {
-      return this.metaCache;
+      this.metaCache.set(page.addr, page);
+      this.dataCache.delete(page.addr);
     }
   }
 
-  getCacheForPage(page: Page) {
-    if (Object.getPrototypeOf(page) === DataPage.prototype) {
-      return this.dataCache;
-    } else {
-      return this.metaCache;
-    }
+  _deleteCache(addr: PageAddr) {
+    this.metaCache.delete(addr);
+    this.dataCache.delete(addr);
   }
 
-  checkCache() {
+  _checkAllCache() {
     this._checkCache(METADATA_CACHE_LIMIT, this.metaCache);
     this._checkCache(DATA_CACHE_LIMIT, this.dataCache);
   }
@@ -253,7 +255,7 @@ export abstract class PageStorage {
     }
     page.addr = await this.allocate(page);
     this.dirtyPages.push(page);
-    this.getCacheForPage(page).set(page.addr, page);
+    this._setCache(page);
   }
 
   async allocate(page: Page) {
@@ -759,7 +761,7 @@ export class InFileStorage extends PageStorage {
 
       this.writtenAddr = beginAddr + combined - 1;
       if (i % TOTAL_CACHE_LIMIT === TOTAL_CACHE_LIMIT - 1) {
-        this.checkCache();
+        this._checkAllCache();
       }
 
       // Assuming the last item in `pages` is the SuperPage.

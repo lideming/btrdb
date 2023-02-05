@@ -348,13 +348,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   }
 
   get _childrenPages() {
-    return this.children.map((addr) =>
-      addr
-        ? this.storage.getCacheForPageType(Object.getPrototypeOf(this)).get(
-          addr,
-        )
-        : 0
-    );
+    return this.children.map((addr) => addr && this.storage._getCache(addr));
   }
 
   protected override _writeContent(buf: Buffer) {
