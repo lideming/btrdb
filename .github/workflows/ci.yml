@@ -33,7 +33,7 @@ jobs:
           deno coverage testdata/coverage --lcov > testdata/coverage.lcov
 
       - name: Codecov
-        uses: codecov/codecov-action@v1.5.2
+        uses: codecov/codecov-action@v3
         with:
           file: ./testdata/coverage.lcov
           fail_ci_if_error: true
@@ -63,7 +63,7 @@ jobs:
           deno coverage testdata/coverage --lcov > testdata/coverage.lcov
 
       - name: Codecov
-        uses: codecov/codecov-action@v1.5.2
+        uses: codecov/codecov-action@v3
         with:
           file: ./testdata/coverage.lcov
           fail_ci_if_error: true
@@ -178,7 +178,7 @@ jobs:
           deno coverage testdata/coverage --lcov > testdata/coverage.lcov
 
       - name: Codecov
-        uses: codecov/codecov-action@v1.5.2
+        uses: codecov/codecov-action@v3
         with:
           file: ./testdata/coverage.lcov
           fail_ci_if_error: true
