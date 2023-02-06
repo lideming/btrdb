@@ -32,5 +32,7 @@ export async function checkUpgrade(storage: PageStorage) {
     await Runtime.rename(tmpPath, path);
 
     await storage.openPath(path);
+    return true;
   }
+  return false;
 }

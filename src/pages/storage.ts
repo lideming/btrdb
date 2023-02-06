@@ -84,14 +84,16 @@ export abstract class PageStorage {
 
   /** Read the super page of existing database. Or create a empty database. */
   async init() {
-    const lastAddr = await this._getLastAddr();
+    let lastAddr = await this._getLastAddr();
     if (lastAddr == 0) {
       this.superPage = await new SuperPage(this).getDirtyWithAddr();
       this.rootPage = await new RootPage(this).getDirtyWithAddr();
       this.changeRefCount(this.superPage.addr, 1);
       await this.commit(true);
     } else {
-      await checkUpgrade(this);
+      if (await checkUpgrade(this)) {
+        lastAddr = await this._getLastAddr();
+      }
       this.nextAddr = lastAddr;
       this.superPage = await this.readPage(0, SuperPage, false);
       try {
