@@ -96,24 +96,11 @@ export abstract class PageStorage {
       }
       this.nextAddr = lastAddr;
       this.superPage = await this.readPage(0, SuperPage, false);
-      try {
-        this.rootPage = await this.readPage(
-          this.superPage.rootPageAddr,
-          RootPage,
-          false,
-        );
-      } catch (error) {
-        console.error(error);
-        console.info(
-          "[RECOVERY] trying read another super page from addr " +
-            (this.superPage.prevRootPageAddr),
-        );
-        this.rootPage = await this.readPage(
-          this.superPage.prevRootPageAddr,
-          RootPage,
-          false,
-        );
-      }
+      this.rootPage = await this.readPage(
+        this.superPage.rootPageAddr,
+        RootPage,
+        false,
+      );
       this.cleanRootPage = this.rootPage;
       this.writtenAddr = this.rootPage.addr;
       await this.resetFreeSpaceIterator();
