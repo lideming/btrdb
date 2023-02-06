@@ -14,8 +14,14 @@ import {
   SLICE,
 } from "../mod.ts";
 import { encoder } from "../src/utils/buffer.ts";
+import { AlreadyExistError } from "../src/utils/errors.ts";
 import { Runtime } from "../src/utils/runtime.ts";
-import { assert, assertEquals, assertThrows } from "./test.dep.ts";
+import {
+  assert,
+  assertEquals,
+  assertThrows,
+  assertThrowsAsync,
+} from "./test.dep.ts";
 import {
   assertQueryEquals,
   dumpObjectToFile,
@@ -280,8 +286,9 @@ runWithDatabase(async function DocSet_indexes_after_insert(db) {
   await set.insert({ "username": "test", "gender": "m" });
   await set.insert({ "username": "the3rd", "gender": "f" });
   await set.useIndexes({
-    username: { unique: true, key: (u) => u.username },
     gender: (u) => u.gender,
+    id_username: (u) => u.id + "_" + u.username,
+    username: { unique: true, key: (u) => u.username },
   });
   assertEquals(await set.findIndex("username", "btrdb"), [{
     "id": 1,
@@ -298,10 +305,48 @@ runWithDatabase(async function DocSet_indexes_after_insert(db) {
     "username": "the3rd",
     "gender": "f",
   }]);
+  assertEquals(await set.findIndex("id_username", "1_btrdb"), [{
+    "id": 1,
+    "username": "btrdb",
+    "gender": "m",
+  }]);
+  assertEquals(await set.findIndex("id_username", "2_test"), [{
+    "id": 2,
+    "username": "test",
+    "gender": "m",
+  }]);
+  assertEquals(await set.findIndex("id_username", "3_the3rd"), [{
+    "id": 3,
+    "username": "the3rd",
+    "gender": "f",
+  }]);
   assertEquals(await set.findIndex("gender", "m"), [
     { "id": 1, "username": "btrdb", "gender": "m" },
     { "id": 2, "username": "test", "gender": "m" },
   ]);
+  assertEquals(await db.commit(), true);
+});
+
+runWithDatabase(async function DocSet_indexes_unique_insert_failed(db) {
+  var set = db.getSet<TestUser>("testindexes2", "doc");
+  const query = async () => [
+    await set.getAll(),
+    await set.findIndex("gender", "m"),
+    await set.findIndex("gender", "f"),
+    await set.findIndex("id_username", "1_btrdb"),
+    await set.findIndex("id_username", "2_test"),
+    await set.findIndex("id_username", "3_the3rd"),
+    await set.findIndex("id_username", "2_btrdb"),
+    await set.findIndex("id_username", "4_btrdb"),
+  ];
+  const oldQueryResults = await query();
+  await assertThrowsAsync(async () => {
+    await set.insert({ "username": "btrdb", "gender": "f" });
+  }, AlreadyExistError);
+  await assertThrowsAsync(async () => {
+    await set.update({ id: 2, "username": "btrdb", "gender": "f" });
+  }, AlreadyExistError);
+  assertEquals(oldQueryResults, await query());
   assertEquals(await db.commit(), true);
 });
 

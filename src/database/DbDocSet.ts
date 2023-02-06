@@ -2,6 +2,7 @@ import {
   DocNodeType,
   DocSetPage,
   IndexInfo,
+  IndexNodeType,
   IndexTopPage,
   KEYSIZE_LIMIT,
   PageAddr,
@@ -184,81 +185,117 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
         dirtypage.count -= 1;
       }
 
-      let oldDocDataFetched = false;
-      let oldDocData: any;
-
-      // TODO: rollback changes on (unique) index failed?
-      // The following try-catch won't work well because some indexes may have changed.
-      // try {
-      let nextSeq = 0;
-      for (
-        const [indexName, indexInfo] of Object.entries(
-          await dirtypage.ensureIndexes(),
-        )
-      ) {
-        const seq = nextSeq++;
-        const index = (await dirtypage.storage.readPage(
-          dirtypage.indexesAddrs[seq],
-          IndexTopPage,
-        ))
-          .getDirty();
-        const indexNode = new Node(index);
-        if (oldDoc) {
-          if (!oldDocDataFetched) {
-            oldDocData = (await this._readDocument(oldDoc.value)).val;
-          }
-          const oldKey = new JSValue(
-            indexInfo.func(oldDocData),
-          );
-          const setResult = await indexNode.set(
-            new KValue(oldKey, oldDoc.value),
-            null,
-            "no-change",
-          );
-          if (setResult.action != "removed") {
-            throw new BugError(
-              "BUG: can not remove index key: " +
-                Runtime.inspect({ oldDoc, indexInfo, oldKey, setResult }),
-            );
-          }
-        }
-        if (doc) {
-          const kv = new KValue(new JSValue(indexInfo.func(doc)), dataPos!);
-          if (kv.key.byteLength > KEYSIZE_LIMIT) {
-            throw new Error(
-              `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
-            );
-          }
-          const setResult = await indexNode.set(
-            indexInfo.unique ? new KeyComparator(kv.key) : kv,
-            kv,
-            "no-change",
-          );
-          if (setResult.action != "added") {
-            throw new BugError(
-              "BUG: can not add index key: " +
-                Runtime.inspect({ kv, indexInfo, setResult }),
-            );
-          }
-        }
-
-        const newIndexAddr = (await indexNode.page.getDirtyWithAddr()).addr;
-        dirtypage.indexesAddrs[seq] = newIndexAddr;
-        dirtypage.indexesAddrMap[indexName] = newIndexAddr;
-      }
-      // } catch (error) {
-      //   // Failed in index updating (duplicated key in unique index?)
-      //   // Rollback the change.
-      //   await dirtypage.set(keyv, oldDoc, true);
-      //   throw error;
-      // }
       if (action !== "noop") {
+        // Update root tree here, so it is updated even in case of rollback.
         if (lock.page !== dirtypage) {
           await dirtypage.getDirtyWithAddr();
           await this._db._updateSetPage(dirtypage);
         }
+
+        // Lazy load & cache old data
+        let oldDocDataFetched = false;
+        let oldDocData: any;
+
+        // To rollback index changes on (unique) index failed
+        type IndexOp = {
+          indexNode: Node<IndexNodeType>;
+          removeKey?: JSValue;
+          addKey?: JSValue;
+        };
+        let currentOp: IndexOp | null = null;
+        const indexOps: Array<IndexOp> = [];
+
+        try {
+          let nextSeq = 0;
+          for (
+            const [indexName, indexInfo] of Object.entries(
+              await dirtypage.ensureIndexes(),
+            )
+          ) {
+            const seq = nextSeq++;
+            const index = await (await dirtypage.storage.readPage(
+              dirtypage.indexesAddrs[seq],
+              IndexTopPage,
+            ))
+              .getDirtyWithAddr();
+
+            const indexNode = new Node(index);
+
+            const newIndexAddr = (await indexNode.page.getDirtyWithAddr()).addr;
+            dirtypage.indexesAddrs[seq] = newIndexAddr;
+            dirtypage.indexesAddrMap[indexName] = newIndexAddr;
+
+            currentOp = { indexNode };
+
+            if (oldDoc) {
+              if (!oldDocDataFetched) {
+                oldDocData = (await this._readDocument(oldDoc.value)).val;
+              }
+              const oldKey = new JSValue(
+                indexInfo.func(oldDocData),
+              );
+              const setResult = await indexNode.set(
+                new KValue(oldKey, oldDoc.value),
+                null,
+                "no-change",
+              );
+              if (setResult.action != "removed") {
+                throw new BugError(
+                  "BUG: can not remove index key: " +
+                    Runtime.inspect({ oldDoc, indexInfo, oldKey, setResult }),
+                );
+              }
+              currentOp.removeKey = oldKey;
+            }
+            if (doc) {
+              const kv = new KValue(new JSValue(indexInfo.func(doc)), dataPos!);
+              if (kv.key.byteLength > KEYSIZE_LIMIT) {
+                throw new Error(
+                  `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+                );
+              }
+              const setResult = await indexNode.set(
+                indexInfo.unique ? new KeyComparator(kv.key) : kv,
+                kv,
+                "no-change",
+              );
+              if (setResult.action != "added") {
+                throw new BugError(
+                  "BUG: can not add index key: " +
+                    Runtime.inspect({ kv, indexInfo, setResult }),
+                );
+              }
+              currentOp.addKey = kv.key;
+            }
+
+            indexOps.push(currentOp!);
+            currentOp = null;
+          }
+        } catch (error) {
+          // Failed in index updating (duplicated key in unique index?)
+          // Rollback the change.
+          await dirtynode.set(new KeyComparator(vKey), oldDoc, "can-change");
+
+          if (currentOp) indexOps.push(currentOp);
+          for (const { indexNode, addKey, removeKey } of indexOps) {
+            if (addKey) {
+              await indexNode.set(
+                new KValue(addKey, dataPos!),
+                null,
+                "no-change",
+              );
+            }
+            if (removeKey) {
+              const kv = new KValue(removeKey, oldDoc?.value!);
+              await indexNode.set(kv, kv, "no-change");
+            }
+          }
+          throw error;
+        }
+
         if (this._db.autoCommit) await this._db._autoCommit();
       }
+
       return { action, key: vKey };
     } finally { // END WRITE LOCK
       lock.exitLock();
