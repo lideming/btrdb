@@ -184,6 +184,9 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
         dirtypage.count -= 1;
       }
 
+      let oldDocDataFetched = false;
+      let oldDocData: any;
+
       // TODO: rollback changes on (unique) index failed?
       // The following try-catch won't work well because some indexes may have changed.
       // try {
@@ -201,13 +204,14 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           .getDirty();
         const indexNode = new Node(index);
         if (oldDoc) {
+          if (!oldDocDataFetched) {
+            oldDocData = (await this._readDocument(oldDoc.value)).val;
+          }
           const oldKey = new JSValue(
-            indexInfo.func(
-              (await this._readDocument((oldDoc as DocNodeType).value)).val,
-            ),
+            indexInfo.func(oldDocData),
           );
           const setResult = await indexNode.set(
-            new KValue(oldKey, (oldDoc as DocNodeType).value),
+            new KValue(oldKey, oldDoc.value),
             null,
             "no-change",
           );
