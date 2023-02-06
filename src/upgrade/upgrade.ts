@@ -1,7 +1,7 @@
 import { PAGESIZE } from "../pages/page.ts";
 import { Database } from "../database/database.ts";
 import { InFileStorage, PageStorage } from "../pages/storage.ts";
-import * as oldBtrdb from "./btrdb_v0_7_2.js";
+import * as oldBtrdb from "./oldVersion/btrdb_v0_7_2.js";
 import { Runtime } from "../utils/runtime.ts";
 
 export async function checkUpgrade(storage: PageStorage) {
