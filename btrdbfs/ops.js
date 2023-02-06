@@ -9,7 +9,7 @@ const FS_SIZE = 2 * 1024 * 1024 * 1024;
 const zeros = new Uint8Array(EXTENT_SIZE);
 
 /**
- * @param {import("./db").DB} db 
+ * @param {import("./db").DB} db
  */
 export function getOps(db, uid, gid) {
   return {
