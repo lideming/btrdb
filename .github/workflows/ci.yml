@@ -171,7 +171,7 @@ jobs:
             --allow-read=testdata --allow-write=testdata \
             --allow-env \
             --coverage=testdata/coverage \
-            tests/test.ts
+            tests/test.ts -- --in-memory
 
       - name: Analyze coverage
         run: |
