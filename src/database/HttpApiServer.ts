@@ -204,8 +204,8 @@ export class HttpApiServer {
   private async getSet(name: string, type: "kv"): Promise<IDbSet>;
   private async getSet(name: string, type: "doc"): Promise<IDbDocSet>;
   private async getSet(name: string, type: string) {
-    const set = await this.db.getSet(name, type as any) as any;
-    if (!set) throw new ApiError(404, `set not found`);
+    const set = this.db.getSet(name, type as any) as any;
+    if (!await set.exists()) throw new ApiError(404, `set not found`);
     return set;
   }
 }

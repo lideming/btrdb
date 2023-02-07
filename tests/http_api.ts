@@ -74,9 +74,16 @@ for (const RUN_IN_WORKER of [false, true]) {
       method,
       body: body ? JSON.stringify(body) : undefined,
     });
+    if (expected?.error) {
+      assertEquals([(await resp.json()).error, resp.status], [
+        expected.error,
+        expected.status,
+      ]);
+      return;
+    }
     assert(resp.ok, `HTTP status ${resp.status} ${resp.statusText}`);
     if (resp.headers.get("content-type")?.includes("application/json")) {
-      return assertEquals(await resp.json(), expected);
+      assertEquals(await resp.json(), expected);
     } else {
       // reads the (empty) response to release resources
       assertEquals([await resp.text(), expected], ["", undefined]);
@@ -132,6 +139,14 @@ for (const RUN_IN_WORKER of [false, true]) {
         { key: 123, value: 456 },
         { key: "key1", value: "value1" },
       ]);
+      await testApi("DELETE", `/sets/kv:test/${jsonUri("noSuchKey")}`, {
+        error: "key not found",
+        status: 404,
+      });
+      await testApi("GET", `/sets/kv:noSuchSet/${jsonUri("lol")}`, {
+        error: "set not found",
+        status: 404,
+      });
     },
   );
 
@@ -158,7 +173,9 @@ for (const RUN_IN_WORKER of [false, true]) {
         username: "foo",
         role: "user",
       });
+      await testApi("GET", `/sets/doc:testdoc/3`, null);
       await testApi("GET", `/sets/doc:testdoc/?ids`, [1, 2]);
+      await testApi("GET", `/sets/doc:testdoc/?count`, 2);
       await testApi("GET", `/sets/doc:testdoc/?query=id>{}&value=1`, [
         {
           id: 2,
@@ -177,7 +194,7 @@ for (const RUN_IN_WORKER of [false, true]) {
         },
       ]);
       await testApi("POST", `/sets/doc:testdoc/?indexes`, {
-        username: "username",
+        username: { unique: true, key: "username" },
         role: "role",
       });
       await testApi(
@@ -191,6 +208,26 @@ for (const RUN_IN_WORKER of [false, true]) {
           },
         ],
       );
+      await testApi("PUT", `/sets/doc:testdoc/2`, {
+        id: 2,
+        username: "foobar",
+        role: "user",
+      });
+      await testApi("GET", `/sets/doc:testdoc/2`, {
+        id: 2,
+        username: "foobar",
+        role: "user",
+      });
+      await testApi("DELETE", `/sets/doc:testdoc/2`);
+      await testApi("GET", `/sets/doc:testdoc/2`, null);
+      await testApi("DELETE", `/sets/doc:testdoc/2`, {
+        error: "key not found",
+        status: 404,
+      });
+      await testApi("GET", `/sets/doc:noSuchSet/${jsonUri("lol")}`, {
+        error: "set not found",
+        status: 404,
+      });
     },
   );
 
