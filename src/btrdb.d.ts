@@ -23,10 +23,13 @@ export class Database {
   /** Open a database file. Create a new file if not exists. */
   openFile(
     path: string,
-    options?: { fsync?: "final-only" | "strict" | boolean },
+    options?: { pageSize?: number; fsync?: "final-only" | "strict" | boolean },
   ): Promise<void>;
 
-  openMemory(data?: InMemoryData): Promise<void>;
+  openMemory(
+    data?: InMemoryData,
+    options?: { pageSize?: number },
+  ): Promise<void>;
 
   /** Open a database file as a new database instance. Create a new file if not exists. */
   static openFile(...args: Parameters<Database["openFile"]>): Promise<Database>;

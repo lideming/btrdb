@@ -4,7 +4,6 @@ import {
   IndexInfo,
   IndexNodeType,
   IndexTopPage,
-  KEYSIZE_LIMIT,
   PageAddr,
 } from "../pages/page.ts";
 import {
@@ -140,9 +139,9 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           }
         }
         vKey = new JSValue(key);
-        if (vKey.byteLength > KEYSIZE_LIMIT) {
+        if (vKey.byteLength > this.keySizeLimit) {
           throw new Error(
-            `The id size is too large (${vKey.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+            `The id size is too large (${vKey.byteLength}), the limit is ${this.keySizeLimit}`,
           );
         }
         dataPos = !doc
@@ -249,9 +248,9 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
             }
             if (doc) {
               const kv = new KValue(new JSValue(indexInfo.func(doc)), dataPos!);
-              if (kv.key.byteLength > KEYSIZE_LIMIT) {
+              if (kv.key.byteLength > this.keySizeLimit) {
                 throw new Error(
-                  `The index key size is too large (${kv.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+                  `The index key size is too large (${kv.key.byteLength}), the limit is ${this.keySizeLimit}`,
                 );
               }
               const setResult = await indexNode.set(
@@ -365,9 +364,9 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
           await dirtynode.traverseKeys(async (k: DocNodeType) => {
             const doc = await this._readDocument(k.value);
             const indexKV = new KValue(new JSValue(func(doc.val)), k.value);
-            if (indexKV.key.byteLength > KEYSIZE_LIMIT) {
+            if (indexKV.key.byteLength > this.keySizeLimit) {
               throw new Error(
-                `The index key size is too large (${indexKV.key.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+                `The index key size is too large (${indexKV.key.byteLength}), the limit is ${this.keySizeLimit}`,
               );
             }
             await indexNode.set(

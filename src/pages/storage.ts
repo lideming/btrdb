@@ -4,11 +4,11 @@ import { BugError } from "../utils/errors.ts";
 import { LRUMap } from "../utils/lru.ts";
 import {
   DataPage,
+  DEFAULT_PAGESIZE,
   FreeSpacePage,
   Page,
   PageAddr,
   PageClass,
-  PAGESIZE,
   PageType,
   pageTypeMap,
   RefPage,
@@ -28,8 +28,8 @@ import {
 } from "../utils/value.ts";
 import { checkUpgrade } from "../upgrade/upgrade.ts";
 
-const METADATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
-const DATA_CACHE_LIMIT = Math.round(8 * 1024 * 1024 / PAGESIZE);
+const METADATA_CACHE_LIMIT = 8 * 1024 * 1024;
+const DATA_CACHE_LIMIT = 8 * 1024 * 1024;
 const TOTAL_CACHE_LIMIT = METADATA_CACHE_LIMIT + DATA_CACHE_LIMIT;
 
 class PageStorageCounter {
@@ -44,7 +44,19 @@ class PageStorageCounter {
   dataReads = 0;
 }
 
+export interface PageStorageOptions {
+  pageSize?: number;
+}
+
 export abstract class PageStorage {
+  constructor(
+    options?: PageStorageOptions,
+  ) {
+    this.pageSize = options?.pageSize ?? DEFAULT_PAGESIZE;
+  }
+
+  readonly pageSize: number;
+
   /** Use two cache pools for metadata and data */
   metaCache = new LRUMap<PageAddr, Page | Promise<Page>>();
   dataCache = new LRUMap<PageAddr, Page | Promise<Page>>();
@@ -167,7 +179,7 @@ export abstract class PageStorage {
       throw new Error("Invalid page addr " + addr);
     }
     this.perfCounter.acutalPageReads++;
-    const buffer = new Uint8Array(PAGESIZE);
+    const buffer = new Uint8Array(this.pageSize);
     const promise = this._readPageBuffer(addr, buffer).then(() => {
       const page = new (type || pageTypeMap[buffer[0]])(this);
       page.dirty = false;
@@ -211,10 +223,12 @@ export abstract class PageStorage {
     this._checkCache(DATA_CACHE_LIMIT, this.dataCache);
   }
 
-  _checkCache(limit: number, cache: this["metaCache"]) {
+  _checkCache(limitBytes: number, cache: this["metaCache"]) {
+    const limit = Math.round(limitBytes / this.pageSize);
+    if (limit <= 0) return;
     const dirtyCount = this.dirtyPages.length + this.writingPages.size;
     const cleanCacheSize = cache.size - dirtyCount;
-    if (limit > 0 && cleanCacheSize > limit) {
+    if (cleanCacheSize > limit) {
       let deleteCount = cleanCacheSize - limit * 3 / 4;
       let deleted = 0;
       for (const page of cache.valuesFromOldest()) {
@@ -656,7 +670,7 @@ export class InFileStorage extends PageStorage {
   file: RuntimeFile | undefined = undefined;
   filePath: string | undefined = undefined;
   lock = new OneWriterLock();
-  commitBuffer = new Buffer(new Uint8Array(PAGESIZE * MAX_COMBINED), 0);
+  commitBuffer = new Buffer(new Uint8Array(this.pageSize * MAX_COMBINED), 0);
 
   /**
    * `true | "strict"`: call fsync once before SuperPage and once after final writing.
@@ -686,8 +700,8 @@ export class InFileStorage extends PageStorage {
     buffer: Uint8Array,
   ): Promise<void> {
     await this.lock.enterWriter();
-    await this.file!.seek(addr * PAGESIZE, Runtime.SeekMode.Start);
-    for (let i = 0; i < PAGESIZE;) {
+    await this.file!.seek(addr * this.pageSize, Runtime.SeekMode.Start);
+    for (let i = 0; i < this.pageSize;) {
       const nread = await this.file!.read(buffer.subarray(i));
       if (nread === null) throw new Error("Unexpected EOF");
       i += nread;
@@ -718,17 +732,17 @@ export class InFileStorage extends PageStorage {
         combined++;
       }
       for (let p = 0; p < combined; p++) {
-        buffer.pos = p * PAGESIZE;
+        buffer.pos = p * this.pageSize;
         const page = pages[beginI + p];
         page.writeTo(buffer);
         this.perfCounter.pageWrites++;
         this.perfCounter.pageFreebyteWrites += page.freeBytes;
       }
-      const targerPos = beginAddr * PAGESIZE;
+      const targerPos = beginAddr * this.pageSize;
       if (filePos !== targerPos) {
         await this.file!.seek(targerPos, Runtime.SeekMode.Start);
       }
-      const toWrite = combined * PAGESIZE;
+      const toWrite = combined * this.pageSize;
       for (let i = 0; i < toWrite;) {
         const nwrite = await this.file!.write(
           buffer.buffer.subarray(i, toWrite),
@@ -740,7 +754,7 @@ export class InFileStorage extends PageStorage {
       }
       filePos = targerPos + toWrite;
       // console.info("written page addr", page.addr);
-      buffer.buffer.set(InFileStorage.emptyBuffer.subarray(0, toWrite), 0);
+      buffer.buffer.set(this.emptyBuffer.subarray(0, toWrite), 0);
       buffer.pos = 0;
 
       for (let p = 0; p < combined; p++) {
@@ -767,14 +781,14 @@ export class InFileStorage extends PageStorage {
   }
   protected async _getLastAddr() {
     return Math.floor(
-      await this.file!.seek(0, Runtime.SeekMode.End) / PAGESIZE,
+      await this.file!.seek(0, Runtime.SeekMode.End) / this.pageSize,
     );
   }
   protected _close() {
     this.file!.close();
     this.file = undefined;
   }
-  private static readonly emptyBuffer = new Uint8Array(PAGESIZE * MAX_COMBINED);
+  private readonly emptyBuffer = new Uint8Array(this.pageSize * MAX_COMBINED);
 }
 
 export class InMemoryData {
@@ -783,14 +797,14 @@ export class InMemoryData {
 
 export class InMemoryStorage extends PageStorage {
   data: InMemoryData;
-  constructor(data: InMemoryData) {
-    super();
-    this.data = data;
+  constructor(options?: PageStorageOptions & { data?: InMemoryData }) {
+    super(options);
+    this.data = options?.data ?? new InMemoryData();
   }
   protected async _commit(pages: Page[]): Promise<void> {
     var buf = new Buffer(null!, 0);
     for (const page of pages) {
-      buf.buffer = new Uint8Array(PAGESIZE);
+      buf.buffer = new Uint8Array(this.pageSize);
       buf.pos = 0;
       page.writeTo(buf);
       this.data.pageBuffers[page.addr] = buf.buffer;

@@ -1,8 +1,6 @@
-export const PAGESIZE = getPageSize() || 8192;
+export const DEFAULT_PAGESIZE = getEnvPageSize() || 8192;
 
-export const KEYSIZE_LIMIT = Math.floor(PAGESIZE / 4);
-
-function getPageSize() {
+function getEnvPageSize() {
   try {
     const val = Runtime.env.get("BTRDB_PAGESIZE");
     if (!val) return null;
@@ -66,6 +64,7 @@ export abstract class Page {
 
   constructor(storage: PageStorage) {
     this.storage = storage;
+    this.freeBytes = storage.pageSize - 4;
     this.init();
   }
 
@@ -80,7 +79,7 @@ export abstract class Page {
   _discard = false;
 
   /** Should be maintained by the page when changing data */
-  freeBytes: number = PAGESIZE - 4;
+  freeBytes: number;
 
   init() {}
 
@@ -180,10 +179,10 @@ export abstract class Page {
     buf.writeU8(0);
     buf.writeU16(0);
     this._writeContent(buf);
-    if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+    if (buf.pos - beginPos != this.storage.pageSize - this.freeBytes) {
       throw new BugError(
         `BUG: buffer written (${buf.pos - beginPos}) != space used (${
-          PAGESIZE -
+          this.storage.pageSize -
           this.freeBytes
         }), addr=${this.addr}`,
       );
@@ -202,10 +201,10 @@ export abstract class Page {
     if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
     if (buf.readU16() != 0) throw new Error("Non-zero reserved field");
     this._readContent(buf);
-    if (buf.pos - beginPos != PAGESIZE - this.freeBytes) {
+    if (buf.pos - beginPos != this.storage.pageSize - this.freeBytes) {
       throw new BugError(
         `BUG: buffer read (${buf.pos - beginPos}) != space used (${
-          PAGESIZE -
+          this.storage.pageSize -
           this.freeBytes
         })`,
       );
@@ -692,11 +691,11 @@ export class DataPage extends Page {
   }
 
   createBuffer() {
-    this.buffer = new Uint8Array(PAGESIZE - 8);
+    this.buffer = new Uint8Array(this.storage.pageSize - 8);
   }
 
   get usedBytes() {
-    return PAGESIZE - this.freeBytes - 8;
+    return this.storage.pageSize - this.freeBytes - 8;
   }
 
   addUsage(len: number) {
@@ -715,8 +714,11 @@ export class DataPage extends Page {
   _readContent(buf: Buffer) {
     super._readContent(buf);
     this.next = buf.readU32();
-    this.buffer = buf.buffer.subarray(buf.pos, /* end: */ PAGESIZE);
-    buf.pos = PAGESIZE;
+    this.buffer = buf.buffer.subarray(
+      buf.pos,
+      /* end: */ this.storage.pageSize,
+    );
+    buf.pos = this.storage.pageSize;
     this.freeBytes = 0;
   }
 }

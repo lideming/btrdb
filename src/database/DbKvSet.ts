@@ -1,6 +1,6 @@
 import type { IDbSet, SetKeyType, SetValueType } from "../btrdb.d.ts";
 import { DbSetBase } from "./DbSetBase.ts";
-import { KEYSIZE_LIMIT, KVNodeType, SetPage } from "../pages/page.ts";
+import { KVNodeType, SetPage } from "../pages/page.ts";
 import { Node } from "../pages/tree.ts";
 import { JSValue, KeyComparator, KValue } from "../utils/value.ts";
 
@@ -63,9 +63,9 @@ export class DbKvSet extends DbSetBase<SetPage> implements IDbSet {
   async set(key: SetKeyType, val: SetValueType | null) {
     if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
     const keyv = new JSValue(key);
-    if (keyv.byteLength > KEYSIZE_LIMIT) {
+    if (keyv.byteLength > this.keySizeLimit) {
       throw new Error(
-        `The key size is too large (${keyv.byteLength}), the limit is ${KEYSIZE_LIMIT}`,
+        `The key size is too large (${keyv.byteLength}), the limit is ${this.keySizeLimit}`,
       );
     }
 

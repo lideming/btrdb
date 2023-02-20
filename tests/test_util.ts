@@ -1,5 +1,4 @@
 import { Database, InMemoryData } from "../mod.ts";
-import { PAGESIZE } from "../src/pages/page.ts";
 import { Runtime, RuntimeInspectOptions } from "../src/utils/runtime.ts";
 import { assertEquals } from "./test.dep.ts";
 
@@ -67,11 +66,12 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
   console.timeEnd("run");
   db.close();
 
+  const { pageSize } = (db as any).storage;
   if (!inmemory) {
     const file = await Runtime.open(testFile);
     const size = (await file.stat()).size;
     file.close();
-    console.info("file size:", size, `(${size / PAGESIZE} pages)`);
+    console.info("file size:", size, `(${size / pageSize} pages)`);
   }
   const counter = (db as any).storage.perfCounter;
   if (counter.pageWrites) {
@@ -79,7 +79,7 @@ export async function runDbTest(func: (db: Database) => Promise<void>) {
       "pageWrites:",
       counter.pageWrites,
       "space efficient:",
-      (1 - (counter.pageFreebyteWrites / (counter.pageWrites * PAGESIZE)))
+      (1 - (counter.pageFreebyteWrites / (counter.pageWrites * pageSize)))
         .toFixed(3),
     );
   }

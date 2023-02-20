@@ -31,7 +31,11 @@ export class DbSetBase<PageType extends (SetPage | DocSetPage)> {
     public readonly name: string,
     public readonly type: DbSetType,
     protected isSnapshot: boolean,
-  ) {}
+  ) {
+    this.keySizeLimit = Math.floor(this._db.storage.pageSize / 4);
+  }
+
+  readonly keySizeLimit: number;
 
   protected async getPageEnterLock(writer = false) {
     if (writer) {

@@ -50,17 +50,23 @@ export class DatabaseEngine implements IDB {
     return new Node(this.rootPage!);
   }
 
-  async openFile(path: string, options?: { fsync?: InFileStorage["fsync"] }) {
-    const stor = new InFileStorage();
-    if (options) Object.assign(stor, options);
+  async openFile(
+    path: string,
+    options?: { pageSize?: number; fsync?: InFileStorage["fsync"] },
+  ) {
+    const stor = new InFileStorage(options);
+    if (options?.fsync !== undefined) stor.fsync = options.fsync;
     await stor.openPath(path);
     await stor.init();
     this.storage = stor;
     // console.log('openFile():', this.superPage);
   }
 
-  async openMemory(data?: InMemoryData) {
-    const stor = new InMemoryStorage(data ?? new InMemoryData());
+  async openMemory(data?: InMemoryData, options?: { pageSize?: number }) {
+    const stor = new InMemoryStorage({
+      ...options,
+      data,
+    });
     await stor.init();
     this.storage = stor;
   }

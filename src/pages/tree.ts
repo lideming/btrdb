@@ -1,6 +1,6 @@
 import { debug_node, debugLog } from "../utils/debug.ts";
 import { AlreadyExistError, BugError, NotExistError } from "../utils/errors.ts";
-import { NodePage, PageAddr, PAGESIZE } from "../pages/page.ts";
+import { NodePage, PageAddr } from "../pages/page.ts";
 import { Runtime } from "../utils/runtime.ts";
 import { IComparable, IKey, KeyComparator } from "../utils/value.ts";
 
@@ -264,7 +264,7 @@ export class Node<T extends IKey<unknown>> {
         leftCount = this.keys.length;
         let leftFree = this.page.freeBytes;
         while (
-          leftFree < PAGESIZE * 0.05 ||
+          leftFree < this.page.storage.pageSize * 0.05 ||
           leftCount > this.keys.length - 2
         ) {
           leftCount--;
