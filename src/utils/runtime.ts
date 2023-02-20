@@ -19,6 +19,7 @@ export let Runtime = !_Deno ? null! : {
   File: _Deno.FsFile,
   getRandomValues: crypto.getRandomValues,
   memoryUsage: _Deno.memoryUsage,
+  stat: _Deno.stat,
 };
 
 if (!Runtime) {

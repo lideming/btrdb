@@ -113,4 +113,6 @@ if (!global["Deno"]) {
   Runtime.getRandomValues = crypto.randomFillSync;
 
   Runtime.memoryUsage = process.memoryUsage;
+
+  Runtime.stat = fsPromises.stat;
 }
