@@ -36,7 +36,7 @@ if (!global["Deno"]) {
 
   Runtime.mkdir = fsPromises.mkdir;
 
-  Runtime.test = function () {};
+  Runtime.test = function () {} as any;
 
   Runtime.remove = (path: string | URL) => fsPromises.rm(path);
 
