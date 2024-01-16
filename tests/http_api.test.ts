@@ -122,13 +122,18 @@ for (const RUN_IN_WORKER of [false, true]) {
     testOptions,
     async () => {
       await testApi("POST", "/sets/kv:test");
-      await testApi("PUT", `/sets/kv:test/${jsonUri("key1")}`, "value1");
+      await testApi("PUT", `/sets/kv:test/${jsonUri("key1")}`, "value1", true);
       await testApi("GET", `/sets/kv:test/${jsonUri("key1")}`, "value1");
       await testApi("GET", `/sets/kv:test/?count`, 1);
-      await testApi("PUT", `/sets/kv:test/${jsonUri(123)}`, 456);
+      await testApi("PUT", `/sets/kv:test/${jsonUri(123)}`, 456, true);
       await testApi("GET", `/sets/kv:test/${jsonUri(123)}`, 456);
       await testApi("GET", `/sets/kv:test/?count`, 2);
-      await testApi("PUT", `/sets/kv:test/${jsonUri("with/ & %")}`, "okay?");
+      await testApi(
+        "PUT",
+        `/sets/kv:test/${jsonUri("with/ & %")}`,
+        "okay?",
+        true,
+      );
       await testApi("GET", `/sets/kv:test/${jsonUri("with/ & %")}`, "okay?");
       await testApi("GET", `/sets/kv:test/?count`, 3);
       await testApi("DELETE", `/sets/kv:test/${jsonUri("with/ & %")}`);

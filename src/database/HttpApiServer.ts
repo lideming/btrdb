@@ -91,6 +91,12 @@ export class HttpApiHanlder {
           } else if (req.method == "DELETE") {
             // Delete a set
             return await this.db.deleteSet(setname, settype);
+          } else if (req.method == "HEAD") {
+            // Check if the set exists
+            // this.getSet() throws 404 if the set not found
+            //@ts-ignore
+            await this.getSet(setname, settype);
+            return;
           }
         }
         if (settype == "kv") {
@@ -104,8 +110,7 @@ export class HttpApiHanlder {
             } else if (req.method == "PUT") {
               // Set a key-value pair
               const set = await this.getSet(setname, settype);
-              await set.set(key, await req.json());
-              return;
+              return await set.set(key, await req.json());
             } else if (req.method == "DELETE") {
               // Delete a key
               const set = await this.getSet(setname, settype);
@@ -215,7 +220,7 @@ export class HttpApiHanlder {
 
   private async getSet(name: string, type: "kv"): Promise<IDbSet>;
   private async getSet(name: string, type: "doc"): Promise<IDbDocSet>;
-  private async getSet(name: string, type: string) {
+  private async getSet(name: string, type: "kv" | "doc") {
     const set = this.db.getSet(name, type as any) as any;
     if (!await set.exists()) throw new ApiError(404, `set not found`);
     return set;

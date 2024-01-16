@@ -14,16 +14,32 @@ export class ClientDatabase {
     return this.getSet(name, type as any) as any;
   }
 
+  async createKvSet(name: string): Promise<ClientKvSet> {
+    return await this.createSet(name, "kv");
+  }
+
+  async createDocSet(name: string): Promise<ClientDocSet> {
+    return await this.createSet(name, "doc");
+  }
+
   getSet(name: string, type?: "kv"): ClientKvSet;
   getSet(name: string, type: "doc"): ClientDocSet;
   getSet(name: string, type: "kv" | "doc" = "kv") {
     if (type === "kv" || type === undefined) {
-      return new ClientKvSet(this.httpClient, name);
+      return this.getKvSet(name);
     } else if (type === "doc") {
-      return new ClientDocSet(this.httpClient, name);
+      return this.getDocSet(name);
     } else {
       throw new Error("wrong type " + type);
     }
+  }
+
+  getKvSet(name: string) {
+    return new ClientKvSet(this.httpClient, name);
+  }
+
+  getDocSet(name: string) {
+    return new ClientDocSet(this.httpClient, name);
   }
 
   async deleteSet(name: string, type: "kv" | "doc"): Promise<boolean> {
@@ -32,6 +48,15 @@ export class ClientDatabase {
       url`/sets/${type}:${name}`,
     );
   }
+
+  async deleteKvSet(name: string): Promise<boolean> {
+    return await this.deleteSet(name, "kv");
+  }
+
+  async deleteDocSet(name: string): Promise<boolean> {
+    return await this.deleteSet(name, "doc");
+  }
+
   async getObjects(): Promise<
     {
       name: string;
@@ -51,8 +76,12 @@ export class ClientDatabase {
 export class ClientKvSet {
   constructor(readonly httpClient: HttpClient, readonly name: string) {}
 
-  exists(): Promise<boolean> {
-    throw new Error("Method not implemented.");
+  async exists(): Promise<boolean> {
+    const { status } = await this.httpClient.requestReturnStatus(
+      "HEAD",
+      url`/sets/kv:${this.name}`,
+    );
+    return status == 200;
   }
   async get(key: SetKeyType): Promise<SetValueType | null> {
     return await this.httpClient.request(
@@ -60,18 +89,19 @@ export class ClientKvSet {
       url`/sets/kv:${this.name}/${JSON.stringify(key)}`,
     );
   }
-  async set(key: SetKeyType, value: SetValueType): Promise<void> {
-    await this.httpClient.request(
+  async set(key: SetKeyType, value: SetValueType): Promise<boolean> {
+    return await this.httpClient.request(
       "PUT",
       url`/sets/kv:${this.name}/${JSON.stringify(key)}`,
       value,
     );
   }
-  async delete(key: SetKeyType): Promise<void> {
-    await this.httpClient.request(
+  async delete(key: SetKeyType): Promise<boolean> {
+    const { status } = await this.httpClient.requestReturnStatus(
       "DELETE",
       url`/sets/kv:${this.name}/${JSON.stringify(key)}`,
     );
+    return status == 200;
   }
   async getAll(): Promise<
     {
@@ -105,10 +135,13 @@ export class ClientKvSet {
 export class ClientDocSet {
   constructor(readonly httpClient: HttpClient, readonly name: string) {}
 
-  get setId() {
-    return `doc:${this.name}`;
+  async exists(): Promise<boolean> {
+    const { status } = await this.httpClient.requestReturnStatus(
+      "HEAD",
+      url`/sets/doc:${this.name}`,
+    );
+    return status == 200;
   }
-
   async getCount(): Promise<number> {
     return await this.httpClient.request(
       "GET",
@@ -130,16 +163,17 @@ export class ClientDocSet {
   }
   async upsert(doc: any): Promise<void> {
     return await this.httpClient.request(
-      "POST",
-      url`/sets/doc:${this.name}/${JSON.stringify(doc.id)}?insert`,
+      "PUT",
+      url`/sets/doc:${this.name}/${JSON.stringify(doc.id)}`,
       doc,
     );
   }
   async delete(id: unknown): Promise<boolean> {
-    return await this.httpClient.request(
+    const { status } = await this.httpClient.requestReturnStatus(
       "DELETE",
       url`/sets/doc:${this.name}/${JSON.stringify(id)}`,
     );
+    return status == 200;
   }
   async getIds(): Promise<any[]> {
     return await this.httpClient.request(
@@ -176,6 +210,22 @@ export class HttpClient {
     url: string,
     body?: any,
   ) {
+    const { status, body: resBody } = await this.requestReturnStatus(
+      method,
+      url,
+      body,
+    );
+    if (status < 200 || status >= 300) {
+      throw new HTTPError(status, resBody);
+    }
+    return resBody;
+  }
+
+  async requestReturnStatus(
+    method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD",
+    url: string,
+    body?: any,
+  ) {
     const { fetch = defaultFetch, baseUrl = "", token } = this.options;
     const headers: any = {};
     if (body !== undefined) {
@@ -190,14 +240,19 @@ export class HttpClient {
     if (resp.headers.get("content-type")?.startsWith("application/json")) {
       json = await resp.json();
     }
-    if (!resp.ok) {
-      if (json) {
-        throw new Error(`API: ${json.error}`);
-      } else {
-        throw new Error(`HTTP status (${resp.status}) ${await resp.text()}`);
-      }
-    }
-    return json;
+    return {
+      status: resp.status,
+      body: json !== undefined ? json : await resp.text(),
+    };
+  }
+}
+
+class HTTPError extends Error {
+  constructor(readonly httpStatus: number, readonly httpBody: any) {
+    const bodyString = typeof httpBody == "object"
+      ? JSON.stringify(httpBody)
+      : httpBody;
+    super(`HTTP status (${httpStatus}): ${bodyString}`);
   }
 }
 
