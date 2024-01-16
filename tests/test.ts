@@ -685,6 +685,22 @@ async function checkQuery(userSet: IDbDocSet<User>) {
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
 
+  // queryCount
+  assertEquals(
+    await userSet.queryCount`
+      status == ${"online"}
+      AND role == ${"admin"}
+    `,
+    users.filter((x) => x.status == "online" && x.role == "admin").length,
+  );
+  assertEquals(
+    await userSet.queryCount`
+      ${"online"} == status
+      AND ${"admin"} == role
+    `,
+    users.filter((x) => x.status == "online" && x.role == "admin").length,
+  );
+
   // composite index
   assertEquals(
     await userSet.query(
