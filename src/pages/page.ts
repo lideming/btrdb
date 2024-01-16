@@ -654,7 +654,7 @@ export class IndexInfo {
 
   get func() {
     if (!this.cachedFunc) {
-      this.cachedFunc = (1, eval)(this.funcStr);
+      this.cachedFunc = (0, eval)(this.funcStr);
     }
     return this.cachedFunc!;
   }

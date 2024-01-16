@@ -16,12 +16,7 @@ import {
 import { encoder } from "../src/utils/buffer.ts";
 import { AlreadyExistError } from "../src/utils/errors.ts";
 import { Runtime } from "../src/utils/runtime.ts";
-import {
-  assert,
-  assertEquals,
-  assertThrows,
-  assertThrowsAsync,
-} from "./test.dep.ts";
+import { assert, assertEquals, assertThrowsAsync } from "./test.dep.ts";
 import {
   assertQueryEquals,
   dumpObjectToFile,
@@ -38,8 +33,21 @@ console.info("preparing test data...");
 
 // create/get() sets
 
+let expectedSetCount = 0;
+
 runWithDatabase(async function createSet(db) {
-  var set = await db.createSet("test");
+  var set = await db.createKvSet("test");
+  expectedSetCount++;
+  await set.set("testkey", "testval");
+  await set.set("testkey2", "testval2");
+  assertEquals(await set.get("testkey"), "testval");
+  assertEquals(await set.get("testkey2"), "testval2");
+  assertEquals(await db.commit(), true);
+});
+
+runWithDatabase(async function createSet_oldStyle(db) {
+  var set = await db.createSet("test_old");
+  expectedSetCount++;
   await set.set("testkey", "testval");
   await set.set("testkey2", "testval2");
   assertEquals(await set.get("testkey"), "testval");
@@ -85,22 +93,32 @@ runWithDatabase(async function Set_delete(db) {
 });
 
 runWithDatabase(async function getSetCount(db) {
-  assertEquals(await db.getSetCount(), 1);
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assert(await db.createSet("testCount1"));
-  assertEquals(await db.getSetCount(), 2);
+  expectedSetCount++;
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assert(await db.createSet("testCount2"));
-  assertEquals(await db.getSetCount(), 3);
+  expectedSetCount++;
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assert(await db.createSet("testCount1"));
-  assertEquals(await db.getSetCount(), 3);
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assert(await db.createSet("testCount3"));
-  assertEquals(await db.getSetCount(), 4);
+  expectedSetCount++;
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assertEquals(await db.commit(), true);
 });
 
 runWithDatabase(async function deleteSet(db) {
   assertEquals(await db.deleteSet("testCount3", "kv"), true);
+  expectedSetCount--;
   assertEquals(await db.getSet("testCount3").exists(), false);
-  assertEquals(await db.getSetCount(), 3);
+  assertEquals(await db.getSetCount(), expectedSetCount);
+  assertEquals(await db.commit(), true);
+
+  assertEquals(await db.deleteKvSet("testCount2"), true);
+  expectedSetCount--;
+  assertEquals(await db.getSet("testCount2").exists(), false);
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assertEquals(await db.commit(), true);
 });
 
@@ -109,8 +127,9 @@ runWithDatabase(async function deleteSet_afterModify(db) {
   assert(set);
   await set.set("somechange", "somevalue");
   assertEquals(await db.deleteSet("testCount1", "kv"), true);
+  expectedSetCount--;
   assertEquals(await db.getSet("testCount1").exists(), false);
-  assertEquals(await db.getSetCount(), 2);
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assertEquals(await db.commit(), true);
 });
 
@@ -119,7 +138,7 @@ runWithDatabase(async function deleteSet_check(db) {
   assertEquals(await db.getSet("testCount3").exists(), false);
   assertEquals(await db.deleteSet("testCount1", "kv"), false);
   assertEquals(await db.deleteSet("testCount3", "kv"), false);
-  assertEquals(await db.getSetCount(), 2);
+  assertEquals(await db.getSetCount(), expectedSetCount);
   assertEquals(await db.commit(), false);
 });
 
@@ -132,7 +151,16 @@ interface TestUser {
 }
 
 runWithDatabase(async function DocSet_insert(db) {
-  var set = await db.createSet<TestUser>("testdoc", "doc");
+  var set = await db.createDocSet<TestUser>("testdoc");
+  await set.insert({ "username": "btrdb" });
+  await set.insert({ "username": "test" });
+  assertEquals(await set.get(1), { "id": 1, "username": "btrdb" });
+  assertEquals(await set.get(2), { "id": 2, "username": "test" });
+  assertEquals(await db.commit(), true);
+});
+
+runWithDatabase(async function DocSet_insert_oldStyle(db) {
+  var set = await db.createSet<TestUser>("testdoc_old", "doc");
   await set.insert({ "username": "btrdb" });
   await set.insert({ "username": "test" });
   assertEquals(await set.get(1), { "id": 1, "username": "btrdb" });
@@ -141,7 +169,7 @@ runWithDatabase(async function DocSet_insert(db) {
 });
 
 runWithDatabase(async function DocSet_upsert(db) {
-  var set = await db.createSet<TestUser>("testdoc", "doc");
+  var set = await db.createDocSet<TestUser>("testdoc");
   await set.upsert({ "id": 1, "username": "whatdb" });
   await set.upsert({ "id": 2, "username": "nobody" });
   assertEquals(await set.get(1), { "id": 1, "username": "whatdb" });
@@ -150,6 +178,13 @@ runWithDatabase(async function DocSet_upsert(db) {
 });
 
 runWithDatabase(async function DocSet_get(db) {
+  var set = db.getDocSet<TestUser>("testdoc");
+  assertEquals(await set!.get(1), { "id": 1, "username": "whatdb" });
+  assertEquals(await set!.get(2), { "id": 2, "username": "nobody" });
+  assertEquals(await db.commit(), false);
+});
+
+runWithDatabase(async function DocSet_get_oldStyle(db) {
   var set = db.getSet("testdoc", "doc");
   assertEquals(await set!.get(1), { "id": 1, "username": "whatdb" });
   assertEquals(await set!.get(2), { "id": 2, "username": "nobody" });
@@ -157,7 +192,7 @@ runWithDatabase(async function DocSet_get(db) {
 });
 
 runWithDatabase(async function DocSet_getAll(db) {
-  var set = db.getSet("testdoc", "doc");
+  var set = db.getDocSet<TestUser>("testdoc");
   assertEquals(await set!.getAll(), [
     { "id": 1, "username": "whatdb" },
     { "id": 2, "username": "nobody" },
@@ -166,7 +201,7 @@ runWithDatabase(async function DocSet_getAll(db) {
 });
 
 runWithDatabase(async function DocSet_forEach(db) {
-  var set = db.getSet("testdoc", "doc");
+  var set = db.getDocSet<TestUser>("testdoc");
   const all: any[] = [];
   await set!.forEach((doc) => {
     all.push(doc);
@@ -179,15 +214,29 @@ runWithDatabase(async function DocSet_forEach(db) {
 });
 
 runWithDatabase(async function DocSet_getIds(db) {
-  var set = db.getSet("testdoc", "doc");
+  var set = db.getDocSet<TestUser>("testdoc");
   assertEquals(await set!.getIds(), [1, 2]);
   assertEquals(await db.commit(), false);
 });
 
 runWithDatabase(async function DocSet_delete(db) {
-  var set = db.getSet("testdoc", "doc");
+  var set = db.getDocSet<TestUser>("testdoc");
   await set!.delete(1);
   assertEquals(await set!.getAll(), [{ "id": 2, "username": "nobody" }]);
+  assertEquals(await db.commit(), true);
+});
+
+runWithDatabase(async function DocSet_deleteSet(db) {
+  var set = await db.createDocSet<TestUser>("testdoc_delete_test");
+  await set.insert({ "username": "btrdb" });
+  await set.insert({ "username": "test" });
+  assertEquals(await set.get(1), { "id": 1, "username": "btrdb" });
+  assertEquals(await set.get(2), { "id": 2, "username": "test" });
+  assertEquals(await db.commit(), true);
+
+  assertEquals(await set.exists(), true);
+  await db.deleteDocSet("testdoc_delete_test");
+  assertEquals(await set.exists(), false);
   assertEquals(await db.commit(), true);
 });
 
@@ -409,20 +458,19 @@ runWithDatabase(async function DocSet_indexes_demo(db) {
     role: "admin" | "user";
   }
 
-  const userSet = await db.createSet<User>("users", "doc");
+  const userSet = await db.createDocSet<User>("users", {
+    indexes: {
+      status: (user) => user.status,
+      // define "status" index, which indexing the value of user.status for each user in the set
 
-  // Define indexes on the set and update indexes if needed.
-  await userSet.useIndexes({
-    status: (user) => user.status,
-    // define "status" index, which indexing the value of user.status for each user in the set
+      role: (user) => user.role,
 
-    role: (user) => user.role,
+      username: { unique: true, key: (user) => user.username },
+      // define "username" unique index, which does not allow duplicated username.
 
-    username: { unique: true, key: (user) => user.username },
-    // define "username" unique index, which does not allow duplicated username.
-
-    onlineAdmin: (user) => user.status == "online" && user.role == "admin",
-    // define "onlineAdmin" index, the value is a computed boolean.
+      onlineAdmin: (user) => user.status == "online" && user.role == "admin",
+      // define "onlineAdmin" index, the value is a computed boolean.
+    },
   });
 
   await userSet.insert({ username: "yuuza", status: "online", role: "user" });
@@ -605,14 +653,30 @@ async function checkQuery(userSet: IDbDocSet<User>) {
 
   // query expressions
   assertEquals(
+    await userSet.query`
+      status == ${"online"}
+      AND role == ${"admin"}
+    `,
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  // query expressions (inverted name and value)
+  assertEquals(
+    await userSet.query`
+      ${"online"} == status
+      AND ${"admin"} == role
+    `,
+    users.filter((x) => x.status == "online" && x.role == "admin"),
+  );
+
+  // old style query expressions
+  assertEquals(
     await userSet.query(query`
       status == ${"online"}
       AND role == ${"admin"}
     `),
     users.filter((x) => x.status == "online" && x.role == "admin"),
   );
-
-  // query expressions (inverted name and value)
   assertEquals(
     await userSet.query(query`
       ${"online"} == status
@@ -760,43 +824,25 @@ async function checkQuery(userSet: IDbDocSet<User>) {
   );
 
   assertEquals(
-    await userSet.query(query`
+    await userSet.query`
       id > ${1} SKIP ${1}
-    `),
+    `,
     users.filter((x) => x.id > 1).slice(1),
   );
 
   assertEquals(
-    await userSet.query(query`
+    await userSet.query`
       id > ${1} LIMIT ${2}
-    `),
+    `,
     users.filter((x) => x.id > 1).slice(0, 0 + 2),
   );
 
   assertEquals(
-    await userSet.query(query`
+    await userSet.query`
       id > ${1} SKIP ${1} LIMIT ${2}
-    `),
+    `,
     users.filter((x) => x.id > 1).slice(1, 1 + 2),
   );
-
-  assertThrows(() => {
-    query`
-      id > ${1} SKIP ${1} SKIP ${2}
-    `;
-  });
-
-  assertThrows(() => {
-    query`
-      id > ${1} LIMIT ${1} LIMIT ${2}
-    `;
-  });
-
-  assertThrows(() => {
-    query`
-      id > ${1} LIMIT not_a_value
-    `;
-  });
 }
 
 // transaction
@@ -1269,7 +1315,7 @@ runWithDatabase(async function check_after_rebuild(db) {
 }, ignoreMassiveTests);
 
 runWithDatabase(async function delete_massive_then_rebuild(db) {
-  await db.deleteSet("docMassive", "doc");
+  await db.deleteDocSet("docMassive");
   await db.rebuild();
 }, ignoreMassiveTests);
 

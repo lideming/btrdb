@@ -15,9 +15,9 @@ jobs:
         with:
           deno-version: 1.x
 
-      - name: Run unittests.ts
+      - name: Run unittests.test.ts
         run: |
-          deno test --coverage=testdata/coverage --unstable -A tests/unittests.ts
+          deno test --coverage=testdata/coverage --unstable -A tests/unittests.test.ts
 
       - name: Run test.ts
         run: |

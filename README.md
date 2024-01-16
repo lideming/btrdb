@@ -12,6 +12,7 @@ btrfs.
 - [x] B-tree Copy-on-Write (reference
       [paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
       [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
+  - [ ] Merge B-tree nodes on underflow
 - [x] Good performance even written in pure TypeScript
   - [x] Set 100k key-value pairs in 1.2s
   - [x] Insert 100k documents in 2.3s
@@ -78,15 +79,14 @@ const { Database } = require("@yuuza/btrdb");
 ### Create/open database file
 
 ```ts
-const db = new Database();
-await db.openFile("data.db");
+const db = await Database.openFile("data.db");
 // Will create new database if the file doesn't exist.
 ```
 
 ## Key-value set
 
 ```ts
-const configSet = await db.createSet("config");
+const configSet = await db.createKvSet("config");
 // Get the set or create if not exist.
 
 await configSet.set("username", "yuuza");
@@ -107,7 +107,7 @@ interface User {
   status: "online" | "offline";
 }
 
-const userSet = await db.createSet<User>("users", "doc");
+const userSet = await db.createDocSet<User>("users");
 // Get the set or create if not exist.
 ```
 
@@ -154,20 +154,19 @@ interface User {
   role: "admin" | "user";
 }
 
-const userSet = await db.createSet<User>("users", "doc");
+const userSet = await db.createDocSet<User>("users", {
+  indexes: {
+    status: (u) => u.status,
+    // define "status" index, which indexing the value of user.status for each user in the set
 
-// Define indexes on the set and update indexes if needed.
-await userSet.useIndexes({
-  status: (u) => u.status,
-  // define "status" index, which indexing the value of user.status for each user in the set
+    role: (user) => user.role,
 
-  role: (user) => user.role,
+    username: { unique: true, key: (u) => u.username },
+    // define "username" unique index, which does not allow duplicated username.
 
-  username: { unique: true, key: (u) => u.username },
-  // define "username" unique index, which does not allow duplicated username.
-
-  onlineAdmin: (u) => u.status == "online" && u.role == "admin",
-  // define "onlineAdmin" index, the value is a computed boolean.
+    onlineAdmin: (u) => u.status == "online" && u.role == "admin",
+    // define "onlineAdmin" index, the value is a computed boolean.
+  },
 });
 
 await userSet.insert({ username: "yuuza", status: "online", role: "user" });
@@ -206,19 +205,19 @@ Always use `${}` to pass values.
 ```ts
 // Get all offline admins
 console.info(
-  await userSet.query(query`
+  await userSet.query`
     status == ${"offline"}
     AND role == ${"admin"}
-  `),
+  `,
 );
 // [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
 
 // Get all online users, but exclude id 1.
 console.info(
-  await userSet.query(query`
+  await userSet.query`
     status == ${"online"}
     AND NOT id == ${1}
-  `),
+  `,
 );
 // [ { username: "bar", status: "online", role: "admin", id: 3 } ]
 ```
@@ -268,7 +267,7 @@ Since btrdb uses CoW mechanism and never overwrites data on-disk, creating
 "snapshot" have almost no cost.
 
 ```ts
-const dataSet = await db.createSet("data");
+const dataSet = await db.createKvSet("data");
 await dataSet.set("foo", "bar");
 
 // Commit then create a "named snapshot"
@@ -300,7 +299,7 @@ const db = new ClientDatabase(
   }),
 );
 
-const kv = await db.createSet("test", "kv");
+const kv = await db.createKvSet("test");
 await kv.set("testkey", "testval");
 console.info(await kv.get("testkey"));
 ```

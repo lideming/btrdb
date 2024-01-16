@@ -21,6 +21,8 @@ import type {
   Database as IDB,
   DbObjectType,
   DbSetType,
+  IDbSet,
+  IndexDef,
   Transaction,
 } from "../btrdb.d.ts";
 import { TransactionService } from "../database/transaction.ts";
@@ -31,9 +33,11 @@ const _setTypeInfo = {
   doc: { page: DocSetPage, dbset: DbDocSet },
 };
 
-export class DatabaseEngine implements IDB {
+export class DatabaseEngine {
   storage: PageStorage = undefined as any;
-  transaction: TransactionService = new TransactionService(this);
+  transaction: TransactionService = new TransactionService(
+    this as unknown as IDB,
+  );
   private snapshot: RootPage | null = null;
 
   autoCommit = false;
@@ -124,6 +128,26 @@ export class DatabaseEngine implements IDB {
     }
   }
 
+  async createKvSet(name: string): Promise<IDbSet> {
+    return await this.createSet(name, "kv");
+  }
+
+  async createDocSet(name: string, options?: { indexes?: IndexDef<any> }) {
+    const set = await this.createSet(name, "doc");
+    if (options?.indexes) {
+      await set.useIndexes(options.indexes);
+    }
+    return set;
+  }
+
+  getKvSet(name: string) {
+    return this.getSet(name, "kv");
+  }
+
+  getDocSet(name: string) {
+    return this.getSet(name, "doc");
+  }
+
   getSet(name: string, type: "kv"): DbKvSet;
   getSet(name: string, type: "doc"): DbDocSet;
   getSet(
@@ -173,6 +197,14 @@ export class DatabaseEngine implements IDB {
 
   async deleteSet(name: string, type: DbSetType): Promise<boolean> {
     return await this.deleteObject(name, type);
+  }
+
+  async deleteKvSet(name: string) {
+    return await this.deleteSet(name, "kv");
+  }
+
+  async deleteDocSet(name: string) {
+    return await this.deleteSet(name, "doc");
   }
 
   async deleteObject(name: string, type: DbObjectType): Promise<boolean> {

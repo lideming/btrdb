@@ -11,8 +11,9 @@ export class DbSetPageHelper<PageType extends (SetPage | DocSetPage)> {
   ) {}
 
   _node: Node<DocNodeType> | null = null;
-  get node() {
-    return this._node || (this._node = new Node(this.page));
+  get node(): Node<DocNodeType> {
+    return this._node ||
+      (this._node = new Node(this.page) as Node<DocNodeType>);
   }
 
   exitLock() {

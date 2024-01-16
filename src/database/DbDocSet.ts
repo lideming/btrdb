@@ -20,6 +20,7 @@ import { Node } from "../pages/tree.ts";
 import type { IDbDocSet, IndexDef } from "../btrdb.d.ts";
 import { nanoid } from "../utils/nanoid.ts";
 import { DbSetBase } from "./DbSetBase.ts";
+import { buildQueryFromTemplate } from "../query/queryString.ts";
 
 function _numberIdGenerator(lastId: number | null) {
   if (lastId == null) return 1;
@@ -123,12 +124,13 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
 
     const lock = await this.getPageEnterLock(true);
     const dirtypage = lock.page.getDirty();
-    const dirtynode = new Node(dirtypage);
+    const dirtynode = new Node<DocNodeType>(dirtypage);
     try { // BEGIN WRITE LOCK
       let dataPos;
       let vKey;
       let vPair;
-      let action, oldDoc;
+      let action;
+      let oldDoc: DocNodeType | null = null;
       let retryCount = 0;
       let autoId = false;
       while (true) { // retry in case of duplicated auto id
@@ -341,7 +343,7 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       if (this.isSnapshot) throw new Error("Cannot change set in DB snapshot.");
       const lock = await this.getPageEnterLock();
       const dirtypage = lock.page.getDirty();
-      const dirtynode = new Node(dirtypage);
+      const dirtynode = new Node<DocNodeType>(dirtypage);
       try { // BEGIN WRITE LOCK
         const newIndexes = { ...currentIndex };
         const newAddrs = { ...dirtypage.indexesAddrMap! };
@@ -392,7 +394,13 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
     }
   }
 
-  async query(query: Query): Promise<any[]> {
+  async query(
+    query: Query | TemplateStringsArray,
+    ...args: any[]
+  ): Promise<any[]> {
+    if ("length" in query) {
+      query = buildQueryFromTemplate(query as TemplateStringsArray, args);
+    }
     const lock = await this.getPageEnterLock();
     try { // BEGIN READ LOCK
       const result = [];
@@ -401,6 +409,25 @@ export class DbDocSet extends DbSetBase<DocSetPage> implements IDbDocSet {
       }
       return result.sort((a, b) => a.key.compareTo(b.key))
         .map((doc) => doc.val);
+    } finally { // END READ LOCK
+      lock.exitLock();
+    }
+  }
+
+  async queryCount(
+    query: Query | TemplateStringsArray,
+    ...args: any[]
+  ): Promise<number> {
+    if ("length" in query) {
+      query = buildQueryFromTemplate(query as TemplateStringsArray, args);
+    }
+    const lock = await this.getPageEnterLock();
+    try { // BEGIN READ LOCK
+      let result = 0;
+      for await (const docAddr of query.run(lock.node)) {
+        result++;
+      }
+      return result;
     } finally { // END READ LOCK
       lock.exitLock();
     }

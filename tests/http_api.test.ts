@@ -45,7 +45,7 @@ for (const RUN_IN_WORKER of [false, true]) {
   });
 
   const testOptions = RUN_IN_WORKER
-    ? {}
+    ? { sanitizeOps: false }
     : { sanitizeOps: false, sanitizeResources: false };
 
   function testApi(

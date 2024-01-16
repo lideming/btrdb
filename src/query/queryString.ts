@@ -9,6 +9,7 @@ import {
   NE,
   NOT,
   OR,
+  Query,
   SKIP,
   SLICE,
 } from "../query/query.ts";
@@ -18,6 +19,13 @@ const cache = globalThis.WeakMap
   : null;
 
 export function query(plainText: TemplateStringsArray, ...args: any[]) {
+  return buildQueryFromTemplate(plainText, args);
+}
+
+export function buildQueryFromTemplate(
+  plainText: TemplateStringsArray,
+  args: any[],
+) {
   // console.info({ plainText, args });
   let ast = cache?.get(plainText);
   if (!ast) {
@@ -29,7 +37,7 @@ export function query(plainText: TemplateStringsArray, ...args: any[]) {
   }
   // console.info(ast);
   // console.info(ast.compute(args));
-  return ast.compute(args);
+  return ast.compute(args) as Query;
 }
 
 type Token =

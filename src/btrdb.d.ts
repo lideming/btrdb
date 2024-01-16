@@ -1,6 +1,6 @@
 /**
  * @example
- * const db = await new Database().openFile('data.db');
+ * const db = await Database.openFile('data.db');
  *
  * const keyValues = await db.createSet('my_set');
  * await keyValues.set('key1', 'value1');
@@ -36,20 +36,42 @@ export class Database {
 
   static openMemory(data?: InMemoryData): Promise<Database>;
 
+  /** @deprecated use {@link createKvSet} instead */
   createSet(name: string, type?: "kv"): Promise<IDbSet>;
+  /** @deprecated use {@link createDocSet} instead */
   createSet<T extends IDocument>(
     name: string,
     type: "doc",
   ): Promise<IDbDocSet<T>>;
 
+  createKvSet(name: string): Promise<IDbSet>;
+  createDocSet<T extends IDocument, TIndexes extends IndexDef<T> = IndexDef<T>>(
+    name: string,
+    options?: { indexes?: TIndexes },
+  ): Promise<IDbDocSet<T, TIndexes>>;
+
+  /** @deprecated use {@link getKvSet} instead */
   getSet(name: string, type?: "kv"): IDbSet;
+  /** @deprecated use {@link getDocSet} instead */
   getSet<T extends IDocument>(
     name: string,
     type: "doc",
   ): IDbDocSet<T>;
 
-  /** Delete a key-value set or a document set. */
+  /** Delete a key-value set */
+  getKvSet(name: string): IDbSet;
+  getDocSet<T extends IDocument>(name: string): IDbDocSet<T>;
+
+  /**
+   * Delete a key-value set or a document set.
+   * @deprecated use {@link getDocSet} instead
+   */
   deleteSet(name: string, type: DbSetType): Promise<boolean>;
+
+  /** Delete a key-value set */
+  deleteKvSet(name: string): Promise<boolean>;
+  /** Delete a document set */
+  deleteDocSet(name: string): Promise<boolean>;
 
   /** Get count of key-value sets and document sets */
   getSetCount(): Promise<number>;
@@ -82,14 +104,14 @@ export class Database {
 
   /**
    * Commit and write the changes to the disk.
-   * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resoving. If false, "deferred writing" is used.
+   * @param waitWriting (default to `defaultWaitWriting`) whether to wait writing before resolving. If false, "deferred writing" is used.
    */
   commit(waitWriting?: boolean): Promise<boolean>;
 
   /** Wait for previous deferred writing tasks. */
   waitWriting(): Promise<void>;
 
-  /** Discard uncommited changes. */
+  /** Discard uncommitted changes. */
   rollback(): Promise<void>;
 
   /**
@@ -142,7 +164,10 @@ export type OptionalId<T extends IDocument> =
 
 export interface IDbDocSet<
   T extends IDocument = any,
+  TIndexes = any,
 > {
+  exists(): Promise<boolean>;
+
   /** Documents count of this set. */
   getCount(): Promise<number>;
 
@@ -161,7 +186,7 @@ export interface IDbDocSet<
   /** Update the document if the id exists, or throw if the id not exists. */
   update(doc: T): Promise<void>;
 
-  /** Update the document if the id exists, or insert the docuemnt if the id not exists. */
+  /** Update the document if the id exists, or insert the document if the id not exists. */
   upsert(doc: T): Promise<void>;
 
   /** Get all documents from this set. */
@@ -179,7 +204,7 @@ export interface IDbDocSet<
   /**
    * Define indexes on this set.
    * The new set of index definitions will overwrite the old one.
-   * If some definition is added/changed/removed, the index will be added/changed/removed accrodingly.
+   * If some definition is added/changed/removed, the index will be added/changed/removed accordingly.
    */
   useIndexes(indexDefs: IndexDef<T>): Promise<void>;
 
@@ -187,10 +212,15 @@ export interface IDbDocSet<
   getIndexes(): Promise<Record<string, { key: string; unique: boolean }>>;
 
   /** Find values from the index. Returns matched documents. It equals to `query(EQ(index, key))`. */
-  findIndex(index: string, key: any): Promise<T[]>;
+  findIndex(index: keyof TIndexes | (string & {}), key: any): Promise<T[]>;
 
-  /** Do a query on this set. Returns matched documents. */
+  /** Do a query on this document set. Returns matched documents. */
   query(query: Query): Promise<T[]>;
+  query(plainText: TemplateStringsArray, ...args: any[]): Promise<T[]>;
+
+  /** Query for count on this document set. */
+  queryCount(query: Query): Promise<number>;
+  queryCount(plainText: TemplateStringsArray, ...args: any[]): Promise<number>;
 }
 
 export function numberIdGenerator(): (lastId: number | null) => number;
