@@ -166,7 +166,7 @@ export class ClientDocSet {
   }
 }
 
-const defaultFetch = fetch;
+const defaultFetch = globalThis.fetch;
 
 export class HttpClient {
   constructor(readonly options: HttpClientOptions) {}
