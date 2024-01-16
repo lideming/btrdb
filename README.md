@@ -29,7 +29,8 @@ btrfs.
   - [x] Isolation with concurrent reader on snapshots
 - [x] Auto-commit
 - [x] Space reclamation with refcount tree
-- [ ] Client / Server (?)
+- [x] Client / Server
+  - [x] [RESTful HTTP API](#RESTful-HTTP-API)
 - [ ] Replication (?)
 
 ## ⚠️ Warning ⚠️
@@ -282,6 +283,42 @@ const snap = await db.getSnapshot("backup");
 
 // Read data from the snapshot
 console.info(await snap.getSet("data").get("foo"));
+```
+
+## RESTful HTTP API
+
+> [API Docs](docs/http_api.md)
+
+### HTTP client
+
+```ts
+import { ClientDatabase, HttpClient } from "https://deno.land/x/btrdb/mod.ts";
+const db = new ClientDatabase(
+  new HttpClient({
+    baseUrl: "http://127.0.0.1:8080",
+    token: "the_secret",
+  }),
+);
+
+const kv = await db.createSet("test", "kv");
+await kv.set("testkey", "testval");
+console.info(await kv.get("testkey"));
+```
+
+### HTTP server
+
+```ts
+import {
+  Database,
+  HttpApiServerWithToken,
+} from "https://deno.land/x/btrdb/mod.ts";
+const db = await Database.openFile("data.db");
+db.autoCommit = true;
+
+new HttpApiServerWithToken((token) => {
+  if (token === "the_secret") return db;
+  return null;
+}).serve(Deno.listen({ hostname: "127.0.0.1", port: 8080 }));
 ```
 
 ## More example in the test code

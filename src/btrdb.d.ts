@@ -115,7 +115,7 @@ export type DbSetType = "kv" | "doc";
 
 export type DbObjectType = DbSetType | "snapshot";
 
-export type SetKeyType = string | number;
+export type SetKeyType = string | number | SetKeyType[];
 export type SetValueType = string | number | any[] | object;
 
 export interface IDbSet {

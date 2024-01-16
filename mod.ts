@@ -1,6 +1,7 @@
 export { Database } from "./src/database/database.ts";
 export { InMemoryData } from "./src/pages/storage.ts";
-export { HttpApiServer } from "./src/database/HttpApiServer.ts";
+export * from "./src/database/HttpApiServer.ts";
+export * from "./src/database/HttpApiClient.ts";
 export { nanoIdGenerator, numberIdGenerator } from "./src/database/DbDocSet.ts";
 export {
   AND,

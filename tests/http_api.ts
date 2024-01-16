@@ -99,17 +99,20 @@ for (const RUN_IN_WORKER of [false, true]) {
     testOptions,
     async () => {
       await testApi("GET", "/objects", []);
+      await testApi("DELETE", "/sets/kv:test", false);
       await testApi("POST", "/sets/kv:test");
       await testApi("POST", "/sets/doc:users");
       await testApi("GET", "/objects", [
         { type: "doc", name: "users" },
         { type: "kv", name: "test" },
       ]);
-      await testApi("DELETE", "/sets/doc:users");
+      await testApi("DELETE", "/sets/doc:users", true);
+      await testApi("DELETE", "/sets/doc:users", false);
       await testApi("GET", "/objects", [
         { type: "kv", name: "test" },
       ]);
-      await testApi("DELETE", "/sets/kv:test");
+      await testApi("DELETE", "/sets/kv:test", true);
+      await testApi("DELETE", "/sets/kv:test", false);
       await testApi("GET", "/objects", []);
     },
   );

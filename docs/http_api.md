@@ -134,7 +134,7 @@ type QueryRequest = {
   /** The values of the query */
   values: any[];
 };
-const example = {
+const example: QueryRequest = {
   query: "age >= {} AND gender == {}",
   values: [18, "male"],
 };

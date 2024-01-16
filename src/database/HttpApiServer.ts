@@ -2,11 +2,9 @@ import { Database } from "./database.ts";
 import { query } from "../query/queryString.ts";
 import { IDbDocSet, IDbSet, IndexDef, KeySelector } from "../btrdb.d.ts";
 
-export class HttpApiServer {
-  constructor(
-    public db: Database,
-  ) {
-  }
+export abstract class BaseHttpApiServer {
+  abstract handler: HttpApiHanlder;
+
   async serve(listener: Deno.Listener) {
     for await (const conn of listener) {
       this.serveConn(conn);
@@ -16,13 +14,29 @@ export class HttpApiServer {
   async serveConn(conn: Deno.Conn) {
     const httpConn = Deno.serveHttp(conn);
     for await (const requestEvent of httpConn) {
-      await this.serveRequest(requestEvent);
+      await this.handler.serveRequest(requestEvent);
     }
   }
+}
+
+export class HttpApiServer extends BaseHttpApiServer {
+  constructor(
+    public db: Database,
+  ) {
+    super();
+    this.handler = new HttpApiHanlder(this.db);
+  }
+  handler: HttpApiHanlder;
+}
+
+export class HttpApiHanlder {
+  constructor(
+    public db: Database,
+  ) {}
 
   async serveRequest(event: Deno.RequestEvent) {
     try {
-      const ret = await this.handler(event);
+      const ret = await this.handleRequest(event.request);
       if (ret === undefined) {
         event.respondWith(new Response(null, { status: 200 }));
       } else {
@@ -56,15 +70,17 @@ export class HttpApiServer {
     }
   }
 
-  private async handler(event: Deno.RequestEvent) {
-    const req = event.request;
+  async handleRequest(req: Request) {
     const url = new URL(req.url);
     const path = url.pathname.split("/").slice(
       1,
       url.pathname.endsWith("/") ? -1 : undefined,
     );
     // console.debug(req.method, path);
-    if (path.length >= 2) {
+    if (path.length == 1 && path[0] == "objects") {
+      // List objects
+      return await this.db.getObjects();
+    } else if (path.length >= 2) {
       const [settype, setname] = decodeSetId(path[1]);
       if (path[0] == "sets") {
         if (path.length === 2 && url.search == "") {
@@ -74,8 +90,7 @@ export class HttpApiServer {
             return;
           } else if (req.method == "DELETE") {
             // Delete a set
-            await this.db.deleteSet(setname, settype);
-            return;
+            return await this.db.deleteSet(setname, settype);
           }
         }
         if (settype == "kv") {
@@ -193,9 +208,6 @@ export class HttpApiServer {
           }
         }
       }
-    } else if (path.length == 1 && path[0] == "objects") {
-      // List objects
-      return await this.db.getObjects();
     }
 
     throw new ApiError(400, "Unknown URL");
@@ -210,14 +222,56 @@ export class HttpApiServer {
   }
 }
 
-class ApiError extends Error {
+export type TokenHandler = (
+  token: string | null,
+) => (Database | null) | PromiseLike<(Database | null)>;
+
+export class HttpApiServerWithToken extends BaseHttpApiServer {
+  constructor(
+    public tokenHandler: TokenHandler,
+  ) {
+    super();
+    this.handler = new HttpApiHandlerWithToken(tokenHandler);
+  }
+  handler: HttpApiHandlerWithToken;
+}
+
+export class HttpApiHandlerWithToken extends HttpApiHanlder {
+  constructor(
+    readonly databaseFromToken: TokenHandler,
+  ) {
+    super(null!);
+  }
+  async handleRequest(req: Request): Promise<any> {
+    const token = getRequestToken(req);
+    const db = await this.databaseFromToken(token);
+    if (db) {
+      return await new HttpApiHanlder(db).handleRequest(req);
+    } else {
+      throw new ApiError(401, "Unauthorized");
+    }
+  }
+}
+
+export class ApiError extends Error {
   constructor(readonly statusCode: number, msg: string) {
     super(msg);
   }
 }
 
+function getRequestToken(request: Request) {
+  const authValue = request.headers.get("authorization");
+  if (authValue?.startsWith("Bearer ")) {
+    const token = authValue.slice("Bearer ".length);
+    return token;
+  }
+  return null;
+}
+
 function decodeSetId(setid: string) {
-  return setid.split(":", 2) as ["kv" | "doc", string];
+  const result = setid.split(":", 2) as ["kv" | "doc", string];
+  result[1] = decodeURIComponent(result[1]);
+  return result;
 }
 
 function propNameToKeySelector(name: string): KeySelector<any> {
