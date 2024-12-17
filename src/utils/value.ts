@@ -242,11 +242,11 @@ export class DocumentValue extends JSValue implements IKey<any> {
     this.keyValue = new JSValue(this.val.id);
   }
 
-  get key() {
+  override get key() {
     return this.keyValue;
   }
 
-  static readFrom(buf: Buffer) {
+  static override readFrom(buf: Buffer) {
     const begin = buf.pos;
     const val = readValue(buf);
     const end = buf.pos;

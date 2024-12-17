@@ -770,12 +770,12 @@ export class InFileStorage extends PageStorage {
       // Assuming the last item in `pages` is the SuperPage.
       if (i === pagesLen - 2 && this.fsync) {
         // Call fsync() before the SuperPage
-        await Runtime.fdatasync(this.file!.rid);
+        await this.file!.syncData();
       }
     }
     if (this.fsync) {
       // Call the final fsync() to finish the commit.
-      await Runtime.fdatasync(this.file!.rid);
+      await this.file!.syncData();
     }
     this.lock.exitWriter();
   }

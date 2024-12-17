@@ -84,6 +84,14 @@ if (!global["Deno"]) {
       }
       return this.pos;
     }
+    syncData(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        fs.fdatasync(this.fh.fd, (err: any) => {
+          if (!err) resolve();
+          else reject(err);
+        });
+      });
+    }
     stat(): Promise<any> {
       return this.fh.stat();
     }
@@ -99,15 +107,6 @@ if (!global["Deno"]) {
     options?: Deno.OpenOptions,
   ): Promise<RuntimeFile> {
     return new File(await fsPromises.open(path, O_RDWR | O_CREAT)) as any;
-  };
-
-  Runtime.fdatasync = function (fd: number) {
-    return new Promise<void>((resolve, reject) => {
-      fs.fdatasync(fd, (err: any) => {
-        if (!err) resolve();
-        else reject(err);
-      });
-    });
   };
 
   Runtime.getRandomValues = crypto.randomFillSync;

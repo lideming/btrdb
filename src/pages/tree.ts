@@ -361,14 +361,14 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     super(page, parent, posInParent);
   }
 
-  async readChildPage(pos: number): Promise<NoRefcountNode<T>> {
+  override async readChildPage(pos: number): Promise<NoRefcountNode<T>> {
     const childPage = await this.page.readChildPage(pos);
     return new NoRefcountNode(childPage, this, pos);
   }
 
   _cleanPage: NodePage<T> | null = null;
 
-  getDirty(): this {
+  override getDirty(): this {
     const oldpage = this.page;
     this.page = this.page.getDirty();
     if (oldpage !== this.page) {
@@ -377,7 +377,7 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return this;
   }
 
-  async getDirtyWithAddr(): Promise<this> {
+  override async getDirtyWithAddr(): Promise<this> {
     let oldpage = this.page;
     const wasOnDisk = this.page.hasAddr;
     this.page = await this.page.getDirtyWithAddr();
@@ -395,7 +395,7 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     return this;
   }
 
-  createChildNode(): this {
+  override createChildNode(): this {
     return new NoRefcountNode(
       this.page.createChildPage(),
       undefined,
@@ -403,7 +403,7 @@ export class NoRefcountNode<T extends IKey<unknown>> extends Node<T> {
     ) as this;
   }
 
-  discard() {
+  override discard() {
     super.discard();
     if (this.page.hasAddr) {
       this.page.storage.changeRefCount(this.page.addr, -1);

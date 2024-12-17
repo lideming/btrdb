@@ -12,7 +12,6 @@ export let Runtime = !_Deno ? null! : {
   test: _Deno.test,
   open: _Deno.open,
   inspect: _Deno.inspect,
-  fdatasync: _Deno.fdatasync,
   customInspect: Symbol.for("Deno.customInspect"),
   env: _Deno.env,
   SeekMode: _Deno.SeekMode,

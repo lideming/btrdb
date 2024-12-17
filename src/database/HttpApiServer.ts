@@ -12,6 +12,7 @@ export abstract class BaseHttpApiServer {
   }
 
   async serveConn(conn: Deno.Conn) {
+    // @ts-ignore `Deno.serveHttp()` was soft-removed in Deno 2.
     const httpConn = Deno.serveHttp(conn);
     for await (const requestEvent of httpConn) {
       await this.handler.serveRequest(requestEvent);
@@ -34,7 +35,7 @@ export class HttpApiHanlder {
     public db: Database,
   ) {}
 
-  async serveRequest(event: Deno.RequestEvent) {
+  async serveRequest(event: any) {
     try {
       const ret = await this.handleRequest(event.request);
       if (ret === undefined) {
@@ -247,7 +248,7 @@ export class HttpApiHandlerWithToken extends HttpApiHanlder {
   ) {
     super(null!);
   }
-  async handleRequest(req: Request): Promise<any> {
+  override async handleRequest(req: Request): Promise<any> {
     const token = getRequestToken(req);
     const db = await this.databaseFromToken(token);
     if (db) {

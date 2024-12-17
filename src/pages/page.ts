@@ -327,7 +327,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     return childPage;
   }
 
-  *getRefs(): Iterable<number> {
+  override *getRefs(): Iterable<number> {
     for (const it of this.children) {
       if (it) {
         yield it;
@@ -407,7 +407,7 @@ function buildTreePageClasses<TKey extends IKey<any>>(options: {
     get type(): PageType {
       return options.childPageType;
     }
-    *getRefs(): Iterable<number> {
+    override *getRefs(): Iterable<number> {
       yield* super.getRefs();
       for (
         const v of this.keys as unknown as Array<KValue<any, PageOffsetValue>>
@@ -483,7 +483,7 @@ function buildSetPageClass<
 export type KVNodeType = KValue<JSValue, PageOffsetValue>;
 
 const { top: SetPageBase, child: RecordsPage } = buildTreePageClasses<
-  KValue<JSValue, PageOffsetValue>
+  KVNodeType
 >({
   valueReader: (buf: Buffer) =>
     KValue.readFrom(buf, JSValue.readFrom, PageOffsetValue.readFrom),
@@ -563,7 +563,7 @@ export class DocSetPage extends DocSetPageBase2 {
     this.freeBytes -= 1 + 1 + 6;
   }
 
-  *getRefs(): Iterable<number> {
+  override *getRefs(): Iterable<number> {
     yield* super.getRefs();
     if (this.indexesInfoAddr.addr) {
       yield this.indexesInfoAddr.addr;
@@ -702,16 +702,16 @@ export class DataPage extends Page {
     this.freeBytes -= len;
   }
 
-  getRefs(): Iterable<number> {
+  override getRefs(): Iterable<number> {
     return this.next ? [this.next] : [];
   }
 
-  _writeContent(buf: Buffer) {
+  override _writeContent(buf: Buffer) {
     super._writeContent(buf);
     buf.writeU32(this.next);
     buf.writeBuffer(this.buffer!.subarray(0, this.usedBytes));
   }
-  _readContent(buf: Buffer) {
+  override _readContent(buf: Buffer) {
     super._readContent(buf);
     this.next = buf.readU32();
     this.buffer = buf.buffer.subarray(
@@ -736,7 +736,7 @@ export class RootTreeNode extends NodePage<KValue<StringValue, SetPageAddr>> {
     return RootTreeNode;
   }
 
-  *getRefs() {
+  override *getRefs() {
     yield* super.getRefs();
     // console.info("[root tree refs]", this.addr, this.keys.map(x => x.value.val));
     for (const key of this.keys) {
@@ -756,7 +756,7 @@ export class RefPage extends NodePage<KValue<UIntValue, UIntValue>> {
   protected override get _childCtor() {
     return RefPage;
   }
-  getRefs(): Iterable<number> {
+  override getRefs(): Iterable<number> {
     return [];
   }
 }
@@ -772,7 +772,7 @@ export class FreeSpacePage extends NodePage<UIntValue> {
   protected override get _childCtor() {
     return FreeSpacePage;
   }
-  getRefs(): Iterable<number> {
+  override getRefs(): Iterable<number> {
     return [];
   }
 }
@@ -863,15 +863,15 @@ export class SuperPage extends Page {
   rootPageAddr: PageAddr = 0;
   prevRootPageAddr: PageAddr = 0;
 
-  init() {
+  override init() {
     this.freeBytes -= 31 + 2 * 4;
   }
-  _writeContent(buf: Buffer) {
+  override _writeContent(buf: Buffer) {
     buf.writeString("This is btrdb file version 1.\n");
     buf.writeU32(this.rootPageAddr);
     buf.writeU32(this.prevRootPageAddr);
   }
-  _readContent(buf: Buffer) {
+  override _readContent(buf: Buffer) {
     if (buf.readString() != "This is btrdb file version 1.\n") {
       throw new Error("Invalid btrdb super page signature");
     }

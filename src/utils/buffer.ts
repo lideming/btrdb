@@ -162,7 +162,7 @@ export class DynamicBuffer extends Buffer {
   constructor(initSize = 32) {
     super(new Uint8Array(initSize), 0);
   }
-  beforeWriting(size: number) {
+  override beforeWriting(size: number) {
     const minsize = this.pos + size;
     if (minsize > this.buffer.byteLength) {
       let newsize = this.buffer.byteLength * 4;
