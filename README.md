@@ -1,336 +1,233 @@
 # btrdb - B-tree DataBase
 
-btrdb is a NoSQL database engine with B-tree Copy-on-Write mechanism inspired by
-btrfs.
+btrdb is a persistent, embedded NoSQL database engine written in TypeScript. It features a B-tree Copy-on-Write (CoW) architecture inspired by **btrfs**, enabling high-performance reads, crash safety, and instant point-in-time snapshots.
 
 [![CI](https://github.com/lideming/btrdb/actions/workflows/ci.yml/badge.svg)](https://github.com/lideming/btrdb/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/lideming/btrdb/branch/main/graph/badge.svg?token=EWISTK2KWU)](https://codecov.io/gh/lideming/btrdb)
 
-- [x] [Deno runtime](https://deno.land/x/btrdb)
-- [x] [Node.js runtime](https://www.npmjs.com/package/@yuuza/btrdb)
-- [x] Single file
-- [x] B-tree Copy-on-Write (reference
-      [paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
-      [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
-  - [x] Merge B-tree nodes on underflow
-- [x] Good performance even written in pure TypeScript
-  - [x] Set 100k key-value pairs in 1.2s
-  - [x] Insert 100k documents in 2.3s
-- [x] [Snapshots](#Use-snapshots)
-  - [x] Named snapshots
-- [x] [Key-Value sets](#Use-key-value-set)
-- [x] [Document sets](#Use-document-set)
-  - [x] [Indexes](#Indexes)
-  - [x] [Query functions](#Query-(functions))
-  - [x] [Query tagged template parser](#Query-(tagged-template))
-  - [x] Serialize to ["binval" format](docs/dev_binval.md) on disk
-  - [x] Binary data value support
-- [x] ACID
-  - [x] Readers/writer lock
-  - [x] Isolation with concurrent reader on snapshots
-- [x] Auto-commit
-- [x] Space reclamation with refcount tree
-- [x] Client / Server
-  - [x] [RESTful HTTP API](#RESTful-HTTP-API)
-- [ ] Replication (?)
+## ✨ Key Features
 
-## ⚠️ Warning ⚠️
+  * **Universal Runtime:** Runs on **Deno** (native) and **Node.js**.
+  * **Hybrid Storage:** Supports both Key-Value sets and Document sets in the same database.
+  * **Copy-on-Write (CoW):** Never overwrites data. Ensures database integrity and enables instant snapshots.
+  * **Time Travel:** Create named snapshots and read data from any previous point in time.
+  * **Advanced Querying:** SQL-like tagged template queries or functional query builders.
+  * **Efficient Indexing:** Support for unique, compound, and computed indices.
+  * **Transactions:** ACID compliance with concurrent reader isolation.
+  * **btrdbfs:** Includes a FUSE filesystem implementation (mount your DB as a folder\!).
 
-This project is just started. It's under heavy development!
+> **⚠️ Warning**: This project is under heavy development. The on-disk format and APIs are subject to change. Do not use in critical production environments yet.
 
-The on-disk format structure and the API are NOT stable yet.
+-----
 
-Please do NOT use it in any serious production.
+## 📦 Installation
 
-## btrdbfs
+### Deno
 
-[btrdbfs](./btrdbfs/) is a project to run filesystem on btrdb using FUSE.
-
-## Getting Started
-
-### Import the module
-
-**Deno:**
+Import directly from `deno.land`:
 
 ```ts
 import { Database } from "https://deno.land/x/btrdb/mod.ts";
 ```
 
-**Node.js:**
+### Node.js
 
-Install from [NPM registry](https://www.npmjs.com/package/@yuuza/btrdb):
+Install via NPM:
 
+```bash
+npm install @yuuza/btrdb
 ```
-npm i @yuuza/btrdb
-```
 
-Import from ES module:
+Import in your project:
 
 ```js
 import { Database } from "@yuuza/btrdb";
+// or const { Database } = require("@yuuza/btrdb");
 ```
 
-Require from CommonJS module:
+-----
 
-```js
-const { Database } = require("@yuuza/btrdb");
-```
-
-### Create/open database file
+## 🚀 Quick Start
 
 ```ts
-const db = await Database.openFile("data.db");
-// Will create new database if the file doesn't exist.
-```
+import { Database } from "https://deno.land/x/btrdb/mod.ts"; // or @yuuza/btrdb
 
-## Key-value set
+// 1. Open database (creates file if not exists)
+const db = new Database();
+await db.openFile("data.db");
 
-```ts
-const configSet = await db.createKvSet("config");
-// Get the set or create if not exist.
+// 2. Create a Document Set
+const users = await db.createSet("users", "doc");
 
-await configSet.set("username", "yuuza");
-console.info(await configSet.get("username")); // "yuuza"
+// 3. Insert Data
+await users.insert({ username: "yuuza", role: "admin", active: true });
+await users.insert({ username: "guest", role: "visitor", active: false });
 
+// 4. Commit changes to disk
 await db.commit();
-// Commit to persist the changes.
+
+// 5. Query Data
+const admin = await users.query(query`role == ${"admin"}`);
+console.log(admin); 
+
+db.close();
 ```
 
-## Use document set
+-----
 
-### Create set
+## 📖 Usage Guide
+
+### 1\. Key-Value Store
+
+Simple, persistent string-to-value storage.
 
 ```ts
-interface User {
-  id: number; // A property named "id" is required.
-  username: string;
-  status: "online" | "offline";
-}
+const config = await db.createSet("config", "kv"); // 'kv' is default if omitted
 
-const userSet = await db.createDocSet<User>("users");
-// Get the set or create if not exist.
+// Set values
+await config.set("theme", "dark");
+await config.set("max_connections", 100);
+
+// Get values
+const theme = await config.get("theme"); // "dark"
+
+// Iterate
+await config.forEach((key, val) => {
+  console.log(`${key}: ${val}`);
+});
 ```
 
-### Insert
+### 2\. Document Store & Indexing
 
-```ts
-await userSet.insert({ username: "yuuza", status: "offline" });
-// Insert a new document, auto id when it's not specified.
-
-console.info(await userSet.get(1));
-// { id: 1, username: "yuuza", status: "offline" }
-
-await db.commit();
-// Commit to persist the changes.
-```
-
-### Upsert
-
-`upsert` will update the document with the same id, or insert a new document if
-the id does not exist.
-
-```ts
-const user = await userSet.get(1);
-user.status = "online";
-// Get user and set its status
-
-await userSet.upsert(user);
-// Use upsert to apply the change.
-
-console.info(await userSet.get(1));
-// { id: 1, username: "yuuza", status: "online" }
-
-await db.commit();
-// Commit to persist the changes.
-```
-
-### Indexes
+Store JSON-like objects with automatic IDs and powerful indexing.
 
 ```ts
 interface User {
   id: number;
   username: string;
-  status: "online" | "offline";
-  role: "admin" | "user";
+  email: string;
+  age: number;
 }
 
-const userSet = await db.createDocSet<User>("users", {
-  indexes: {
-    status: (u) => u.status,
-    // define "status" index, which indexing the value of user.status for each user in the set
+const users = await db.createSet<User>("users", "doc");
 
-    role: (user) => user.role,
-
-    username: { unique: true, key: (u) => u.username },
-    // define "username" unique index, which does not allow duplicated username.
-
-    onlineAdmin: (u) => u.status == "online" && u.role == "admin",
-    // define "onlineAdmin" index, the value is a computed boolean.
-  },
+// Define Indices (Critical for query performance)
+await users.useIndexes({
+  // Simple index
+  age: (u) => u.age,
+  
+  // Unique index
+  username: { unique: true, key: (u) => u.username },
+  
+  // Computed/Compound index
+  active_adult: (u) => u.age >= 18 && u.active, 
 });
 
-await userSet.insert({ username: "yuuza", status: "online", role: "user" });
-await userSet.insert({ username: "foo", status: "offline", role: "admin" });
-await userSet.insert({ username: "bar", status: "online", role: "admin" });
+// Upsert (Insert or Update by ID)
+await users.upsert({ id: 1, username: "john", email: "john@test.com", age: 30 });
+```
+
+### 3\. Querying
+
+btrdb provides a safe, tagged template literal syntax for queries.
+
+**Operators:** `==`, `!=`, `>`, `<`, `<=`, `>=`, `AND`, `OR`, `NOT`, `SKIP`, `LIMIT`.
+
+```ts
+import { query } from "@yuuza/btrdb";
+
+// Find users older than 20 excluding specific IDs
+const results = await users.query(query`
+  age > ${20} 
+  AND NOT id == ${1}
+  LIMIT ${10}
+`);
+
+// You can also use functional builders
+import { AND, EQ, GT } from "@yuuza/btrdb";
+const results2 = await users.query(
+  AND(GT("age", 20), EQ("active", true))
+);
+```
+
+### 4\. Transactions
+
+Transactions guarantee atomicity. If an error occurs, changes are rolled back.
+
+```ts
+await db.runTransaction(async () => {
+  const bank = await db.getSet("bank", "kv");
+  
+  const balance = await bank.get("user_1");
+  if (balance < 100) throw new Error("Insufficient funds");
+  
+  await bank.set("user_1", balance - 100);
+  await bank.set("user_2", (await bank.get("user_2")) + 100);
+});
+// Automatically commits here if successful
+```
+
+### 5\. Snapshots & Time Travel
+
+Because btrdb is Copy-on-Write, creating snapshots is instant and cheap.
+
+```ts
+// 1. Commit current state
 await db.commit();
 
-// Get all online users
-console.info(await userSet.findIndex("status", "online"));
-// [
-//   { username: "yuuza", status: "online", role: "user", id: 1 },
-//   { username: "bar", status: "online", role: "admin", id: 3 }
-// ]
+// 2. Create a named snapshot
+await db.createSnapshot("backup_v1");
 
-// Get all users named 'yuuza'
-console.info(await userSet.findIndex("username", "yuuza"));
-// [ { username: "yuuza", status: "online", role: "user", id: 1 } ]
-
-// Get all online admins
-console.info(await userSet.findIndex("onlineAdmin", true));
-// [ { username: "bar", status: "online", role: "admin", id: 3 } ]
-```
-
-### Query (tagged template)
-
-Querying on indexes is supported.
-
-Queries can be created from the `query` tagged template parser for better
-readability.
-
-Operators: `==`, `!=`, `>`, `<`, `<=`, `>=`, `AND`, `OR`, `NOT`, `SKIP`,
-`LIMIT`, `(`, `)`
-
-Always use `${}` to pass values.
-
-```ts
-// Get all offline admins
-console.info(
-  await userSet.query`
-    status == ${"offline"}
-    AND role == ${"admin"}
-  `,
-);
-// [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
-
-// Get all online users, but exclude id 1.
-console.info(
-  await userSet.query`
-    status == ${"online"}
-    AND NOT id == ${1}
-  `,
-);
-// [ { username: "bar", status: "online", role: "admin", id: 3 } ]
-```
-
-### Query (functions)
-
-Query functions: `EQ` (==), `NE` (!=), `LT` (<), `GT` (>), `LE` (<=), `GE` (>=),
-`AND`, `OR`, `NOT`, `SLICE`.
-
-```ts
-// Get all offline admins
-console.info(
-  await userSet.query(AND(EQ("status", "offline"), EQ("role", "admin"))),
-);
-// [ { username: "foo", status: "offline", role: "admin", id: 2 } ]
-
-// Get all online users, but exclude id 1.
-console.info(
-  await userSet.query(
-    AND(
-      EQ("status", "online"),
-      NOT(EQ("id", 1)), // "id" is a special "index" name
-    ),
-  ),
-);
-// [ { username: "bar", status: "online", role: "admin", id: 3 } ]
-```
-
-## Transactions
-
-`Database.runTransaction(async () => { ... })` could be used for auto commiting
-and rolling back.
-
-It guarantees:
-
-- The promise is resolved when it committed.
-- Other transactions could be concurrently executed.
-- Only commits when all transactions are completed.
-- Rollback when any transaction is failed, and rerun other successful concurrent
-  transactions.
-
-The transaction function might be re-run in case of replaying.
-
-## Snapshots
-
-Since btrdb uses CoW mechanism and never overwrites data on-disk, creating
-"snapshot" have almost no cost.
-
-```ts
-const dataSet = await db.createKvSet("data");
-await dataSet.set("foo", "bar");
-
-// Commit then create a "named snapshot"
-await db.createSnapshot("backup");
-
-await dataSet.set("someone", "messed up your data!");
-await dataSet.set("foo", "no bar!");
+// 3. Make destructive changes
+await users.delete(1);
 await db.commit();
 
-// Get a "named snapshot".
-const snap = await db.getSnapshot("backup");
-
-// Read data from the snapshot
-console.info(await snap.getSet("data").get("foo"));
+// 4. Time Travel: Access the old data
+const snapshot = await db.getSnapshot("backup_v1");
+const oldUsers = snapshot.getSet("users", "doc");
+console.log(await oldUsers.get(1)); // The user still exists here!
 ```
 
-## RESTful HTTP API
+-----
 
-> [API Docs](docs/http_api.md)
+## 🛠️ Advanced
 
-### HTTP client
+### btrdbfs (FUSE Filesystem)
+
+You can mount a btrdb database as a real folder on Linux/macOS using FUSE.
+See [btrdbfs/README.md](https://www.google.com/search?q=./btrdbfs/README.md) for details.
+
+```bash
+# Install CLI
+npm install -g @yuuza/btrdbfs
+
+# Mount database
+btrdbfs my_data.db ./mountpoint
+```
+
+### HTTP API
+
+btrdb includes a basic HTTP server for remote access.
 
 ```ts
-import { ClientDatabase, HttpClient } from "https://deno.land/x/btrdb/mod.ts";
-const db = new ClientDatabase(
-  new HttpClient({
-    baseUrl: "http://127.0.0.1:8080",
-    token: "the_secret",
-  }),
-);
-
-const kv = await db.createKvSet("test");
-await kv.set("testkey", "testval");
-console.info(await kv.get("testkey"));
+import { HttpApiServer } from "@yuuza/btrdb";
+// ... open db ...
+new HttpApiServer(db).serve(Deno.listen({ port: 1234 }));
 ```
 
-### HTTP server
+-----
 
-```ts
-import {
-  Database,
-  HttpApiServerWithToken,
-} from "https://deno.land/x/btrdb/mod.ts";
-const db = await Database.openFile("data.db");
-db.autoCommit = true;
+## 🧠 Architecture
 
-new HttpApiServerWithToken((token) => {
-  if (token === "the_secret") return db;
-  return null;
-}).serve(Deno.listen({ hostname: "127.0.0.1", port: 8080 }));
-```
+btrdb uses a **B-tree Copy-on-Write** structure.
 
-## More example in the test code
+1.  **Pages:** Data is stored in fixed-size pages (default 4KB).
+2.  **Immutability:** When a page is modified, it is not overwritten. Instead, it is copied to a new location, modified there, and the parent node is updated to point to the new address.
+3.  **Root Tree:** This bubble-up effect reaches the "SuperPage" (Root). By keeping a reference to an old Root address, you effectively have a snapshot of the entire database at that moment.
 
-See [test.ts](./test.ts).
-
-## Design
-
-(Outdated. To be added: documents tree, indexes tree, data pages, named
-snapshots)
-
-![design.svg](./docs/design.svg)
+![design-tree.svg](./docs/design-tree.svg)
+![design-cow.svg](./docs/design-cow.svg)
 
 ## License
 
-MIT License
+MIT License.
