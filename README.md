@@ -12,7 +12,7 @@ btrfs.
 - [x] B-tree Copy-on-Write (reference
       [paper](https://btrfs.wiki.kernel.org/images-btrfs/6/68/Btree_TOS.pdf),
       [slides](https://btrfs.wiki.kernel.org/images-btrfs/6/63/LinuxFS_Workshop.pdf))
-  - [ ] Merge B-tree nodes on underflow
+  - [x] Merge B-tree nodes on underflow
 - [x] Good performance even written in pure TypeScript
   - [x] Set 100k key-value pairs in 1.2s
   - [x] Insert 100k documents in 2.3s

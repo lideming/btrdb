@@ -175,7 +175,7 @@ export abstract class PageStorage {
           return cached;
         });
     }
-    if (addr < 0 || addr >= this.nextAddr) {
+    if (typeof addr !== 'number' || addr < 0 || addr >= this.nextAddr) {
       throw new Error("Invalid page addr " + addr);
     }
     this.perfCounter.acutalPageReads++;
@@ -191,6 +191,7 @@ export abstract class PageStorage {
       return page;
     }).catch((err) => {
       this._deleteCache(addr);
+      console.error(err);
       throw new Error(
         `Error reading page addr ${addr} type ${type.name}: ${err}`,
       );

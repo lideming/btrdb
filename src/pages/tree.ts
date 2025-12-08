@@ -164,9 +164,9 @@ export class Node<T extends IKey<unknown>> {
   }
 
   async deleteAt(pos: number) {
-    // TODO: implement real b tree delete
     const dirtyNode = this.getDirty();
     const oldLeftAddr = dirtyNode.children[pos];
+    
     if (oldLeftAddr) {
       let leftSubNode = await dirtyNode.readChildPage(pos);
       const leftNode = leftSubNode;
@@ -178,44 +178,24 @@ export class Node<T extends IKey<unknown>> {
       const leftKey = leftSubNode.keys[leftSubNode.keys.length - 1];
       dirtyNode.page.spliceKeys(pos, 1, leftKey, leftNode.addr);
       await leftSubNode.deleteAt(leftSubNode.keys.length - 1);
+      
+      // We must propagate changes (handling underflow if needed)
+      // Since child recursion handles itself, we only need to check THIS node.
       await dirtyNode.postChange();
     } else {
       dirtyNode.page.spliceKeys(pos, 1);
-      if (dirtyNode.keys.length == 0) {
-        if (dirtyNode.parent) {
-          const dirtyParent = dirtyNode.parent.getDirty();
-          dirtyParent.setChild(
-            dirtyNode.posInParent!,
-            dirtyNode.children[0] ?? 0,
-          );
-          await dirtyParent!.postChange();
-          dirtyNode.parent = undefined;
-          dirtyNode.discard();
-          debug_node && debugLog(
-            "page",
-            dirtyNode.addr,
-            "no keys after delete, replace in parent with child",
-          );
-        } else if (dirtyNode.children[0]) {
-          const child = await dirtyNode.readChildPage(0);
-          dirtyNode.page.setKeys(child.keys, child.children);
-          await dirtyNode.postChange();
-          // TODO: no need to setKeys() after fixed removeDirty()
-          child.page.setKeys([], []);
-          child.discard();
-          debug_node && debugLog(
-            "page",
-            dirtyNode.addr,
-            "no keys after delete, no parent, replace content with only child",
-          );
-        } else {
-          debug_node && debugLog(
-            "page",
-            dirtyNode.addr,
-            "no keys after delete, no parent",
-          );
-          await dirtyNode.postChange();
-        }
+
+      // Root height reduction check
+      if (!dirtyNode.parent && dirtyNode.keys.length == 0 && dirtyNode.children[0]) {
+        const child = await dirtyNode.readChildPage(0);
+        dirtyNode.page.setKeys(child.keys, child.children);
+        child.discard();
+        debug_node && debugLog(
+          "page",
+          dirtyNode.addr,
+          "no keys after delete, no parent, replace content with only child",
+        );
+        await dirtyNode.postChange();
       } else {
         await dirtyNode.postChange();
       }
@@ -245,6 +225,7 @@ export class Node<T extends IKey<unknown>> {
     if (!this.page.dirty) {
       throw new BugError("BUG: postChange() on non-dirty page.");
     }
+
     if (this.page.freeBytes < 0) {
       if (this.keys.length <= 2) {
         throw new Error(
@@ -253,7 +234,7 @@ export class Node<T extends IKey<unknown>> {
         );
       }
       // console.log(this.keys.length, this.children.length);
-
+      
       // split this node
       const leftSib = this.createChildNode();
       await leftSib.getDirtyWithAddr();
@@ -308,12 +289,90 @@ export class Node<T extends IKey<unknown>> {
           rightChild.addr,
         );
       }
-    } else {
+    } 
+    // Underflow check: > 75% free space
+    else if (this.parent && this.page.freeBytes > this.page.storage.pageSize * 0.75) {
+      await this.handleUnderflow();
+    } 
+    else {
       await this.getDirtyWithAddr();
       if (this.parent) {
         await this.makeDirtyToRoot();
       }
     }
+  }
+
+  async handleUnderflow() {
+    const parent = await this.parent!.getDirtyWithAddr();
+    const pos = this.posInParent!;
+
+    // 1. Try merge with Left Sibling
+    if (pos > 0 && parent.children[pos - 1]) {
+      const leftSib = await parent.readChildPage(pos - 1);
+      const separatorKey = parent.keys[pos - 1];
+      if (this.canMerge(leftSib, this, separatorKey)) {
+        await this.mergeNodes(leftSib, this, separatorKey, pos - 1);
+        return;
+      }
+    }
+
+    // 2. Try merge with Right Sibling
+    if (pos < parent.children.length && parent.children[pos + 1]) {
+      const rightSib = await parent.readChildPage(pos + 1);
+      const separatorKey = parent.keys[pos];
+      if (this.canMerge(this, rightSib, separatorKey)) {
+        await this.mergeNodes(this, rightSib, separatorKey, pos);
+        return;
+      }
+    }
+
+    // 3. No merge possible, just propagate dirty
+    await this.getDirtyWithAddr();
+    await this.makeDirtyToRoot();
+  }
+
+  canMerge(left: Node<T>, right: Node<T>, separator: T): boolean {
+    const pageSize = this.page.storage.pageSize;
+    const leftUsed = pageSize - left.page.freeBytes;
+    const rightUsed = pageSize - right.page.freeBytes;
+    // Heuristic check: used space + separator + buffer
+    const needed = leftUsed + rightUsed + separator.byteLength + 16;
+    return needed <= pageSize;
+  }
+
+  /**
+   * Merges `right` into `left`.
+   * `separatorPos` is the index of the separator key in `parent`.
+   */
+  async mergeNodes(left: Node<T>, right: Node<T>, separator: T, separatorPos: number) {
+    const parent = this.parent!; // Parent is already dirty
+
+    // 1. Prepare new content for Left Node
+    const newKeys = [...left.keys, separator, ...right.keys];
+    const newChildren = [...left.children, ...right.children];
+
+    // 2. Update Left Node
+    const dirtyLeft = await left.getDirtyWithAddr();
+    dirtyLeft.page.setKeys(newKeys, newChildren);
+
+    // 3. Update Parent (remove separator and Right pointer)
+    // We use setKeys to ensure freeBytes is perfectly recalculated.
+    const parentKeys = [...parent.keys];
+    parentKeys.splice(separatorPos, 1);
+    
+    const parentChildren = [...parent.children];
+    // Remove pointer to Left (pos) and Right (pos+1), insert merged (pos)
+    parentChildren.splice(separatorPos, 2, dirtyLeft.addr);
+    
+    parent.page.setKeys(parentKeys, parentChildren);
+
+    // 4. Discard Right Node
+    right.discard();
+
+    debug_node && debugLog("page", this.page.addr, "merged", left.addr, right.addr);
+
+    // 5. Propagate changes up
+    await parent.postChange();
   }
 
   createChildNode(): this {
