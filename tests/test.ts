@@ -1234,7 +1234,6 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
     assertEquals(actualIndexResults, AD_expectedIndexResults);
     assertEquals(await set.getCount(), fivesSet.length - AD_toDelete.length);
   } catch (error) {
-    console.info(error);
     console.info("generating dump...");
     await dumpObjectToFile(
       "testdata/five_delete_tree.txt",
@@ -1248,8 +1247,9 @@ runWithDatabase(async function DocSet_deleteMassive(db) {
       "testdata/five_delete_expected.txt",
       AD_expectedIndexResults,
     );
+    const strErr = String(error);
     throw new Error(
-      "test failed, dump is created under 'testdata' folder: " + error,
+      "test failed, dump is created under 'testdata' folder: " + strErr.slice(0, 200) + (strErr.length > 200 ? ' [trimed]' : ''),
     );
   }
 }, ignoreMassiveTests);

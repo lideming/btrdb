@@ -7,8 +7,7 @@ import {
 import {
   compareJSValue,
   JSValue,
-  KeyLeftmostComparator,
-  KeyRightmostComparator,
+  KeyComparator,
   PageOffsetValue,
 } from "../utils/value.ts";
 import { Node } from "../pages/tree.ts";
@@ -242,11 +241,34 @@ export async function findIndexKey(
     );
   }
   const indexResult = await indexPage.findKeyRecursive(
-    rightMost
-      ? new KeyRightmostComparator(vKey)
-      : new KeyLeftmostComparator(vKey),
+    new KeyComparator(vKey),
+    rightMost ? 'rightmost' : 'leftmost',
   );
+  if (rightMost && indexResult.found) {
+    indexResult.pos++;
+  }
   return indexResult;
+}
+
+async function findNextLeaf(node: Node<any>): Promise<Node<any> | null> {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    const pos = current.posInParent!;
+    if (pos + 1 < parent.children.length) {
+      // Found next sibling branch
+      let next = await parent.readChildPage(pos + 1);
+      // Drill down to leftmost leaf
+      while (!next.page.isLeaf) {
+        if (!next.children.length) return null; // Should not happen in valid tree
+        next = await next.readChildPage(0);
+      }
+      return next;
+    }
+    // Go up
+    current = parent;
+  }
+  return null;
 }
 
 export async function* iterateNode(
@@ -254,28 +276,24 @@ export async function* iterateNode(
   pos: number,
   reverse: boolean,
 ): AsyncIterable<IndexNodeType> {
+  if (reverse) {
+    throw new Error("Reverse iteration is not supported in B+ Tree mode yet.");
+  }
+  
+  // Start at the given position in the leaf node
   while (true) {
-    const val = node.keys[pos];
-    if (val) {
-      // Get one result and go right
+    if (pos < node.keys.length) {
+      const val = node.keys[pos];
       yield val;
-    }
-    if (reverse) pos--;
-    else pos++;
-    if (node.children[pos]) {
-      // Go left down to child
-      do {
-        node = await node.readChildPage(pos);
-        pos = reverse ? node.keys.length - 1 : 0;
-      } while (node.children[pos]);
-    }
-    if ((reverse ? -1 : node.keys.length + 1) == pos) {
-      // The end of this node, try go up
-      if (node.parent) {
-        pos = node.posInParent!;
-        node = node.parent;
+      pos++;
+    } else {
+      // Reached end of this leaf, move to next leaf using tree traversal
+      const nextNode = await findNextLeaf(node);
+      if (nextNode) {
+        node = nextNode as Node<IndexNodeType>;
+        pos = 0;
       } else {
-        break;
+        break; // End of chain
       }
     }
   }

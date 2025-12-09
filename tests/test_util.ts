@@ -116,7 +116,6 @@ export async function run() {
         await runDbTest(func);
         passed++;
       } catch (error) {
-        console.error("error in test", error);
         failed++;
         throw error;
       }

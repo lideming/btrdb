@@ -22,19 +22,26 @@ export class Node<T extends IKey<unknown>> {
     return this.page.children;
   }
 
-  findKey(key: IComparable<T>):
+  findKey(key: IComparable<T>, mode: 'any' | 'leftmost' | 'rightmost' = 'any'):
     | { found: true; pos: number; val: T }
     | { found: false; pos: number; val: undefined } {
     const keys = this.page.keys;
     let l = 0, r = keys.length - 1;
+    let foundPos = -1;
     while (l <= r) {
       const m = Math.round((l + r) / 2);
       const c = key.compareTo(keys[m]);
       // console.log("compare", key, c == 0 ? '==' : c > 0 ? '>' : '<', keys[m]);
-      if (c == 0) return { found: true, pos: m, val: keys[m] };
+      if (c == 0) {
+        if (mode === 'any') return { found: true, pos: m, val: keys[m] };
+        foundPos = m;
+        if (mode === 'leftmost') r = m - 1;
+        else l = m + 1;
+      }
       else if (c > 0) l = m + 1;
       else r = m - 1;
     }
+    if (foundPos !== -1) return { found: true, pos: foundPos, val: keys[foundPos] };
     return { found: false, pos: l, val: undefined };
   }
 
@@ -71,44 +78,69 @@ export class Node<T extends IKey<unknown>> {
   async traverseKeys(
     func: (key: T, page: this, pos: number) => Promise<void> | void,
   ) {
-    for (let pos = 0; pos < this.keys.length + 1; pos++) {
-      const leftAddr = this.children[pos];
-      if (leftAddr) {
-        const leftPage = await this.readChildPage(pos);
-        await leftPage.traverseKeys(func as any);
-      }
-      if (pos < this.keys.length) {
+    if (this.page.isLeaf) {
+      for (let pos = 0; pos < this.keys.length; pos++) {
         await func(this.keys[pos], this, pos);
+      }
+    } else {
+      for (let pos = 0; pos < this.children.length; pos++) {
+        const leftAddr = this.children[pos];
+        if (leftAddr) {
+          const leftPage = await this.readChildPage(pos);
+          await leftPage.traverseKeys(func as any);
+        }
       }
     }
   }
 
   async *iterateKeys(): AsyncIterable<T> {
-    for (let pos = 0; pos < this.keys.length + 1; pos++) {
-      const leftAddr = this.children[pos];
-      if (leftAddr) {
-        const leftPage = await this.readChildPage(pos);
-        yield* leftPage.iterateKeys();
+    if (this.page.isLeaf) {
+      for (const key of this.keys) {
+        yield key;
       }
-      if (pos < this.keys.length) {
-        yield this.keys[pos];
+    } else {
+      for (let pos = 0; pos < this.children.length; pos++) {
+        const leftAddr = this.children[pos];
+        if (leftAddr) {
+          const leftPage = await this.readChildPage(pos);
+          yield* leftPage.iterateKeys();
+        }
       }
     }
     return;
   }
 
-  async findKeyRecursive(key: IComparable<T>): Promise<
+  async findKeyRecursive(key: IComparable<T>, mode: 'any' | 'leftmost' | 'rightmost' = 'any'): Promise<
     | { found: true; node: Node<T>; pos: number; val: T }
     | { found: false; node: Node<T>; pos: number; val: undefined }
   > {
     let node: Node<T> = this;
     while (true) {
-      const { found, pos, val } = node.findKey(key);
-      if (found) return { found: true, node, pos, val: val as T };
-      if (!node.children[pos]) {
-        return { found: false, node, pos, val: val as undefined };
+      if (!node.page.isLeaf) {
+        const { found, pos } = node.findKey(key, 'any');
+        // B+ Tree: Internal nodes are routers.
+        // If found (key == keys[pos]), go to right child (pos+1).
+        // If not found (key < keys[pos]), go to left child (pos).
+        
+        let childPos: number;
+        if (found) {
+            // If equal, 'leftmost' means we treat it as Less, so go Left (pos).
+            // Otherwise (any/rightmost), we treat it as Equal/Greater, so go Right (pos+1).
+            childPos = (mode === 'leftmost') ? pos : pos + 1;
+        } else {
+            childPos = pos;
+        }
+        
+        if (!node.children[childPos]) {
+           // Should ideally not happen in a well-formed tree, unless searching beyond range
+           return { found: false, node, pos: childPos, val: undefined }; 
+        }
+        node = await node.readChildPage(childPos);
+      } else {
+        const { found, pos, val } = node.findKey(key, mode);
+        if (found) return { found: true, node, pos, val: val as T };
+        return { found: false, node, pos, val: undefined };
       }
-      node = await node.readChildPage(pos);
     }
   }
 
@@ -189,6 +221,8 @@ export class Node<T extends IKey<unknown>> {
       if (!dirtyNode.parent && dirtyNode.keys.length == 0 && dirtyNode.children[0]) {
         const child = await dirtyNode.readChildPage(0);
         dirtyNode.page.setKeys(child.keys, child.children);
+        dirtyNode.page.isLeaf = child.page.isLeaf;
+        
         child.discard();
         debug_node && debugLog(
           "page",
@@ -233,13 +267,17 @@ export class Node<T extends IKey<unknown>> {
             " keys=" + Runtime.inspect(this.keys),
         );
       }
-      // console.log(this.keys.length, this.children.length);
       
       // split this node
       const leftSib = this.createChildNode();
+      leftSib.page.isLeaf = this.page.isLeaf;
       await leftSib.getDirtyWithAddr();
 
       let leftCount = Math.floor(this.keys.length / 2);
+      if (this.page.isLeaf) {
+        leftCount = Math.ceil(this.keys.length / 2);
+      }
+
       // when appending, make the left sibling larger for space efficiency
       if (appending) {
         leftCount = this.keys.length;
@@ -257,9 +295,26 @@ export class Node<T extends IKey<unknown>> {
       const [leftKeys, leftChildren] = this.page.spliceKeys(0, leftCount);
       if (leftChildren.length) leftChildren.push(0);
       leftSib.page.setKeys(leftKeys, leftChildren);
-      const [[middleKey], [middleLeftChild]] = this.page.spliceKeys(0, 1);
-      if (middleLeftChild) {
-        leftSib.setChild(leftCount, middleLeftChild);
+
+      let middleKey: T;
+      let middleLeftChild: PageAddr | undefined;
+
+      if (this.page.isLeaf) {
+        // Leaf Split: Copy middle key up
+        
+        // Ensure 'this' has a valid new address (not old CoW addr) before linking
+        await this.getDirtyWithAddr();
+        
+        middleKey = this.keys[0];
+        middleLeftChild = undefined;
+      } else {
+        // Internal Split: Push middle key up
+        const [[mKey], [mChild]] = this.page.spliceKeys(0, 1);
+        middleKey = mKey;
+        middleLeftChild = mChild;
+        if (middleLeftChild) {
+          leftSib.setChild(leftCount, middleLeftChild);
+        }
       }
 
       if (this.parent) {
@@ -277,9 +332,13 @@ export class Node<T extends IKey<unknown>> {
       } else {
         // make this node a parent of two nodes...
         const rightChild = this.createChildNode();
+        rightChild.page.isLeaf = this.page.isLeaf;
         await rightChild.getDirtyWithAddr();
         rightChild.page.setKeys(this.keys, this.children);
+
         this.page.setKeys([middleKey], [leftSib.addr, rightChild.addr]);
+        this.page.isLeaf = false; // Root becomes internal
+        
         await this.getDirtyWithAddr();
         debug_node && debugLog(
           "page",
@@ -336,7 +395,10 @@ export class Node<T extends IKey<unknown>> {
     const leftUsed = pageSize - left.page.freeBytes;
     const rightUsed = pageSize - right.page.freeBytes;
     // Heuristic check: used space + separator + buffer
-    const needed = leftUsed + rightUsed + separator.byteLength + 16;
+    let needed = leftUsed + rightUsed;
+    if (!left.page.isLeaf) {
+      needed += separator.byteLength + 16;
+    }
     return needed <= pageSize;
   }
 
@@ -347,9 +409,18 @@ export class Node<T extends IKey<unknown>> {
   async mergeNodes(left: Node<T>, right: Node<T>, separator: T, separatorPos: number) {
     const parent = this.parent!; // Parent is already dirty
 
-    // 1. Prepare new content for Left Node
-    const newKeys = [...left.keys, separator, ...right.keys];
-    const newChildren = [...left.children, ...right.children];
+    let newKeys: T[];
+    let newChildren: PageAddr[];
+
+    if (left.page.isLeaf) {
+      // Leaf Merge
+      newKeys = [...left.keys, ...right.keys];
+      newChildren = [...left.children, ...right.children];
+    } else {
+      // Internal Merge
+      newKeys = [...left.keys, separator, ...right.keys];
+      newChildren = [...left.children, ...right.children];
+    }
 
     // 2. Update Left Node
     const dirtyLeft = await left.getDirtyWithAddr();

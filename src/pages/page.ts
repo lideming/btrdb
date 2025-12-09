@@ -71,6 +71,8 @@ export abstract class Page {
   /** Should not change pages on disk, we should always copy on write */
   dirty = true;
 
+  flags: number = 0;
+
   get hasAddr() {
     return this.addr != -1;
   }
@@ -176,7 +178,7 @@ export abstract class Page {
     }
     const beginPos = buf.pos;
     buf.writeU8(this.type);
-    buf.writeU8(0);
+    buf.writeU8(this.flags);
     buf.writeU16(0);
     this._writeContent(buf);
     if (buf.pos - beginPos != this.storage.pageSize - this.freeBytes) {
@@ -198,7 +200,7 @@ export abstract class Page {
         }, addr ${this.addr}`,
       );
     }
-    if (buf.readU8() != 0) throw new Error("Non-zero reserved field");
+    this.flags = buf.readU8();
     if (buf.readU16() != 0) throw new Error("Non-zero reserved field");
     this._readContent(buf);
     if (buf.pos - beginPos != this.storage.pageSize - this.freeBytes) {
@@ -228,6 +230,7 @@ export abstract class Page {
     if (Object.getPrototypeOf(this) != Object.getPrototypeOf(page)) {
       throw new Error("_copyTo() with different types");
     }
+    page.flags = this.flags;
   }
   protected _writeContent(buf: Buffer) {}
   protected _readContent(buf: Buffer) {}
@@ -241,9 +244,18 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
   keys: T[] = [];
   children: PageAddr[] = [];
 
+  get isLeaf() {
+    return !!(this.flags & 1);
+  }
+  set isLeaf(val: boolean) {
+    if (val) this.flags |= 1;
+    else this.flags &= ~1;
+  }
+
   override init() {
     super.init();
     this.freeBytes -= 2 + 2; // keysCount + childrenCount
+    this.isLeaf = true; // Default to leaf
   }
 
   setKeys(newKeys: T[], newChildren: PageAddr[]) {
@@ -343,6 +355,7 @@ export abstract class NodePage<T extends IKey<unknown>> extends Page {
     return {
       ...super._debugView(),
       keys: this.keys,
+      isLeaf: this.isLeaf,
     };
   }
 
@@ -880,7 +893,7 @@ export class SuperPage extends Page {
   }
 }
 
-export const pageTypeMap: Record<number, typeof Page> = {
+export const pageTypeMap: Record<number, PageClass<any>> = {
   0: SuperPage,
   1: RootPage,
   2: RootTreeNode,
